@@ -1,0 +1,25 @@
+{
+  "_note": "Tiering is deliberately simple and explainable. Every threshold here is a judgement call, not a standard.",
+  "scoring": {
+    "preferred_cvss_version": "v3.1",
+    "_why": "v3.1 has the widest NVD coverage today, so it is the most consistent basis. v4.0 and v3.1 base scores are NOT comparable — across the FIRST example set the delta runs -2.9 to +1.8, and 3 of 11 CVEs change tier on version alone under this policy (4 of 11 under a CVSS-only model). Set this to v4.0 only when your whole inventory has v4.0 coverage."
+  },
+  "tiers": {
+    "kev": "T0 Active Exploitation",
+    "critical": "T1 Critical Priority",
+    "high": "T2 High Priority",
+    "scheduled": "T3 Scheduled"
+  },
+  "thresholds": {
+    "critical_cvss": 9.0,
+    "high_cvss": 7.0,
+    "critical_epss": 0.05,
+    "high_epss": 0.02,
+    "critical_epss_percentile": 0.95,
+    "_why_percentile": "EPSS raw probability is heavily skewed — the median CVE sits near 0.0004. Percentile is the more stable trigger."
+  },
+  "context": {
+    "internet_exposed_escalates_when_cvss_critical": true,
+    "business_criticality_high_adds_rationale": true
+  }
+}

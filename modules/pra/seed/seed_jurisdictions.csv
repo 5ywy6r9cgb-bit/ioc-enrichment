@@ -1,0 +1,12 @@
+name,jurisdiction_type,parent_jurisdiction_name,state,county,centroid_lat,centroid_lng,boundary_geojson_url,source_url,verified_status
+Ohio,state,,OH,,40.367474,-82.996216,,https://ohio.gov,unverified
+Franklin County,county,Ohio,OH,Franklin,39.9612,-83.0007,,https://auditor.franklincountyohio.gov/Home,unverified
+Licking County,county,Ohio,OH,Licking,40.0631,-82.4346,,https://lickingcounty.gov,unverified
+Fairfield County,county,Ohio,OH,Fairfield,39.7167,-82.6160,,https://www.co.fairfield.oh.us,unverified
+Delaware County,county,Ohio,OH,Delaware,40.2992,-83.0680,,https://www.co.delaware.oh.us,unverified
+Pickaway County,county,Ohio,OH,Pickaway,39.5709,-83.0066,,https://www.pickawaycountyohio.gov,unverified
+Madison County,county,Ohio,OH,Madison,39.8814,-83.4316,,https://www.co.madison.oh.us,unverified
+Union County,county,Ohio,OH,Union,40.2898,-83.3622,,https://www.unioncountyohio.gov,unverified
+Reynoldsburg,city,Franklin County,OH,Franklin,39.9542,-82.8124,,https://reynoldsburg.gov,unverified
+Columbus,city,Franklin County,OH,Franklin,39.9612,-82.9988,,https://www.columbus.gov,unverified
+Gahanna,city,Franklin County,OH,Franklin,40.0156,-82.8780,,https://www.gahanna.gov,unverified

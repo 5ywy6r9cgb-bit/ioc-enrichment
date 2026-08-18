@@ -1,0 +1,144 @@
+#!/usr/bin/env bash
+# =====================================================================
+# sentinel — one entry point for the whole system.
+#
+# Sentinel OS is a monorepo of four modules that share one evidence store
+# and one provenance discipline. This dispatcher is the single command you
+# run; it delegates to the module that owns each job.
+#
+#   sentinel help
+#   sentinel status                 what is set up, what is not
+#   sentinel test                   run every module's test suite
+#
+#   sentinel pra <args...>          public records atlas (brief, seed, backup...)
+#   sentinel montage <args...>      openmontage video engine
+#   sentinel vuln <args...>         atlas CVE prioritization
+#   sentinel desk                   open the research desk in a browser
+#   sentinel connect test           which connector API keys are set + reachable
+#   sentinel connect <c> "<query>"  search a connector -> evidence inbox
+#
+#   sentinel prov verify <ledger>   check a provenance ledger for tampering
+#   sentinel prov ingest <ledger>   flow a provenance ledger into PRA sources
+# =====================================================================
+set -euo pipefail
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+bold() { printf '\033[1m%s\033[0m\n' "$1"; }
+
+usage() {
+  sed -n '3,22p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+}
+
+cmd="${1:-help}"; shift || true
+
+case "$cmd" in
+  help|-h|--help) usage ;;
+
+  status)
+    bold "Sentinel OS — status"
+    echo "  root: $ROOT"
+    echo ""
+    echo "  modules:"
+    for m in pra openmontage atlas-vuln research-desk; do
+      [ -d "$ROOT/modules/$m" ] && echo "    ✓ $m" || echo "    ✗ $m (missing)"
+    done
+    echo ""
+    echo "  postgres:"
+    if command -v psql >/dev/null 2>&1; then
+      echo "    ✓ psql $(psql --version | awk '{print $3}')"
+      if [ -f "$ROOT/modules/pra/.env" ]; then
+        echo "    ✓ modules/pra/.env present (database configured)"
+      else
+        echo "    ✗ modules/pra/.env missing — run: sentinel pra setup"
+      fi
+    else
+      echo "    ✗ psql not found on PATH"
+    fi
+    echo ""
+    echo "  evidence store:"
+    if [ -d "$ROOT/evidence" ]; then
+      n=$(find "$ROOT/evidence" -type f ! -name '.gitkeep' ! -name 'README.md' 2>/dev/null | wc -l | tr -d ' ')
+      echo "    ✓ evidence/ ($n file(s), gitignored — never pushed)"
+    fi
+    ;;
+
+  test)
+    bold "Running every module's tests"
+    echo ""
+    echo "== provenance spine =="
+    python3 "$ROOT/core/provenance/test_provenance.py"
+    echo ""
+    echo "== pra =="
+    ( cd "$ROOT/modules/pra" && node tests/run_all.js )
+    echo ""
+    echo "== openmontage self-test =="
+    python3 "$ROOT/modules/openmontage/engine/openmontage.py" --self-test 2>/dev/null \
+      && echo "openmontage self-test ok" || echo "(openmontage self-test skipped — needs ffmpeg/Pillow)"
+    ;;
+
+  pra)
+    cd "$ROOT/modules/pra"
+    # pass-through to PRA's npm scripts / node scripts
+    sub="${1:-brief}"; shift || true
+    case "$sub" in
+      setup)   ./scripts/setup_macos.sh "$@" ;;
+      seed)    node scripts/load_seeds.js "$@" ;;
+      brief)   node scripts/daily_brief.js "$@" ;;
+      portals) node scripts/check_portals.js "$@" ;;
+      backup)  ./scripts/backup.sh "$@" ;;
+      verify)  ./scripts/verify_integrity.sh "$@" ;;
+      test)    node tests/run_all.js ;;
+      *)       echo "pra subcommands: setup seed brief portals backup verify test" ;;
+    esac
+    ;;
+
+  montage)
+    python3 "$ROOT/modules/openmontage/engine/openmontage.py" "$@"
+    ;;
+
+  vuln)
+    python3 "$ROOT/modules/atlas-vuln/atlas_vuln_integration.py" "$@"
+    ;;
+
+  desk)
+    open "$ROOT/modules/research-desk/app/desk.html" 2>/dev/null \
+      || echo "open modules/research-desk/app/desk.html in your browser"
+    ;;
+
+  connect)
+    action="${1:-test}"; shift || true
+    if [ "$action" = "test" ]; then
+      node "$ROOT/modules/connectors/cli.js" test
+    else
+      # action is the connector name; next arg is the query
+      node "$ROOT/modules/connectors/cli.js" search "$action" "$@"
+    fi
+    ;;
+
+  prov)
+    action="${1:-help}"; shift || true
+    case "$action" in
+      verify)
+        python3 - "$@" <<PY
+import sys, os
+sys.path.insert(0, os.path.join("$ROOT", "core", "provenance"))
+import provenance as P
+led = P.Ledger(sys.argv[1])
+r = led.verify()
+print(f"records: {r['total']}   ok: {r['ok']}")
+[print("  TAMPERED line", t['line'], t['artifact_id']) for t in r['tampered']]
+sys.exit(0 if r['ok'] else 1)
+PY
+        ;;
+      ingest) node "$ROOT/core/provenance/ingest_to_pra.js" "$@" ;;
+      *) echo "prov subcommands: verify <ledger.jsonl> | ingest <ledger.jsonl> [--dry-run]" ;;
+    esac
+    ;;
+
+  *)
+    echo "unknown command: $cmd"
+    echo ""
+    usage
+    exit 1
+    ;;
+esac
