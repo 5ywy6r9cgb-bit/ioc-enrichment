@@ -1,0 +1,518 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sentinel OS — The Desk</title>
+<!--
+  The Desk — one surface over the whole system.
+
+  Runs entirely offline. No CDN, no font host, no analytics, no external
+  request of any kind. Everything below is in this file.
+
+  It probes the local PRA service on 127.0.0.1:4317 for live counts. If the
+  service or the database is not running, it says so plainly and stays useful
+  as a map of the system — the same fallback discipline as
+  pra_persistence_client.js. A dashboard that goes blank when a socket is
+  closed is worse than no dashboard.
+-->
+<style>
+  /* ---- the paper --------------------------------------------------------
+     Palette from SENTINEL_GROUP_ARCHITECTURE.md §2. Egg shell, not white;
+     near-black, never #000. Gold darkened to #B08D3E so it passes AA on a
+     pale ground — the brand gold (196,160,82) fails contrast here and is
+     kept as-is only for video and social cards, which sit on navy.        */
+  :root {
+    --paper:        #F7F4EC;
+    --paper-raised: #FFFDF7;
+    --paper-sunk:   #EFEADD;
+    --rule:         #DDD6C4;
+    --ink:          #14181F;
+    --ink-muted:    #575F6D;
+    --navy:         #0C1426;
+    --gold:         #B08D3E;
+
+    --green:   #1F6B45;
+    --arith:   #4A5568;
+    --reported:#16457E;
+    --apple:   #B4611E;
+    --verify:  #7A5C1E;
+    --dead:    #8A2E2E;
+
+    --serif: Georgia, 'Source Serif 4', 'Iowan Old Style', 'Times New Roman', serif;
+    --sans:  Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    --mono:  ui-monospace, 'IBM Plex Mono', SFMono-Regular, Menlo, Consolas, monospace;
+  }
+
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--serif);
+    font-size: 17px;
+    line-height: 1.62;
+  }
+
+  /* ---- masthead ---- */
+  header.masthead {
+    background: var(--navy);
+    color: #F2EFE6;
+    padding: 22px 32px 18px;
+    border-bottom: 3px solid var(--gold);
+  }
+  .masthead h1 {
+    margin: 0;
+    font-size: 25px;
+    letter-spacing: .01em;
+    font-weight: 700;
+  }
+  .masthead .standard {
+    margin-top: 5px;
+    font-family: var(--mono);
+    font-size: 11.5px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--gold);
+  }
+  .masthead .sub {
+    margin-top: 9px;
+    font-family: var(--sans);
+    font-size: 13.5px;
+    color: #AEB6C4;
+    max-width: 70ch;
+  }
+
+  main { max-width: 1120px; margin: 0 auto; padding: 26px 24px 90px; }
+
+  section { margin: 38px 0; }
+  section > h2 {
+    font-family: var(--sans);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: .13em;
+    text-transform: uppercase;
+    color: var(--ink-muted);
+    border-bottom: 1px solid var(--rule);
+    padding-bottom: 7px;
+    margin: 0 0 6px;
+  }
+  section > .lede {
+    font-size: 15px;
+    color: var(--ink-muted);
+    margin: 10px 0 18px;
+    max-width: 78ch;
+  }
+
+  /* ---- status strip ---- */
+  /* Six tiles: a clean 3x2 on desktop rather than an orphaned 5+1. */
+  .strip { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  @media (max-width: 780px) { .strip { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 480px) { .strip { grid-template-columns: 1fr; } }
+  .tile {
+    background: var(--paper-raised);
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    padding: 13px 15px;
+  }
+  .tile .k {
+    font-family: var(--sans);
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--ink-muted);
+  }
+  .tile .v {
+    font-family: var(--sans);
+    font-size: 26px;
+    font-weight: 700;
+    line-height: 1.15;
+    margin-top: 3px;
+    font-variant-numeric: tabular-nums;
+  }
+  .tile .note { font-family: var(--sans); font-size: 12px; color: var(--ink-muted); margin-top: 2px; }
+
+  /* ---- state dots ---- */
+  .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 7px; vertical-align: baseline; }
+  .dot.up   { background: var(--green); }
+  .dot.down { background: var(--ink-muted); }
+  .dot.warn { background: var(--apple); }
+
+  /* ---- tables ---- */
+  table { width: 100%; border-collapse: collapse; font-family: var(--sans); font-size: 14px; }
+  thead th {
+    text-align: left;
+    font-size: 10.5px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--ink-muted);
+    background: var(--paper-sunk);
+    padding: 8px 11px;
+    border-bottom: 1px solid var(--rule);
+    font-weight: 700;
+  }
+  tbody td { padding: 9px 11px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  tbody tr:hover td { background: var(--paper-raised); }
+  .scroll { overflow-x: auto; border: 1px solid var(--rule); border-radius: 6px; }
+
+  /* identifiers are never prose — mono so a transposed digit is visible */
+  code, .id { font-family: var(--mono); font-size: 12.5px; background: var(--paper-sunk); padding: 1px 5px; border-radius: 3px; }
+
+  /* ---- GlassMark: colour AND a mark, never colour alone ---- */
+  .gm { font-family: var(--sans); font-size: 11px; font-weight: 700; white-space: nowrap; letter-spacing: .03em; }
+  .gm .mark { font-family: var(--mono); margin-right: 4px; }
+  .gm.green    { color: var(--green); }
+  .gm.arith    { color: var(--arith); }
+  .gm.reported { color: var(--reported); }
+  .gm.apple    { color: var(--apple); }
+  .gm.verify   { color: var(--verify); }
+  .gm.dead     { color: var(--dead); }
+
+  /* ---- command list ---- */
+  .cmds { display: grid; grid-template-columns: repeat(auto-fit, minmax(330px, 1fr)); gap: 11px; }
+  .cmd {
+    background: var(--paper-raised);
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--gold);
+    border-radius: 5px;
+    padding: 11px 13px;
+  }
+  .cmd .line { display: flex; align-items: flex-start; gap: 8px; }
+  .cmd kbd {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    background: var(--navy);
+    color: #E8E4D8;
+    padding: 5px 8px;
+    border-radius: 4px;
+    flex: 1;
+    min-width: 0;
+    /* Wrap rather than truncate: a command you cannot read in full is a
+       command you will type wrong. */
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  .cmd .copy { flex: 0 0 auto; margin-top: 1px; }
+  .cmd .what { font-family: var(--sans); font-size: 12.5px; color: var(--ink-muted); margin-top: 6px; }
+  .copy {
+    font-family: var(--sans); font-size: 11px; font-weight: 600;
+    border: 1px solid var(--rule); background: var(--paper);
+    color: var(--ink-muted); border-radius: 4px; padding: 4px 8px; cursor: pointer;
+  }
+  .copy:hover { background: var(--paper-sunk); color: var(--ink); }
+
+  /* ---- callout ---- */
+  .callout {
+    background: var(--paper-raised);
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--reported);
+    border-radius: 5px;
+    padding: 13px 16px;
+    font-size: 15px;
+  }
+  .callout.warn { border-left-color: var(--apple); }
+  .callout strong { font-family: var(--sans); font-size: 13px; letter-spacing: .02em; }
+
+  a { color: var(--reported); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+  a:hover { color: var(--navy); }
+
+  footer {
+    border-top: 1px solid var(--rule);
+    margin-top: 46px; padding: 20px 24px 44px;
+    font-family: var(--sans); font-size: 12px; color: var(--ink-muted);
+    text-align: center;
+  }
+  .muted { color: var(--ink-muted); }
+  .empty { color: var(--ink-muted); font-style: italic; }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper: #12151B; --paper-raised: #171B22; --paper-sunk: #1D222B;
+      --rule: #2A313C; --ink: #E9E5DA; --ink-muted: #98A1B0; --navy: #090E18;
+      --gold: #D4AC5E;
+      --green:#4FA97B; --arith:#8D97A6; --reported:#6BA3E0;
+      --apple:#DC8B4A; --verify:#C4A159; --dead:#D06A6A;
+    }
+  }
+</style>
+</head>
+<body>
+
+<header class="masthead">
+  <h1>Sentinel OS — The Desk</h1>
+  <div class="standard">Named Sources · Public Documents · Verified Facts</div>
+  <div class="sub">
+    Local, offline, single operator. This page made no network request to load,
+    and it will not make one. It reads the local service on 127.0.0.1 if that
+    service is running, and stays useful if it is not.
+  </div>
+</header>
+
+<main>
+
+  <!-- ============================ SYSTEM STATE ======================== -->
+  <section>
+    <h2>System state</h2>
+    <p class="lede" id="state-lede">Probing the local service…</p>
+    <div class="strip" id="strip">
+      <div class="tile"><div class="k">Local service</div><div class="v" id="t-service">—</div><div class="note" id="n-service">127.0.0.1:4317</div></div>
+      <div class="tile"><div class="k">Database</div><div class="v" id="t-db">—</div><div class="note" id="n-db">metadata only</div></div>
+      <div class="tile"><div class="k">Requests on the clock</div><div class="v" id="t-req">—</div><div class="note">open public-records requests</div></div>
+      <div class="tile"><div class="k">Needs attention</div><div class="v" id="t-att">—</div><div class="note">past your follow-up cadence</div></div>
+      <div class="tile"><div class="k">Sources</div><div class="v" id="t-src">—</div><div class="note">citation ledger</div></div>
+      <div class="tile"><div class="k">Unverified sources</div><div class="v" id="t-unv">—</div><div class="note">claims still riding on these</div></div>
+    </div>
+  </section>
+
+  <!-- ============================ THE CLOCK =========================== -->
+  <section>
+    <h2>The clock</h2>
+    <p class="lede">
+      Ohio R.C. 149.43 sets <strong>no fixed day count</strong> — inspection is
+      "promptly," copies come "within a reasonable period of time." Every Ohio
+      day-number in this system is <em>your</em> follow-up cadence, not a
+      statutory deadline, and the <code>deadline_rules.rule_basis</code> column
+      records which is which so the distinction can never quietly blur.
+    </p>
+    <div id="clock-body">
+      <div class="callout"><span class="muted">Waiting on the local service…</span></div>
+    </div>
+  </section>
+
+  <!-- ============================ GLASSMARK =========================== -->
+  <section>
+    <h2>The standard — GlassMark</h2>
+    <p class="lede">
+      A tier is a colour <em>and</em> a mark, never colour alone: colour-blind
+      readers and grayscale printouts both have to survive it. Tier movement
+      toward GREEN requires a new primary document in hand — not more
+      plausibility, not a second outlet, not greater confidence.
+    </p>
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Tier</th><th>Means</th><th>On air</th></tr></thead>
+        <tbody>
+          <tr><td><span class="gm green"><span class="mark">✓</span>GREEN</span></td>
+              <td>Documented — we hold the primary document</td>
+              <td>State as fact, cite the document</td></tr>
+          <tr><td><span class="gm arith"><span class="mark">=</span>ARITH</span></td>
+              <td>Derived — our own arithmetic</td>
+              <td>Auto-labelled as our calculation</td></tr>
+          <tr><td><span class="gm reported"><span class="mark">▤</span>REPORTED</span></td>
+              <td>Attributed — another outlet reported it</td>
+              <td>Name the outlet; we do not hold the document</td></tr>
+          <tr><td><span class="gm apple"><span class="mark">?</span>RED APPLE</span></td>
+              <td>Open question</td>
+              <td>Only as a question already formally asked</td></tr>
+          <tr><td><span class="gm verify"><span class="mark">⧗</span>VERIFY</span></td>
+              <td>Citation not yet pulled</td>
+              <td><strong>Do not broadcast.</strong> Pull the cite first.</td></tr>
+          <tr><td><span class="gm dead"><span class="mark">✕</span>DEAD</span></td>
+              <td>Killed — retained, never deleted</td>
+              <td><strong>Never.</strong> Kept so a retired number cannot reappear.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ============================ EVIDENCE ============================ -->
+  <section>
+    <h2>Evidence &amp; provenance</h2>
+    <p class="lede">
+      Every module — the records atlas, the montage engine, the vulnerability
+      desk, the connectors — writes one shape of provenance record into one
+      append-only ledger. That shared shape is what lets a rendered video, a
+      CVE report, and a received record all be indexed by the same evidence
+      database.
+    </p>
+    <div class="callout">
+      <strong>The contract, in one line.</strong><br>
+      The database says <em>what</em> a file is and <em>that it is intact</em>.
+      <code>evidence/</code> holds the bytes. <code>sentinel prov verify</code>
+      proves the two still agree — it recomputes every ledger line's self-hash
+      and names any line edited after it was written.
+      <div style="margin-top:10px" class="muted">
+        Paths are stored relative, never absolute. An absolute path leaks your
+        machine layout and breaks portability, so both the schema constraint
+        <code>sources_relative_path_only</code> and the provenance spine refuse one.
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================ THE TOOLS =========================== -->
+  <section>
+    <h2>The tools</h2>
+    <p class="lede">
+      One entry point. <code>bin/sentinel</code> dispatches to the module that
+      owns each job, so there is one command to remember rather than six.
+    </p>
+    <div class="cmds" id="cmds"></div>
+  </section>
+
+  <!-- ============================ WHAT IT WON'T DO ==================== -->
+  <section>
+    <h2>What this system will not do</h2>
+    <p class="lede">
+      These are load-bearing. Each one is enforced somewhere real — a database
+      constraint, a trigger, a code path — not by remembering to be careful.
+    </p>
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Refusal</th><th>Enforced by</th></tr></thead>
+        <tbody>
+          <tr><td>Never stores raw files in the database</td><td>No content column exists on <code>received_records</code></td></tr>
+          <tr><td>Never sends a records request for you</td><td>The drafter writes text; there is no transport</td></tr>
+          <tr><td>Never indexes document text without per-document consent</td><td><code>document_text_index</code> — consent flag, confirmed redaction, and a trigger re-checking prior human approval on every write</td></tr>
+          <tr><td>Never rewrites the audit trail</td><td><code>prevent_ledger_mutation()</code> trigger plus INSERT-only grants</td></tr>
+          <tr><td>Never stores a private individual's street address</td><td><code>entities_no_private_home_address</code> CHECK</td></tr>
+          <tr><td>Never stores credentials</td><td><code>portals_no_credentials</code> CHECK</td></tr>
+          <tr><td>Never connects to a hosted database</td><td>Host allowlist in <code>db_policy</code> and in the ingest seam</td></tr>
+          <tr><td>Never turns a search hit into a fact</td><td>Connector results land as <code>lead_needs_primary_source</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  Sentinel OS · local &amp; private · nothing on this page left your machine.<br>
+  Corrections run first, always.
+</footer>
+
+<script>
+'use strict';
+
+// ---- the command index ---------------------------------------------------
+const COMMANDS = [
+  ['sentinel status',                    'What is set up and what is not — modules, Postgres, evidence store.'],
+  ['sentinel test',                      'Every module’s test suite, including the cross-language provenance check.'],
+  ['sentinel pra setup',                 'One-command local Postgres setup: database, least-privilege role, migrations, grants, seed.'],
+  ['sentinel pra brief',                 'Your morning read: what went quiet, what is due, what needs a follow-up letter.'],
+  ['sentinel pra portals',               'Re-check every filing URL in the registry. 15 of 22 are still unverified.'],
+  ['sentinel pra backup',                'Back up before you do anything you might regret.'],
+  ['sentinel connect test',              'Which connector keys are set and reachable. Prints presence and length only, never the key.'],
+  ['sentinel connect opensanctions "<name>"', 'One authorized screen. Captures and hashes the response before anything derives from it.'],
+  ['sentinel connect courtlistener "<query>"', 'Federal and state opinion search via the free RECAP mirror.'],
+  ['sentinel prov verify <ledger.jsonl>', 'Recompute every ledger line’s hash and name any line edited after it was written.'],
+  ['sentinel prov ingest <ledger.jsonl>', 'Flow provenance records into the PRA citation ledger. Refuses a tampered ledger outright.'],
+  ['sentinel montage --spec teaser.json', 'Render a montage. Emits a manifest proving which inputs produced which output.'],
+  ['sentinel vuln --input cves.csv --output tiered.csv', 'Tier a CVE inventory against CVSS, EPSS, and CISA KEV with an explainable rationale.'],
+  ['sentinel desk',                      'This page.'],
+];
+
+const cmdWrap = document.getElementById('cmds');
+for (const [cmd, what] of COMMANDS) {
+  const el = document.createElement('div');
+  el.className = 'cmd';
+  const line = document.createElement('div');
+  line.className = 'line';
+  const kbd = document.createElement('kbd');
+  kbd.textContent = cmd;
+  const btn = document.createElement('button');
+  btn.className = 'copy';
+  btn.type = 'button';
+  btn.textContent = 'copy';
+  btn.addEventListener('click', () => {
+    const done = () => { btn.textContent = 'copied'; setTimeout(() => { btn.textContent = 'copy'; }, 1400); };
+    const fail = () => { btn.textContent = 'select it'; setTimeout(() => { btn.textContent = 'copy'; }, 1800); };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(cmd).then(done, fail);
+    } else { fail(); }
+  });
+  line.appendChild(kbd); line.appendChild(btn);
+  const w = document.createElement('div');
+  w.className = 'what';
+  w.textContent = what;
+  el.appendChild(line); el.appendChild(w);
+  cmdWrap.appendChild(el);
+}
+
+// ---- live probe ----------------------------------------------------------
+// Same fallback contract the persistence client uses: if the service is not
+// there, say so and carry on. Never leave the reader staring at a blank tile.
+const SERVICE = 'http://127.0.0.1:4317';
+
+function withTimeout(ms, p) {
+  return Promise.race([p, new Promise((_r, rej) => setTimeout(() => rej(new Error('timeout')), ms))]);
+}
+
+function setTile(id, value, note) {
+  document.getElementById(id).textContent = value;
+  if (note !== undefined) {
+    const n = document.getElementById(id.replace('t-', 'n-'));
+    if (n) n.textContent = note;
+  }
+}
+
+function offline(reason) {
+  document.getElementById('state-lede').innerHTML =
+    '<span class="dot down"></span>The local service is not answering on 127.0.0.1:4317 — ' +
+    '<span class="muted">' + reason + '</span>. ' +
+    'That is a normal state, not an error: the desk is readable without it. ' +
+    'Start it with <code>cd modules/pra &amp;&amp; npm run service</code>.';
+  setTile('t-service', 'down', 'not running');
+  setTile('t-db', '—', 'unknown until the service answers');
+  for (const id of ['t-req', 't-att', 't-src', 't-unv']) setTile(id, '—');
+  document.getElementById('clock-body').innerHTML =
+    '<div class="callout warn"><strong>No live clock.</strong><br>' +
+    'Request state lives in your local Postgres. Start the service to see what has gone quiet, ' +
+    'or run <code>sentinel pra brief</code> in a terminal for the same read.</div>';
+}
+
+function renderClock(rows) {
+  if (!rows || !rows.length) {
+    document.getElementById('clock-body').innerHTML =
+      '<div class="callout"><strong>Nothing needs attention.</strong><br>' +
+      '<span class="muted">No open request has passed your follow-up cadence.</span></div>';
+    return;
+  }
+  const esc = (s) => String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  let h = '<div class="scroll"><table><thead><tr>' +
+    '<th>Request</th><th>Agency</th><th>Status</th><th>Days quiet</th><th>Why</th>' +
+    '</tr></thead><tbody>';
+  for (const r of rows) {
+    h += '<tr>' +
+      '<td><span class="id">' + esc(r.request_id) + '</span><br>' + esc(r.subject || '') + '</td>' +
+      '<td>' + esc(r.agency_name || '—') + '</td>' +
+      '<td>' + esc(r.status || '') + '</td>' +
+      '<td>' + (r.days_without_response == null ? '<span class="empty">not submitted</span>' : esc(r.days_without_response)) + '</td>' +
+      '<td>' + esc(r.attention_reason || '') + '</td>' +
+      '</tr>';
+  }
+  h += '</tbody></table></div>';
+  document.getElementById('clock-body').innerHTML = h;
+}
+
+withTimeout(1200, fetch(SERVICE + '/health'))
+  .then((r) => (r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status))))
+  .then((health) => {
+    setTile('t-service', 'up', 'answering on 127.0.0.1:4317');
+    if (!health || !health.db_available) {
+      setTile('t-db', 'down', 'service is up, Postgres is not');
+      document.getElementById('state-lede').innerHTML =
+        '<span class="dot warn"></span>The service is running but cannot reach Postgres. ' +
+        'Start it, then reload. <span class="muted">Nothing is lost — the database holds metadata only.</span>';
+      return null;
+    }
+    setTile('t-db', 'up', health.database ? String(health.database) : 'connected');
+    document.getElementById('state-lede').innerHTML =
+      '<span class="dot up"></span>Service and database are both up. Counts below are live.';
+    return withTimeout(2500, fetch(SERVICE + '/dashboard')).then((r) => (r.ok ? r.json() : null));
+  })
+  .then((d) => {
+    if (!d) return;
+    const c = d.counts || {};
+    setTile('t-req', c.open_requests != null ? c.open_requests : '—');
+    setTile('t-att', c.needs_attention != null ? c.needs_attention : '—');
+    setTile('t-src', c.sources != null ? c.sources : '—');
+    setTile('t-unv', c.unverified_sources != null ? c.unverified_sources : '—');
+    renderClock(d.needs_attention);
+  })
+  .catch((e) => offline(e && e.message === 'timeout' ? 'no answer within 1.2s' : 'not reachable'));
+</script>
+</body>
+</html>
