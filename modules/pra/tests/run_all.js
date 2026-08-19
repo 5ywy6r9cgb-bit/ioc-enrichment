@@ -22,6 +22,7 @@ const SUITES = [
   ['json_export_metadata_only', require('./json_export_metadata_only.test.js')],
   ['json_import_tamper_strip',  require('./json_import_tamper_strip.test.js')],
   ['fallback_behavior',         require('./fallback_behavior.test.js')],
+  ['intel_repo',                require('./intel_repo.test.js')],
 ];
 
 (async () => {
