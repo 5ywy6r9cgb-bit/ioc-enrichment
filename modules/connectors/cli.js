@@ -44,8 +44,8 @@ async function cmdTest() {
     else if (key) keyState = C.g('set');
     else keyState = c.keyRequired ? C.r('MISSING') : C.y('not set (optional)');
 
-    console.log(`  ${c.label.padEnd(18)} key: ${keyState}   → ${verdict}`);
-    if (key) console.log(C.dim(`                     ${R.mask(key)}  [${c.keyVar}]`));
+    console.log(`  ${c.label.padEnd(28)} key: ${keyState}   → ${verdict}`);
+    if (key) console.log(C.dim(`  ${' '.repeat(28)} ${R.mask(key)}  [${c.keyVar}]`));
   }
   console.log('');
 }
@@ -54,7 +54,7 @@ function cmdList() {
   console.log('\n' + C.b('Connectors') + '\n');
   for (const [n, c] of Object.entries(R.CONNECTORS)) {
     const k = c.keyVar ? `${c.keyVar}${c.keyRequired ? '' : ' (optional)'}` : 'no key needed';
-    console.log(`  ${n.padEnd(18)} ${c.label.padEnd(18)} ${k}`);
+    console.log(`  ${n.padEnd(18)} ${c.label.padEnd(28)} ${k}`);
   }
   console.log('');
 }

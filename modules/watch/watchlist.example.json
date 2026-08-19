@@ -91,6 +91,52 @@
       "query": "Ohio public records act 149.43 mandamus",
       "cadence": "monthly",
       "_note": "Case law that changes what you can demand, and what a denial has to say."
+    },
+
+    {
+      "_SECTION": "THE MONEY LANE — federal filings, no key needed for two of three",
+      "id": "WATCH-MONEY-01",
+      "label": "FirstEnergy — federal lobbying",
+      "investigation": "hb6-firstenergy",
+      "connector": "senatelda",
+      "query": "FirstEnergy",
+      "cadence": "monthly",
+      "_note": "Quarterly filings. A new registrant or a jump in reported spend is the signal."
+    },
+    {
+      "id": "WATCH-MONEY-02",
+      "label": "FirstEnergy — federal awards",
+      "investigation": "hb6-firstenergy",
+      "connector": "usaspending",
+      "query": "FirstEnergy",
+      "cadence": "monthly",
+      "_note": "No API key at all. Federal contracts and grants to the entity."
+    },
+    {
+      "id": "WATCH-MONEY-03",
+      "label": "Flock Safety — federal awards",
+      "investigation": "the-cameras",
+      "connector": "usaspending",
+      "query": "Flock Safety",
+      "cadence": "monthly",
+      "_note": "Federal money into ALPR. Local purchases will NOT appear here — those are county and city records requests."
+    },
+    {
+      "id": "WATCH-MONEY-04",
+      "label": "Flock Safety — federal lobbying",
+      "investigation": "the-cameras",
+      "connector": "senatelda",
+      "query": "Flock Safety",
+      "cadence": "monthly"
+    },
+    {
+      "id": "WATCH-MONEY-05",
+      "label": "Ohio congressional delegation — new filings",
+      "investigation": "unfiled",
+      "connector": "fec",
+      "query": "Ohio",
+      "cadence": "monthly",
+      "_note": "Needs FEC_API_KEY (free at api.data.gov). Catches a new candidate committee registering."
     }
   ]
 }

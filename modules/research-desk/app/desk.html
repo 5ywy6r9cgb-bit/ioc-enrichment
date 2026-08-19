@@ -317,6 +317,63 @@
     </div>
   </section>
 
+  <!-- ============================ CONNECTORS ========================== -->
+  <section>
+    <h2>Connectors — the three layers</h2>
+    <p class="lede">
+      Politics is filed on three layers, and each has a different filing system.
+      The gap between them is where things hide: <strong>local candidate money is
+      filed at the county Board of Elections and appears in no API at all</strong> —
+      not FEC, not the state system. That gap is closed by a records request, not
+      a connector, which is why every county in the seed set now carries a Board
+      of Elections row.
+    </p>
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Layer</th><th>Money</th><th>Decisions</th><th>Reachable by API?</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Federal</strong></td><td>FEC</td><td>Federal Register, dockets</td>
+              <td><span class="gm green"><span class="mark">✓</span>YES — all wired</span></td></tr>
+          <tr><td><strong>State (Ohio)</strong></td><td>Ohio SOS · JLEC</td><td>ORC, PUCO, agency orders</td>
+              <td><span class="gm apple"><span class="mark">?</span>WEB ONLY</span></td></tr>
+          <tr><td><strong>County / local</strong></td><td><strong>County Board of Elections</strong></td><td>Commissioners, council, schools</td>
+              <td><span class="gm dead"><span class="mark">✕</span>RECORDS REQUEST ONLY</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div style="margin-top:14px" class="scroll">
+      <table>
+        <thead><tr><th>Connector</th><th>Answers</th><th>Key</th><th>Run it</th></tr></thead>
+        <tbody id="conn-body"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ============================ COVERAGE ============================ -->
+  <section>
+    <h2>Counties in scope</h2>
+    <p class="lede">
+      Eight offices seeded per county — the records surface you can actually file
+      against. Every one is <code>unverified</code> with no invented address or
+      URL: they are research targets, not confirmed contacts. Confirming the
+      seven Boards of Elections is the highest-value first hour in the project.
+    </p>
+    <div class="scroll">
+      <table>
+        <thead><tr><th>County</th><th>Seat</th><th>Offices seeded</th><th>Note</th></tr></thead>
+        <tbody>
+          <tr><td>Franklin</td><td>Columbus</td><td>8</td><td>Anchor — most existing depth</td></tr>
+          <tr><td>Licking</td><td>Newark</td><td>8</td><td></td></tr>
+          <tr><td>Union</td><td>Marysville</td><td>8</td><td></td></tr>
+          <tr><td>Pickaway</td><td>Circleville</td><td>8</td><td></td></tr>
+          <tr><td>Knox</td><td>Mount Vernon</td><td>8</td><td></td></tr>
+          <tr><td>Fairfield</td><td>Lancaster</td><td>8</td><td></td></tr>
+          <tr><td>Mahoning</td><td>Youngstown</td><td>8</td><td>Separate metro — the contrast case</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
   <!-- ============================ EVIDENCE ============================ -->
   <section>
     <h2>Evidence &amp; provenance</h2>
@@ -428,6 +485,57 @@ for (const [cmd, what] of COMMANDS) {
   w.textContent = what;
   el.appendChild(line); el.appendChild(w);
   cmdWrap.appendChild(el);
+}
+
+// ---- the connector table -------------------------------------------------
+// Kept in sync with modules/connectors/registry.js by hand. If they drift, the
+// registry is the truth — this page is a map, not a source.
+const CONNECTORS = [
+  ['opensanctions',   'Sanctions, PEP and watchlist entries for a person or org',
+   'OPENSANCTIONS_API_KEY', 'sentinel connect opensanctions "<name>"'],
+  ['courtlistener',   'Federal and state court opinions and dockets (free RECAP mirror)',
+   'optional', 'sentinel connect courtlistener "<query>"'],
+  ['federalregister', 'Federal rules, notices and agency actions',
+   'none', 'sentinel connect federalregister "<term>"'],
+  ['fec',             'Federal campaign finance — who gave, to whom, how much',
+   'FEC_API_KEY', 'sentinel connect fec "<name>"'],
+  ['senatelda',       'Federal lobbying — who is paid by whom, on what issues',
+   'optional', 'sentinel connect senatelda "<client>"'],
+  ['usaspending',     'Federal contracts and grants by recipient',
+   'none', 'sentinel connect usaspending "<recipient>"'],
+];
+
+const connBody = document.getElementById('conn-body');
+for (const [name, answers, key, cmd] of CONNECTORS) {
+  const tr = document.createElement('tr');
+
+  const tdName = document.createElement('td');
+  const code = document.createElement('code');
+  code.textContent = name;
+  tdName.appendChild(code);
+
+  const tdAns = document.createElement('td');
+  tdAns.textContent = answers;
+
+  const tdKey = document.createElement('td');
+  if (key === 'none') {
+    tdKey.innerHTML = '<span class="gm green"><span class="mark">✓</span>NONE NEEDED</span>';
+  } else if (key === 'optional') {
+    tdKey.innerHTML = '<span class="gm arith"><span class="mark">=</span>OPTIONAL</span>';
+  } else {
+    const c2 = document.createElement('code');
+    c2.textContent = key;
+    tdKey.appendChild(c2);
+  }
+
+  const tdCmd = document.createElement('td');
+  const kbd = document.createElement('kbd');
+  kbd.style.cssText = 'font-family:var(--mono);font-size:11.5px;background:var(--navy);color:#E8E4D8;padding:3px 6px;border-radius:3px;display:inline-block;overflow-wrap:anywhere;';
+  kbd.textContent = cmd;
+  tdCmd.appendChild(kbd);
+
+  tr.append(tdName, tdAns, tdKey, tdCmd);
+  connBody.appendChild(tr);
 }
 
 // ---- live probe ----------------------------------------------------------

@@ -165,6 +165,122 @@ const CONNECTORS = {
     })),
     identify: (r) => r.external_id,
   },
+
+  // ======================================================================
+  // THE MONEY LANE
+  //
+  // Politics is a money question before it is anything else, and the money
+  // is filed. These three cover the federal layer end to end:
+  //
+  //   fec          who gave, to whom, how much          (campaign finance)
+  //   senatelda    who is paid to lobby, by whom, on what   (lobbying)
+  //   usaspending  who received federal money, for what     (contracts/grants)
+  //
+  // The Ohio layer has no equivalent API. Ohio SOS campaign finance and the
+  // county boards of elections are web-only, and the county BOEs are where
+  // LOCAL candidate filings live — those never reach the state system, so a
+  // county commissioner's donors are invisible to every API here. That gap is
+  // filled by a records request, not a connector. See docs/RESEARCH_PLAN.md.
+  // ======================================================================
+
+  fec: {
+    label: 'FEC (campaign finance)',
+    keyVar: 'FEC_API_KEY',
+    keyRequired: true,   // free from api.data.gov; DEMO_KEY works for a trial
+    calls: 1,
+    describe: (q) => `GET https://api.open.fec.gov/v1/candidates/search/  (q: ${q})`,
+    probe: (key) => ({
+      method: 'GET',
+      url: `https://api.open.fec.gov/v1/candidates/search/?api_key=${encodeURIComponent(key || 'DEMO_KEY')}&per_page=1`,
+      headers: {},
+    }),
+    run: (q, key) => ({
+      method: 'GET',
+      url: 'https://api.open.fec.gov/v1/candidates/search/'
+         + `?api_key=${encodeURIComponent(key)}`
+         + `&q=${encodeURIComponent(q)}&sort=-first_file_date&per_page=25`,
+      headers: {},
+    }),
+    parse: (json) => (json.results || []).map((r) => ({
+      external_id: r.candidate_id,
+      name: r.name,
+      party: r.party_full || r.party || '',
+      office: r.office_full || r.office || '',
+      state: r.state || '',
+      district: r.district || '',
+      cycles: Array.isArray(r.election_years) ? r.election_years.slice(-3).join(', ') : '',
+      url: r.candidate_id ? `https://www.fec.gov/data/candidate/${r.candidate_id}/` : '',
+    })),
+    identify: (r) => r.external_id,
+  },
+
+  senatelda: {
+    label: 'Senate LDA (lobbying)',
+    keyVar: 'LDA_API_KEY',
+    keyRequired: false,  // anonymous works; a free key raises the rate limit
+    calls: 1,
+    describe: (q) => `GET https://lda.senate.gov/api/v1/filings/  (client/registrant: ${q})`,
+    probe: (key) => ({
+      method: 'GET',
+      url: 'https://lda.senate.gov/api/v1/filings/?page_size=1',
+      headers: key ? { Authorization: `Token ${key}` } : {},
+    }),
+    run: (q, key) => ({
+      method: 'GET',
+      url: `https://lda.senate.gov/api/v1/filings/?client_name=${encodeURIComponent(q)}&page_size=25&ordering=-dt_posted`,
+      headers: key ? { Authorization: `Token ${key}` } : {},
+    }),
+    parse: (json) => (json.results || []).map((r) => ({
+      external_id: r.filing_uuid || r.filing_document_url || '',
+      name: `${(r.client && r.client.name) || '(client?)'} — ${(r.registrant && r.registrant.name) || '(registrant?)'}`,
+      period: `${r.filing_year || ''} ${r.filing_period_display || r.filing_period || ''}`.trim(),
+      amount: r.income || r.expenses || '',
+      issues: (r.lobbying_activities || []).map((a) => a.general_issue_code_display).filter(Boolean).join('; '),
+      url: r.filing_document_url || '',
+    })),
+    identify: (r) => r.external_id,
+  },
+
+  usaspending: {
+    label: 'USAspending (federal awards)',
+    keyVar: null,        // no key at all
+    keyRequired: false,
+    calls: 1,
+    describe: (q) => `POST https://api.usaspending.gov/api/v2/search/spending_by_award/  (recipient: ${q})`,
+    probe: () => ({
+      method: 'GET',
+      url: 'https://api.usaspending.gov/api/v2/references/toptier_agencies/',
+      headers: {},
+    }),
+    run: (q) => ({
+      method: 'POST',
+      url: 'https://api.usaspending.gov/api/v2/search/spending_by_award/',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        filters: {
+          recipient_search_text: [q],
+          award_type_codes: ['A', 'B', 'C', 'D'],   // contracts
+        },
+        fields: ['Award ID', 'Recipient Name', 'Award Amount', 'Awarding Agency',
+                 'Start Date', 'End Date', 'Description'],
+        sort: 'Award Amount',
+        order: 'desc',
+        limit: 25,
+        page: 1,
+      }),
+    }),
+    parse: (json) => (json.results || []).map((r) => ({
+      external_id: r.generated_internal_id || r['Award ID'] || '',
+      name: r['Recipient Name'] || '(unnamed recipient)',
+      award_id: r['Award ID'] || '',
+      amount: r['Award Amount'] != null ? `$${Number(r['Award Amount']).toLocaleString()}` : '',
+      agency: r['Awarding Agency'] || '',
+      period: [r['Start Date'], r['End Date']].filter(Boolean).join(' → '),
+      description: (r.Description || '').slice(0, 140),
+      url: r.generated_internal_id ? `https://www.usaspending.gov/award/${r.generated_internal_id}` : '',
+    })),
+    identify: (r) => r.external_id,
+  },
 };
 
 // ---------------------------------------------------------------- the run
