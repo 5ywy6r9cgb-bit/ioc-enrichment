@@ -1,0 +1,96 @@
+{
+  "_README": [
+    "Copy this to watchlist.json in the repo root, then edit.",
+    "",
+    "  cp modules/watch/watchlist.example.json watchlist.json",
+    "",
+    "watchlist.json is gitignored — your subjects of interest are not something",
+    "to publish to a remote. This example file is the only one that ships.",
+    "",
+    "Each watch is one saved query against one connector. The runner keeps a",
+    "seen-set per watch and reports ONLY hits it has never seen, so a quiet",
+    "morning prints one line instead of yesterday's twelve results again."
+  ],
+
+  "notify": {
+    "_README": [
+      "backend: none | macos | file | ntfy",
+      "",
+      "  none    default. Nothing is sent anywhere.",
+      "  macos   a local desktop notification. ZERO outbound traffic.",
+      "  file    appended to evidence/watch/notifications.log.",
+      "  ntfy    reaches your PHONE. This is the only backend that sends",
+      "          anything off your machine — see the note below.",
+      "",
+      "THE CONTENT RULE: a notification carries a COUNT and a WATCH ID.",
+      "Never a name, never a quote, never anything from a capture. The",
+      "notification is a doorbell, not a delivery — you open the desk to see",
+      "what arrived. notify.js enforces this and refuses a message that looks",
+      "like case content.",
+      "",
+      "To use ntfy on your phone:",
+      "  1. install the ntfy app (iOS App Store / Google Play / F-Droid)",
+      "  2. pick a LONG, RANDOM topic name — anyone who guesses the topic can",
+      "     read your notifications, so treat it like a password. Generate one:",
+      "       openssl rand -hex 16",
+      "  3. subscribe to that topic in the app",
+      "  4. set backend to ntfy and paste the topic below",
+      "",
+      "The ntfy.sh server sees every message you send through it. That is",
+      "survivable only because of the content rule above. Self-host with",
+      "\"server\" if you want even the counts to stay yours."
+    ],
+    "backend": "none",
+    "topic": "",
+    "server": "https://ntfy.sh",
+    "priority": "default",
+    "tags": "mag"
+  },
+
+  "watches": [
+    {
+      "id": "WATCH-HB6-01",
+      "label": "HB6 — principal screening",
+      "investigation": "hb6-firstenergy",
+      "connector": "opensanctions",
+      "query": "Larry Householder",
+      "cadence": "weekly",
+      "_note": "The subject of your first ratified OpenSanctions screen. Re-screening catches a listing added after the original run."
+    },
+    {
+      "id": "WATCH-FLOCK-01",
+      "label": "Flock / ALPR — federal litigation",
+      "investigation": "the-cameras",
+      "connector": "courtlistener",
+      "query": "Flock Safety automated license plate reader",
+      "cadence": "weekly",
+      "_note": "New opinions naming Flock or ALPR. A new case is often the first public sign of a contract dispute or a suppression ruling."
+    },
+    {
+      "id": "WATCH-WATER-01",
+      "label": "Reynoldsburg / Columbus water — litigation",
+      "investigation": "the-water",
+      "connector": "courtlistener",
+      "query": "Reynoldsburg Columbus water service agreement",
+      "cadence": "monthly"
+    },
+    {
+      "id": "WATCH-PUCO-01",
+      "label": "Ohio utility rulemaking",
+      "investigation": "the-water",
+      "connector": "federalregister",
+      "query": "Ohio electric utility rate",
+      "cadence": "weekly",
+      "_note": "Federal Register needs no API key, so this one works the moment you copy the file."
+    },
+    {
+      "id": "WATCH-PRA-01",
+      "label": "Public records law — new opinions",
+      "investigation": "unfiled",
+      "connector": "courtlistener",
+      "query": "Ohio public records act 149.43 mandamus",
+      "cadence": "monthly",
+      "_note": "Case law that changes what you can demand, and what a denial has to say."
+    }
+  ]
+}

@@ -42,3 +42,6 @@ dist/
 # OS noise.
 .DS_Store
 Thumbs.db
+
+# Your subjects of interest are not something to publish.
+watchlist.json
