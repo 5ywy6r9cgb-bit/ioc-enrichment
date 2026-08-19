@@ -137,6 +137,34 @@
       "query": "Ohio",
       "cadence": "monthly",
       "_note": "Needs FEC_API_KEY (free at api.data.gov). Catches a new candidate committee registering."
+    },
+
+    {
+      "_SECTION": "SURVEILLANCE VENDORS — investigate the industry, never operate its tools",
+      "_note": "Prompted by the leaked location-API client filed as LEAK-LOCATIONAPI-001. We research WHO these vendors are and who buys from them, through legitimate filings only. We do not touch their endpoints.",
+      "id": "WATCH-VENDOR-01",
+      "label": "Flock Safety — federal contracts (surveillance vendor)",
+      "investigation": "the-cameras",
+      "connector": "usaspending",
+      "query": "Flock",
+      "cadence": "monthly"
+    },
+    {
+      "id": "WATCH-VENDOR-02",
+      "label": "Location-data vendors — federal lobbying",
+      "investigation": "the-cameras",
+      "connector": "senatelda",
+      "query": "location data broker",
+      "cadence": "monthly",
+      "_note": "Adtech-location surveillance lobbying. Cross-reference registrants against the vendor names in LEAK-LOCATIONAPI-001."
+    },
+    {
+      "id": "WATCH-VENDOR-03",
+      "label": "Surveillance-vendor litigation",
+      "investigation": "the-cameras",
+      "connector": "courtlistener",
+      "query": "location data advertising identifier privacy",
+      "cadence": "monthly"
     }
   ]
 }
