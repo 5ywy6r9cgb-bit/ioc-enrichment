@@ -18,15 +18,25 @@
  * what arrived.
  *
  * Backends:
- *   none    do nothing (default when unconfigured)
- *   macos   local desktop notification via osascript — ZERO outbound
- *   file    append to a log — for testing and for headless machines
- *   ntfy    HTTPS POST to an ntfy topic — reaches your phone, OPT-IN, outbound
+ *   none     do nothing (default when unconfigured)
+ *   macos    local desktop notification via osascript — ZERO outbound
+ *   file     append to a log — for testing and for headless machines
+ *   ntfy     HTTPS POST to an ntfy topic — reaches your phone, OPT-IN, and a
+ *            THIRD PARTY (ntfy.sh, unless self-hosted) relays every message.
+ *   webpush  POSTs to YOUR OWN local_service (server/local_service.js's
+ *            /push/notify), which fans out via server/push_notify.js to
+ *            devices YOU subscribed with server/local_service's /push/*
+ *            routes, using VAPID keys only you hold. Nothing but the
+ *            browser vendor's push relay (Apple/Google — unavoidable
+ *            infrastructure for Web Push, same as the mobile shell already
+ *            uses) sees even the count. This is the backend for "only I can
+ *            see this, and it still reaches my phone."
  */
 
 const fs = require('fs');
 const path = require('path');
 const https = require('https');
+const http = require('http');
 const { execFile } = require('child_process');
 
 const ROOT = path.resolve(__dirname, '..', '..');
@@ -152,7 +162,48 @@ function notifyNtfy(title, body, cfg) {
   });
 }
 
-const BACKENDS = { none: () => Promise.resolve({ ok: true, via: 'none' }), macos: notifyMacos, file: notifyFile, ntfy: notifyNtfy };
+/**
+ * POST title+body to this machine's own local_service — no third party,
+ * no outbound host beyond 127.0.0.1. Fails soft (never throws) if the
+ * service isn't running: a missed doorbell must not lose the run that
+ * rang it, same rule every other backend follows.
+ */
+function notifyWebpush(title, body, cfg) {
+  return new Promise((resolve) => {
+    let u;
+    try { u = new URL(cfg.serviceUrl || 'http://127.0.0.1:4317/push/notify'); }
+    catch { return resolve({ ok: false, reason: 'bad webpush serviceUrl' }); }
+    if (!['127.0.0.1', 'localhost', '::1'].includes(u.hostname)) {
+      // The whole point of this backend is that it never leaves the
+      // machine. A misconfigured serviceUrl pointing elsewhere is refused
+      // outright rather than silently sending your doorbell off-box.
+      return resolve({ ok: false, reason: `webpush backend refuses a non-loopback serviceUrl: ${u.hostname}` });
+    }
+    const payload = Buffer.from(JSON.stringify({ title, body, path: cfg.path, tag: cfg.tag }), 'utf8');
+    const req = http.request({
+      method: 'POST', hostname: u.hostname, port: u.port || 4317, path: u.pathname,
+      headers: { 'Content-Type': 'application/json', 'Content-Length': payload.length },
+      timeout: 10000,
+    }, (res) => {
+      const chunks = [];
+      res.on('data', (d) => chunks.push(d));
+      res.on('end', () => resolve(
+        res.statusCode >= 200 && res.statusCode < 300
+          ? { ok: true, via: 'webpush' }
+          : { ok: false, reason: `local_service HTTP ${res.statusCode}` }
+      ));
+    });
+    req.on('timeout', () => { req.destroy(); resolve({ ok: false, reason: 'local_service not responding — is it running?' }); });
+    req.on('error', (e) => resolve({ ok: false, reason: `local_service unreachable (${e.code || e.message}) — is it running?` }));
+    req.write(payload);
+    req.end();
+  });
+}
+
+const BACKENDS = {
+  none: () => Promise.resolve({ ok: true, via: 'none' }),
+  macos: notifyMacos, file: notifyFile, ntfy: notifyNtfy, webpush: notifyWebpush,
+};
 
 // ---------------------------------------------------------------------------
 // Public entry

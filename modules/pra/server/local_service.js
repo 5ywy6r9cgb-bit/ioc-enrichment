@@ -263,6 +263,25 @@ function createService(options = {}) {
         );
         return jsonResponse(res, 200, { ok: true, ...result });
       }
+      // General-purpose doorbell for anything OUTSIDE this process to ring —
+      // the overnight watch runner (modules/watch/notify.js's webpush
+      // backend) POSTs here instead of talking to web-push directly, so the
+      // VAPID keys and the subscriber list live in exactly one place. Same
+      // content rule as everywhere else: title/body only, no case content —
+      // enforced by the caller (notify.js's guard()), not re-checked here,
+      // because this endpoint is loopback-only, same as the rest of the API.
+      if (p === '/push/notify' && req.method === 'POST') {
+        const body = await readBody(req);
+        if (!body.title) return jsonResponse(res, 400, { ok: false, error: 'title is required' });
+        const payload = body.body
+          ? { title: body.title, body: body.body, path: body.path || '/#/dashboard', tag: body.tag || 'sentinel' }
+          : pushNotify.buildPayload({
+              title: body.title, count: body.count ?? null,
+              path: body.path || '/#/dashboard', tag: body.tag || 'sentinel',
+            });
+        const result = await pushNotify.notifyAll(repo, payload, env);
+        return jsonResponse(res, 200, { ok: true, ...result });
+      }
 
       // ----------------------------------------------------------- audit
       if (p === '/audit') {
@@ -292,7 +311,7 @@ function createService(options = {}) {
         endpoints: ['/health', '/dashboard', '/clock', '/requests', '/requests/:id',
                     '/requests/:id/status', '/received_records', '/draft', '/export',
                     '/audit', '/agencies', '/templates', '/rules',
-                    '/push/vapid-public-key', '/push/subscribe', '/push/unsubscribe', '/push/test'],
+                    '/push/vapid-public-key', '/push/subscribe', '/push/unsubscribe', '/push/test', '/push/notify'],
       });
     } catch (err) {
       // Never leak a stack to the browser; the operator reads the terminal.

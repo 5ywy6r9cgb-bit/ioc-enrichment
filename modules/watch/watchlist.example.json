@@ -14,13 +14,20 @@
 
   "notify": {
     "_README": [
-      "backend: none | macos | file | ntfy",
+      "backend: none | macos | file | ntfy | webpush",
       "",
-      "  none    default. Nothing is sent anywhere.",
-      "  macos   a local desktop notification. ZERO outbound traffic.",
-      "  file    appended to evidence/watch/notifications.log.",
-      "  ntfy    reaches your PHONE. This is the only backend that sends",
-      "          anything off your machine — see the note below.",
+      "  none     default. Nothing is sent anywhere.",
+      "  macos    a local desktop notification. ZERO outbound traffic.",
+      "  file     appended to evidence/watch/notifications.log.",
+      "  webpush  reaches your PHONE through YOUR OWN local_service — no",
+      "           third party ever holds your subscriber list or your VAPID",
+      "           keys. Requires local_service.js running (sentinel pra",
+      "           start, or however you keep it up) and at least one device",
+      "           subscribed via the mobile shell's 'enable notifications'",
+      "           button. This is the recommended phone backend.",
+      "  ntfy     reaches your PHONE via ntfy.sh, a THIRD PARTY that relays",
+      "           every message (see the ntfy section below). Only use this",
+      "           if you don't want to run local_service continuously.",
       "",
       "THE CONTENT RULE: a notification carries a COUNT and a WATCH ID.",
       "Never a name, never a quote, never anything from a capture. The",
@@ -44,7 +51,8 @@
     "topic": "",
     "server": "https://ntfy.sh",
     "priority": "default",
-    "tags": "mag"
+    "tags": "mag",
+    "serviceUrl": "http://127.0.0.1:4317/push/notify"
   },
 
   "watches": [
