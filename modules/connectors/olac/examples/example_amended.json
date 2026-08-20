@@ -1,0 +1,19 @@
+{
+  "_synthetic": true,
+  "_note": "INVENTED. Not a real filing. See README.md in this directory.",
+  "filing_id": "SYNTHETIC-0002",
+  "registry": "oh_olac",
+  "filing_type": "AER",
+  "filing_period": "2023 May-Aug",
+  "filing_date": "2024-02-01",
+  "employer_name_raw": "Example Energy Holdings LLC",
+  "agent_name_raw": "Doe, Jane",
+  "amends_filing_id": "SYNTHETIC-0001",
+  "is_amendment": true,
+  "amendment_seq": 1,
+  "reports_expenditure": true,
+  "reports_travel": true,
+  "reports_gifts": false,
+  "expenditure_total": "12,500.00",
+  "bills": [{ "bill_number": "HB6" }, { "bill_number": "SB52" }]
+}

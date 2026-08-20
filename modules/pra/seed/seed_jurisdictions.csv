@@ -1,5 +1,6 @@
 name,jurisdiction_type,parent_jurisdiction_name,state,county,centroid_lat,centroid_lng,boundary_geojson_url,source_url,verified_status
-Ohio,state,,OH,,40.367474,-82.996216,,https://ohio.gov,unverified
+United States,federal,,,,39.8283,-98.5795,,https://www.usa.gov,unverified
+Ohio,state,United States,OH,,40.367474,-82.996216,,https://ohio.gov,unverified
 Franklin County,county,Ohio,OH,Franklin,39.9612,-83.0007,,https://auditor.franklincountyohio.gov/Home,unverified
 Licking County,county,Ohio,OH,Licking,40.0631,-82.4346,,https://lickingcounty.gov,unverified
 Fairfield County,county,Ohio,OH,Fairfield,39.7167,-82.6160,,https://www.co.fairfield.oh.us,unverified
