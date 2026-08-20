@@ -182,7 +182,18 @@ function createService(options = {}) {
       // ------------------------------------------------- received records
       if (p === '/received_records' && req.method === 'POST') {
         const body = await readBody(req);
-        return jsonResponse(res, 201, { ok: true, record: await repo.addReceivedRecord(body) });
+        const record = await repo.addReceivedRecord(body);
+        // Best-effort doorbell: never let a push failure affect the response
+        // for the write that actually matters, and never await it against
+        // the request — the desk should not wait on a phone to answer.
+        pushNotify
+          .notifyAll(repo, pushNotify.buildPayload({
+            title: 'New record received',
+            path: `/#/requests/${record.request_id}`,
+            tag: `received-${record.request_id}`,
+          }), env)
+          .catch((e) => process.stderr.write(`  [push] notifyAll failed: ${e.message}\n`));
+        return jsonResponse(res, 201, { ok: true, record });
       }
 
       // ----------------------------------------------------------- draft
