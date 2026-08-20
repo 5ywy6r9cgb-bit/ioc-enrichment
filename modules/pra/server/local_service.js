@@ -26,6 +26,7 @@ const clock = require('./deadline_engine.js');
 const drafter = require('./request_drafter.js');
 const exportLedger = require('./export_ledger.js');
 const audit = require('./audit_ledger.js');
+const pushNotify = require('./push_notify.js');
 
 const LOCAL_BIND = new Set(['127.0.0.1', 'localhost', '::1']);
 
@@ -113,6 +114,17 @@ function createService(options = {}) {
           service: 'sentinel-pra',
           bound: `${host}:${port}`,
         });
+      }
+
+      // Reachable without the DB: whether push is configured at all. Lets
+      // the phone shell show "notifications not set up" instead of a
+      // generic 503 for the one thing that's an operator config gap, not
+      // a database outage.
+      if (p === '/push/vapid-public-key') {
+        if (!pushNotify.isConfigured(env)) {
+          return jsonResponse(res, 200, { ok: true, configured: false });
+        }
+        return jsonResponse(res, 200, { ok: true, configured: true, key: env.PRA_VAPID_PUBLIC_KEY });
       }
 
       // The rest all need the database.
@@ -214,6 +226,33 @@ function createService(options = {}) {
         return jsonResponse(res, 200, { ok: true, ledger: row, payload });
       }
 
+      // ------------------------------------------------------------ push
+      if (p === '/push/subscribe' && req.method === 'POST') {
+        const body = await readBody(req);
+        const sub = body && body.subscription ? body.subscription : body;
+        if (!sub || !sub.endpoint || !sub.keys || !sub.keys.p256dh || !sub.keys.auth) {
+          return jsonResponse(res, 400, { ok: false, error: 'expected a PushSubscription {endpoint, keys:{p256dh, auth}}' });
+        }
+        const row = await repo.addPushSubscription({
+          endpoint: sub.endpoint, p256dhKey: sub.keys.p256dh, authKey: sub.keys.auth, label: body.label || null,
+        });
+        return jsonResponse(res, 201, { ok: true, subscription_id: row.subscription_id });
+      }
+      if (p === '/push/unsubscribe' && req.method === 'POST') {
+        const body = await readBody(req);
+        if (!body.endpoint) return jsonResponse(res, 400, { ok: false, error: 'endpoint is required' });
+        const result = await repo.removePushSubscription(body.endpoint);
+        return jsonResponse(res, 200, { ok: true, ...result });
+      }
+      if (p === '/push/test' && req.method === 'POST') {
+        const result = await pushNotify.notifyAll(
+          repo,
+          pushNotify.buildPayload({ title: 'Sentinel test notification', path: '/#/dashboard', tag: 'test' }),
+          env
+        );
+        return jsonResponse(res, 200, { ok: true, ...result });
+      }
+
       // ----------------------------------------------------------- audit
       if (p === '/audit') {
         return jsonResponse(res, 200, { ok: true, recent: await audit.recent(db, 50) });
@@ -241,7 +280,8 @@ function createService(options = {}) {
         error: `no such endpoint: ${p}`,
         endpoints: ['/health', '/dashboard', '/clock', '/requests', '/requests/:id',
                     '/requests/:id/status', '/received_records', '/draft', '/export',
-                    '/audit', '/agencies', '/templates', '/rules'],
+                    '/audit', '/agencies', '/templates', '/rules',
+                    '/push/vapid-public-key', '/push/subscribe', '/push/unsubscribe', '/push/test'],
       });
     } catch (err) {
       // Never leak a stack to the browser; the operator reads the terminal.

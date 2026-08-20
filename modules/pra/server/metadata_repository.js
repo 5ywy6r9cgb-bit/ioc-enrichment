@@ -369,6 +369,74 @@ class MetadataRepository {
 
   // ---------------------------------------------------------- dashboard
   /** The counts the desk shows. One round trip. */
+  // ---------------------------------------------------------- push (0006)
+  /** Upsert by endpoint — re-subscribing the same browser install updates keys. */
+  async addPushSubscription({ endpoint, p256dhKey, authKey, label = null, actor = 'local_operator' } = {}) {
+    if (!endpoint) throw new RepositoryError('addPushSubscription: endpoint is required');
+    if (!p256dhKey || !authKey) throw new RepositoryError('addPushSubscription: p256dhKey and authKey are required');
+
+    return this.db.withTransaction(async (client) => {
+      const res = await client.query(
+        `INSERT INTO push_subscriptions (endpoint, p256dh_key, auth_key, label)
+         VALUES ($1,$2,$3,$4)
+         ON CONFLICT (endpoint) DO UPDATE SET
+           p256dh_key = EXCLUDED.p256dh_key,
+           auth_key = EXCLUDED.auth_key,
+           label = COALESCE(EXCLUDED.label, push_subscriptions.label),
+           last_seen_at = now(),
+           consecutive_failures = 0,
+           last_push_failed_at = NULL
+         RETURNING *`,
+        [endpoint, p256dhKey, authKey, label]
+      );
+      await audit.record(client, {
+        entityType: 'system', entityId: String(res.rows[0].subscription_id),
+        action: 'create', detail: { kind: 'push_subscription', label }, actor,
+      });
+      return res.rows[0];
+    });
+  }
+
+  async listPushSubscriptions() {
+    const res = await this.db.query('SELECT * FROM push_subscriptions ORDER BY created_at ASC', []);
+    return res.rows;
+  }
+
+  /** A 404/410 from the push service means the browser discarded the subscription. */
+  async recordPushOutcome(endpoint, { failed = false, gone = false } = {}) {
+    if (gone) {
+      const res = await this.db.query('DELETE FROM push_subscriptions WHERE endpoint = $1 RETURNING subscription_id', [endpoint]);
+      return { removed: res.rows.length > 0 };
+    }
+    if (failed) {
+      await this.db.query(
+        `UPDATE push_subscriptions
+            SET consecutive_failures = consecutive_failures + 1, last_push_failed_at = now()
+          WHERE endpoint = $1`,
+        [endpoint]
+      );
+      return { removed: false };
+    }
+    await this.db.query(
+      `UPDATE push_subscriptions SET last_seen_at = now(), consecutive_failures = 0 WHERE endpoint = $1`,
+      [endpoint]
+    );
+    return { removed: false };
+  }
+
+  async removePushSubscription(endpoint, { actor = 'local_operator' } = {}) {
+    return this.db.withTransaction(async (client) => {
+      const res = await client.query('DELETE FROM push_subscriptions WHERE endpoint = $1 RETURNING subscription_id', [endpoint]);
+      if (res.rows.length) {
+        await audit.record(client, {
+          entityType: 'system', entityId: String(res.rows[0].subscription_id),
+          action: 'update', detail: { kind: 'push_subscription', removed: true }, actor,
+        });
+      }
+      return { removed: res.rows.length > 0 };
+    });
+  }
+
   async dashboardCounts() {
     const res = await this.db.query(`
       SELECT

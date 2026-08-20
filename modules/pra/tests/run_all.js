@@ -25,6 +25,7 @@ const SUITES = [
   ['fallback_behavior',         require('./fallback_behavior.test.js')],
   ['intel_repo',                require('./intel_repo.test.js')],
   ['olac_lobbying',             require('./olac_lobbying.test.js')],
+  ['push_notify',                require('./push_notify.test.js')],
 ];
 
 (async () => {

@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b1220">
+<title>Sentinel PRA — Mobile</title>
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Sentinel">
+<style>
+  :root { --bg:#0b1220; --card:#121a2b; --line:#22304a; --ink:#e7edf7; --muted:#8ea0bd; --green:#3fb950; --red:#e5484d; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;
+         padding-bottom: env(safe-area-inset-bottom); padding-top: env(safe-area-inset-top); }
+  header { padding:20px 18px 12px; }
+  header h1 { font-size:19px; margin:0 0 4px; }
+  header p { margin:0; color:var(--muted); font-size:13px; }
+  main { padding: 0 16px 24px; max-width: 600px; margin: 0 auto; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; margin-bottom:14px; }
+  .card h2 { font-size:12px; text-transform:uppercase; letter-spacing:0.5px; color:var(--muted); margin:0 0 10px; }
+  #status, #push-status { font-size:14px; }
+  .ok { color:var(--green); }
+  .down { color:var(--red); }
+  ul { list-style:none; margin:0; padding:0; }
+  ul li { display:flex; justify-content:space-between; gap:12px; padding:8px 0; border-bottom:1px solid var(--line); font-size:14px; }
+  ul li:last-child { border-bottom:none; }
+  ul li.muted { color:var(--muted); font-size:13px; }
+  button { width:100%; padding:12px; border-radius:10px; border:1px solid var(--line); background:#1a2540; color:var(--ink);
+           font-size:14px; font-weight:600; margin-top:8px; }
+  button:disabled { opacity:0.5; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Sentinel PRA — Mobile</h1>
+  <p>Client for the local service at <code>server/local_service.js</code>.</p>
+</header>
+<main>
+  <div class="card">
+    <h2>Connection</h2>
+    <div id="status" class="down">Checking…</div>
+    <button id="refresh">Refresh</button>
+  </div>
+
+  <div class="card">
+    <h2>Dashboard</h2>
+    <ul id="summary-list"><li class="muted">Waiting for connection…</li></ul>
+  </div>
+
+  <div class="card">
+    <h2>Needs attention</h2>
+    <ul id="attention-list"><li class="muted">Waiting for connection…</li></ul>
+  </div>
+
+  <div class="card">
+    <h2>Notifications</h2>
+    <div id="push-status" class="down">Checking server…</div>
+    <button id="enable-push">Enable notifications on this device</button>
+  </div>
+</main>
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

@@ -56,6 +56,25 @@ class FakeDb {
       return { rows: [target], rowCount: 1 };
     }
 
+    // DELETE, like UPDATE above, is modelled blunt rather than exact: it
+    // removes every row currently held for that table (staged rows in an
+    // open transaction, or committed rows otherwise) and returns them via
+    // RETURNING. Good enough to prove "a delete removed what was there" —
+    // exact WHERE-clause matching would need a real query planner.
+    const d = /delete\s+from\s+([a-z_]+)/i.exec(text);
+    if (d) {
+      const table = d[1];
+      const committed = this._rowsFor(table, this.tables);
+      const removedCommitted = committed.splice(0, committed.length);
+      let removedStaged = [];
+      if (this._depth > 0) {
+        const staged = this._rowsFor(table, this._staged);
+        removedStaged = staged.splice(0, staged.length);
+      }
+      const removed = removedCommitted.concat(removedStaged);
+      return { rows: removed, rowCount: removed.length };
+    }
+
     const s = /select[\s\S]*?from\s+([a-z_]+)/i.exec(text);
     if (s) {
       const committed = this._rowsFor(s[1], this.tables);
