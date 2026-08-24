@@ -186,6 +186,7 @@ const CONNECTORS = {
   fec: {
     label: 'FEC (campaign finance)',
     keyVar: 'FEC_API_KEY',
+    keyVarAlt: 'DATA_GOV_API_KEY',   // same federation — one key serves both
     keyRequired: true,   // free from api.data.gov; DEMO_KEY works for a trial
     calls: 1,
     describe: (q) => `GET https://api.open.fec.gov/v1/candidates/search/  (q: ${q})`,
@@ -238,6 +239,107 @@ const CONNECTORS = {
       issues: (r.lobbying_activities || []).map((a) => a.general_issue_code_display).filter(Boolean).join('; '),
       url: r.filing_document_url || '',
     })),
+    identify: (r) => r.external_id,
+  },
+
+  // ======================================================================
+  // THE PUBLIC-DATA LANE
+  //
+  // Two keys the operator holds as of 2026-08-24:
+  //
+  //   regulationsgov  federal rulemaking dockets + public comments
+  //   bls             Bureau of Labor Statistics time series
+  //
+  // NOTE ON THE api.data.gov KEY: one key works across api.data.gov's
+  // whole federation — regulations.gov, the FEC, and others. If you set
+  // DATA_GOV_API_KEY, the fec connector above will accept it too, so you
+  // do not need two separate registrations for those. BLS is NOT part of
+  // that federation; it issues its own registration key separately.
+  // ======================================================================
+
+  regulationsgov: {
+    label: 'Regulations.gov (federal rulemaking)',
+    keyVar: 'DATA_GOV_API_KEY',
+    keyRequired: true,   // free at api.data.gov/signup; DEMO_KEY works for a trial
+    calls: 1,
+    describe: (q) => `GET https://api.regulations.gov/v4/documents  (searchTerm: ${q})`,
+    probe: (key) => ({
+      method: 'GET',
+      url: 'https://api.regulations.gov/v4/documents?page[size]=5',
+      headers: { 'X-Api-Key': key || 'DEMO_KEY' },
+    }),
+    run: (q, key) => ({
+      method: 'GET',
+      url: 'https://api.regulations.gov/v4/documents'
+         + `?filter[searchTerm]=${encodeURIComponent(q)}`
+         + '&sort=-postedDate&page[size]=25',
+      headers: { 'X-Api-Key': key },
+    }),
+    parse: (json) => (json.data || []).map((r) => {
+      const a = r.attributes || {};
+      return {
+        external_id: r.id,
+        name: a.title || '(untitled)',
+        agency: a.agencyId || '',
+        doc_type: a.documentType || '',
+        date: a.postedDate || '',
+        docket: a.docketId || '',
+        comment_end: a.commentEndDate || '',
+        url: r.id ? `https://www.regulations.gov/document/${r.id}` : '',
+      };
+    }),
+    identify: (r) => r.external_id,
+  },
+
+  bls: {
+    label: 'BLS (labor statistics)',
+    keyVar: 'BLS_API_KEY',
+    keyRequired: false,  // v2 works unregistered at a low daily cap; a key raises it
+    calls: 1,
+    // The "query" for this connector is a BLS SERIES ID, not free text —
+    // there is no keyword search in the public API. Franklin County
+    // unemployment, for example, is LAUCN390490000000003. Passing a
+    // phrase here returns an empty series, not an error, so the describe
+    // line says so rather than letting a silent empty result look like
+    // "no data exists."
+    describe: (q) => `POST https://api.bls.gov/publicAPI/v2/timeseries/data/  (series id: ${q}`
+                   + ` — this API takes SERIES IDS, not keywords)`,
+    probe: () => ({
+      method: 'GET',
+      url: 'https://api.bls.gov/publicAPI/v2/timeseries/data/LAUCN390490000000003',
+      headers: {},
+    }),
+    run: (q, key) => {
+      const year = new Date().getUTCFullYear();
+      const body = { seriesid: [q], startyear: String(year - 5), endyear: String(year) };
+      if (key) body.registrationkey = key;
+      return {
+        method: 'POST',
+        url: 'https://api.bls.gov/publicAPI/v2/timeseries/data/',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      };
+    },
+    parse: (json) => {
+      const series = (json.Results && json.Results.series) || [];
+      const out = [];
+      for (const s of series) {
+        for (const d of (s.data || [])) {
+          out.push({
+            // One observation per row, so the seen-set diffs per data point:
+            // a revised prior month is genuinely new information.
+            external_id: `${s.seriesID}:${d.year}-${d.period}`,
+            name: `${s.seriesID} ${d.periodName} ${d.year}`,
+            series_id: s.seriesID,
+            period: `${d.year}-${d.period}`,
+            value: d.value,
+            footnotes: (d.footnotes || []).map((f) => f && f.text).filter(Boolean).join('; '),
+            url: `https://data.bls.gov/timeseries/${s.seriesID}`,
+          });
+        }
+      }
+      return out;
+    },
     identify: (r) => r.external_id,
   },
 
@@ -298,9 +400,13 @@ async function runConnector(name, query, opts = {}) {
   if (!query) return { ok: false, error: 'empty query', results: [] };
 
   const env = opts.env || loadEnv();
-  const key = c.keyVar ? (env[c.keyVar] || '') : '';
+  // keyVarAlt lets one api.data.gov registration serve every connector in
+  // that federation, so the operator is not asked to register twice for a
+  // key the government already treats as one key.
+  const key = c.keyVar ? (env[c.keyVar] || (c.keyVarAlt ? env[c.keyVarAlt] : '') || '') : '';
   if (c.keyRequired && !key) {
-    return { ok: false, error: `${c.keyVar} is not set`, keyMissing: true, results: [] };
+    const names = c.keyVarAlt ? `${c.keyVar} (or ${c.keyVarAlt})` : c.keyVar;
+    return { ok: false, error: `${names} is not set`, keyMissing: true, results: [] };
   }
 
   const spec = c.run(query, key);

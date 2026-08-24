@@ -148,6 +148,34 @@
     },
 
     {
+      "_SECTION": "PUBLIC DATA — the two keys added 2026-08-24",
+      "id": "WATCH-REG-01",
+      "label": "Federal rulemaking — data centers",
+      "investigation": "the-water",
+      "connector": "regulationsgov",
+      "query": "data center energy",
+      "cadence": "weekly",
+      "_note": "New federal proposed rules and comment periods touching data-center power. Needs DATA_GOV_API_KEY (free at api.data.gov/signup) — the SAME key also unlocks the fec connector."
+    },
+    {
+      "id": "WATCH-REG-02",
+      "label": "Federal rulemaking — ALPR / surveillance",
+      "investigation": "the-cameras",
+      "connector": "regulationsgov",
+      "query": "automated license plate reader",
+      "cadence": "weekly"
+    },
+    {
+      "id": "WATCH-BLS-01",
+      "label": "Franklin County unemployment rate",
+      "investigation": "unfiled",
+      "connector": "bls",
+      "query": "LAUCN390490000000003",
+      "cadence": "monthly",
+      "_note": "[VERIFY THE SERIES ID BEFORE TRUSTING A RESULT] This is the LAUS format for Franklin County OH unemployment rate, but confirm it on data.bls.gov before citing any number from it. BLS revises prior months, so each revision arrives as a new hit by design — that is a feature, not noise."
+    },
+
+    {
       "_SECTION": "SURVEILLANCE VENDORS — investigate the industry, never operate its tools",
       "_note": "Prompted by the leaked location-API client filed as LEAK-LOCATIONAPI-001. We research WHO these vendors are and who buys from them, through legitimate filings only. We do not touch their endpoints.",
       "id": "WATCH-VENDOR-01",
