@@ -195,6 +195,94 @@ function cmdList() {
 }
 
 /**
+ * Parse `connect all` arguments by walking them in order.
+ *
+ * ─────────────────────────────────────────────────────────────────────────
+ * WHY NOT THE OBVIOUS THING
+ *
+ * The first version built the subject by taking every positional argument and
+ * SUBTRACTING the known flag values. On a real run:
+ *
+ *     bin/sentinel connect all "vadata" --into data center
+ *     subject     vadata center
+ *     filing to   evidence/investigations/data/
+ *
+ * `--into` consumed only `data`; `center` was not a known flag value, so it
+ * survived into the subject and the desk searched for something the operator
+ * never typed. Nothing warned. The run looked completely normal and returned
+ * nothing, which reads as "no results" rather than "you searched the wrong
+ * string". The same silent corruption hit three other searches in that session.
+ *
+ * Walking in order removes the guesswork: a flag takes exactly the next token,
+ * and everything before the first flag is the subject. A bare token appearing
+ * AFTER a flag is refused rather than absorbed, because at that point there is
+ * no way to know whether the operator meant it as part of the flag value or
+ * part of the subject — and guessing is what caused this.
+ */
+function parseAllArgs(args) {
+  const KNOWN = { into: 1, only: 1, skip: 1 };
+  const BOOLEAN = new Set(['dry-run', 'verbose']);
+  const subject = [];
+  const opts = { dryRun: false, verbose: false, into: null, only: null, skip: null };
+  let seenFlag = false;
+
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+
+    if (a.startsWith('--')) {
+      seenFlag = true;
+      const eq = a.indexOf('=');
+      const name = eq > 0 ? a.slice(2, eq) : a.slice(2);
+      let value = eq > 0 ? a.slice(eq + 1) : null;
+
+      if (BOOLEAN.has(name)) {
+        if (name === 'dry-run') opts.dryRun = true;
+        if (name === 'verbose') opts.verbose = true;
+        continue;
+      }
+      if (!(name in KNOWN)) {
+        return { error: `unknown option --${name}. Known: --into, --only, --skip, --dry-run, --verbose` };
+      }
+      if (value === null) {
+        value = args[++i];
+        if (value === undefined || value.startsWith('--')) {
+          return { error: `--${name} needs a value` };
+        }
+      }
+      if (name === 'into') opts.into = value;
+      if (name === 'only') opts.only = value.split(',').map((x) => x.trim()).filter(Boolean);
+      if (name === 'skip') opts.skip = value.split(',').map((x) => x.trim()).filter(Boolean);
+      continue;
+    }
+
+    // A bare word after a flag is ambiguous. Refuse instead of absorbing it.
+    if (seenFlag) {
+      return {
+        error: `stray word "${a}" after an option.\n`
+          + `  Quote the whole subject and put options last:\n`
+          + `    sentinel connect all "${[...subject, a].join(' ')}" --into <one-word-name>\n`
+          + `  An investigation name becomes a folder, so it takes one word: `
+          + `"data-centers", not "data centers".`,
+      };
+    }
+    subject.push(a);
+  }
+
+  if (!subject.length) return { error: 'no subject. usage: connect all "<subject>" [--into <name>]' };
+
+  // The folder name has to survive being a path component.
+  if (opts.into && !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(opts.into)) {
+    return {
+      error: `--into "${opts.into}" is not usable as a folder name.\n`
+        + `  Letters, digits, dot, dash, underscore. Try: `
+        + `${opts.into.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'my-investigation'}`,
+    };
+  }
+
+  return { subject: subject.join(' '), opts };
+}
+
+/**
  * Search EVERY usable connector for one subject.
  *
  * ─────────────────────────────────────────────────────────────────────────
@@ -421,21 +509,12 @@ async function main() {
   if (action === 'test') return cmdTest();
   if (action === 'list') return cmdList();
   if (action === 'all') {
-    const valOf = (n) => {
-      const hit = argv.find((a) => a.startsWith(`--${n}=`));
-      if (hit) return hit.slice(n.length + 3);
-      const i = argv.indexOf(`--${n}`);
-      return i >= 0 ? argv[i + 1] : null;
-    };
-    const listOf = (n) => { const v = valOf(n); return v ? v.split(',').map((x) => x.trim()) : null; };
-    // The subject is everything positional after `all`, minus any flag values.
-    const flagVals = new Set(['into', 'only', 'skip'].map(valOf).filter(Boolean));
-    const subject = args.slice(1).filter((a) => !flagVals.has(a)).join(' ');
-    return cmdAll(subject, {
-      dryRun: opts.dryRun, into: valOf('into'),
-      only: listOf('only'), skip: listOf('skip'),
-      verbose: argv.includes('--verbose'),
-    });
+    const parsed = parseAllArgs(argv.slice(1));
+    if (parsed.error) {
+      console.error(`\n  ${C.r(parsed.error)}\n`);
+      process.exit(2);
+    }
+    return cmdAll(parsed.subject, parsed.opts);
   }
   if (action === 'search') return cmdSearch(args[1], args.slice(2).join(' '), opts);
   if (R.CONNECTORS[action]) return cmdSearch(action, args.slice(1).join(' '), opts);
@@ -451,4 +530,4 @@ if (require.main === module) {
   main().catch((e) => { console.error(e); process.exit(1); });
 }
 
-module.exports = { verdictFor, cmdTest, wrap };
+module.exports = { verdictFor, cmdTest, wrap, parseAllArgs };

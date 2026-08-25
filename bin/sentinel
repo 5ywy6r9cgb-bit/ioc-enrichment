@@ -50,12 +50,33 @@ bold() { printf '\033[1m%s\033[0m\n' "$1"; }
 
 usage() {
   sed -n '3,40p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  cat <<'EXTRA'
+
+WHAT THIS IS NOT
+  There is no natural-language query. "Who owns the land under the New Albany
+  data centers?" is a research question, not a command — and no connector here
+  can answer it, because parcel ownership is a county auditor record. The desk
+  runs SEARCHES against named sources and RUNS CLOCKS on records requests. The
+  thinking stays yours.
+
+THE FIVE YOU WILL ACTUALLY USE
+  sentinel pra foia                     what records requests need you today
+  sentinel connect all "<subject>"      search every source at once
+  sentinel case status <ID>             can this be published, and what blocks it
+  sentinel dash                         the dashboard over every case
+  sentinel watch run --all              force the overnight run now
+
+FULL GUIDES
+  docs/START_HERE.md            setup, in order, with checkpoints
+  docs/DATACENTER_LIBRARY.md    a worked research plan
+  docs/API_KEYS.md              where keys go and how to check them
+EXTRA
 }
 
 cmd="${1:-help}"; shift || true
 
 case "$cmd" in
-  help|-h|--help) usage ;;
+  help|-h|--help|commands|\?) usage ;;
 
   status)
     bold "Sentinel OS — status"

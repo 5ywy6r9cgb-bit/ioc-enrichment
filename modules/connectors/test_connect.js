@@ -305,6 +305,53 @@ module.exports = function run() {
       /marked\.sort/.test(cli2));
   }
 
+  // ══ argument parsing ═════════════════════════════════════════════════
+  // A real run: `connect all "vadata" --into data center` searched for
+  // "vadata center" and filed into "data". `--into` took one token and the
+  // leftover was absorbed into the subject. Nothing warned; the run looked
+  // normal and returned nothing, which reads as "no results" rather than
+  // "you searched a string you never typed".
+  {
+    const { parseAllArgs: P } = require('./cli.js');
+
+    const bad = P(['vadata', '--into', 'data', 'center']);
+    check('a stray word after an option is REFUSED, not absorbed',
+      !!bad.error && /stray word "center"/.test(bad.error), JSON.stringify(bad));
+    check('and the fix is spelled out',
+      /Quote the whole subject/.test(bad.error));
+    check('naming the one-word folder rule',
+      /"data-centers", not "data centers"/.test(bad.error));
+
+    const ok = P(['New', 'Albany', 'Company', '--into', 'new-albany']);
+    check('an unquoted multi-word subject before the flag still works',
+      ok.subject === 'New Albany Company' && ok.opts.into === 'new-albany',
+      JSON.stringify(ok));
+    check('a quoted subject works', P(['Vadata', '--into', 'dc']).subject === 'Vadata');
+    check('booleans do not eat the next word',
+      P(['Cologix', '--dry-run', '--into', 'dc']).opts.dryRun === true
+      && P(['Cologix', '--dry-run', '--into', 'dc']).opts.into === 'dc');
+    check('--flag=value form works',
+      P(['Cologix', '--into=dc']).opts.into === 'dc');
+    check('--only splits on commas',
+      P(['X', '--only', 'fec,usaspending']).opts.only.join(',') === 'fec,usaspending');
+
+    check('a flag with no value is refused',
+      /needs a value/.test(P(['x', '--into']).error || ''));
+    check('a flag followed by another flag is refused',
+      /needs a value/.test(P(['x', '--into', '--verbose']).error || ''));
+    check('no subject at all is refused',
+      /no subject/.test(P(['--into', 'dc']).error || ''));
+    check('an unknown option is refused rather than ignored',
+      /unknown option --bogus/.test(P(['x', '--bogus', 'y']).error || ''));
+
+    // The investigation name becomes a directory.
+    check('a path-traversing investigation name is refused',
+      !!P(['x', '--into', '../../etc']).error);
+    check('and a usable slug is suggested',
+      /Try: /.test(P(['x', '--into', 'Data Centers!']).error || ''),
+      P(['x', '--into', 'Data Centers!']).error);
+  }
+
   console.log(`\n  ${FAIL === 0 ? 'PASS' : 'FAIL'} — ${PASS}/${PASS + FAIL} checks\n`);
   return FAIL;
 };
