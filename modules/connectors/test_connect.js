@@ -293,14 +293,34 @@ module.exports = function run() {
     check('Advantage is flagged for Vantage', f('Vantage', 'Advantage Solutions') === true);
     check('a name with no match at all is not flagged',
       f('Cologix', 'Franklin County Auditor') === false);
-    check('a short query is never flagged — it would match everything',
-      f('AWS', 'LAWSON PRODUCTS') === false);
+    // Regression from a live run: a search for "AWS" returned 25 DAWSON
+    // companies, $248m of Department of Agriculture money among them, and
+    // flagged none — the rule skipped queries under four characters. The
+    // shorter the query, the MORE substring noise it draws.
+    check('a three-letter query still flags substring noise',
+      f('AWS', "DAWSON'S REALTY & MORTGAGES, INC.") === true);
+    check('and so does two',
+      f('GM', 'GMAC MORTGAGE CORP') === true);
+    check('but a real AWS entity stays clean',
+      f('AWS', 'AWS PUBLIC POLICY, AMERICAS') === false);
+    check('including one where it is not the first word',
+      f('AWS', 'COLUSSI AWS, INC.') === false);
+    check('a single character is still skipped — it would flag everything',
+      f('A', 'AMAZON') === false);
     check('regex metacharacters in a query do not throw',
       (() => { try { f('a.b*c', 'xa.b*cy'); return true; } catch { return false; } })());
 
     const cli2 = require('fs').readFileSync(require.resolve('./cli.js'), 'utf8');
     check('flagged hits are marked, never dropped',
       /kept, not dropped/.test(cli2) && !/filter\(.*looksLikeSubstring/.test(cli2));
+    // Strip comments first. cli.js documents this very fix by quoting the
+    // hardcoded string it removed, and a guard that matches the explanation
+    // of a bug is the third time that has bitten in this repo.
+    const cliCode = cli2.split('\n')
+      .filter((l) => !/^\s*(\*|\/\/|\/\*)/.test(l)).join('\n');
+    check('the example named is from THIS run, not hardcoded',
+      !/ECOLOGIX for Cologix/.test(cliCode) && /example\.hit\.name/.test(cliCode),
+      'a "meta" search reported its hits against an ECOLOGIX example');
     check('and clean matches sort above them',
       /marked\.sort/.test(cli2));
   }

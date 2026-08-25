@@ -309,7 +309,13 @@ function looksLikeSubstringMatch(query, name) {
   if (!query || !name) return false;
   const q = String(query).toLowerCase().trim();
   const n = String(name).toLowerCase();
-  if (q.length < 4) return false;          // short queries match everything
+  // Minimum 2, not 4. The first version skipped queries under four characters
+  // on the theory that short queries match everything — which is exactly
+  // backwards. A live search for "AWS" returned twenty-five DAWSON companies,
+  // $248m of Department of Agriculture money among them, and flagged none of
+  // them, because "aws" is three characters. The shorter the query, the more
+  // substring noise it draws and the more the flag is needed.
+  if (q.length < 2) return false;
   if (!n.includes(q)) return false;        // no match at all is not this problem
 
   // A word-boundary occurrence anywhere means it is a real name match.

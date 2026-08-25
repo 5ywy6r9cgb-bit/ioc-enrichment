@@ -402,8 +402,15 @@ async function cmdAll(query, opts) {
       console.log(C.dim(`    …and ${marked.length - 5} more (all in the capture)`));
     }
     if (nSub) {
-      console.log(C.dim(`    ${nSub} of ${marked.length} match only inside a longer `
-        + `word (ECOLOGIX for Cologix) — kept, not dropped`));
+      // Name the actual example from THIS run. The first version hardcoded
+      // "(ECOLOGIX for Cologix)", so a search for "meta" reported its own
+      // flagged hits against an example from a different subject entirely —
+      // which reads as a bug in the tool rather than a note about the results.
+      const example = marked.find((m) => m.sub);
+      const exName = example && (example.hit.name || example.hit.title || '');
+      console.log(C.dim(`    ${nSub} of ${marked.length} match only inside a longer word`
+        + (exName ? ` (${String(exName).slice(0, 34)} for "${query}")` : '')
+        + ` — kept, not dropped`));
     }
     console.log(C.dim(`    capture  ${path.relative(R.EVIDENCE, r.capturePath)}`));
     console.log('');
