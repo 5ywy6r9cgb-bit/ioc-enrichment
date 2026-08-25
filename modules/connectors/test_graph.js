@@ -196,6 +196,24 @@ module.exports = async function run() {
     check('an unparseable URI is not treated as local', !G.isLocal('not a uri'));
   }
 
+  // ══ 7b. A PLACEHOLDER PASSWORD IS NOT A PASSWORD ══════════════════════
+  // Copying the .env block out of the docs verbatim is the normal thing to
+  // do. Caught here, it says "your .env still has the placeholder"; caught by
+  // Neo4j, it says "credentials rejected" and you go looking at the database.
+  {
+    check('the docs placeholder is recognised',
+      G.isPlaceholderPassword('whatever-you-set')
+      && G.isPlaceholderPassword('the-password-you-set'));
+    check('the Neo4j factory default is recognised',
+      G.isPlaceholderPassword('neo4j'));
+    check('case and surrounding space do not hide a placeholder',
+      G.isPlaceholderPassword('  ChangeMe  '));
+    check('a real password is not flagged',
+      !G.isPlaceholderPassword('correct-horse-battery-staple'));
+    check('an empty password is handled separately, not as a placeholder',
+      !G.isPlaceholderPassword('') && !G.isPlaceholderPassword(undefined));
+  }
+
   // ══ 8. push() RUNS THE STATEMENTS, IN ORDER ═══════════════════════════
   {
     const dir = fixture({

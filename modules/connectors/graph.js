@@ -286,6 +286,26 @@ async function push(graph, session) {
   return done;
 }
 
+/**
+ * Is this password a placeholder someone copied out of the docs?
+ *
+ * Without this the mistake surfaces much later as "Neo4j rejected the
+ * credentials", which sends you looking at the database instead of at the
+ * .env you just wrote. 'neo4j' is included because it is the factory default
+ * that Neo4j itself forces you to change on first login -- if it is still
+ * that, the database has not been set up yet.
+ */
+const PLACEHOLDER_PASSWORDS = new Set([
+  'whatever-you-set', 'the-password-you-set', 'your-password', 'yourpassword',
+  'changeme', 'change-me', 'password', 'neo4j', 'xxx', '...', 'secret',
+]);
+
+function isPlaceholderPassword(pass) {
+  if (!pass) return false;
+  return PLACEHOLDER_PASSWORDS.has(String(pass).trim().toLowerCase());
+}
+
 module.exports = {
   build, toCypher, push, isLocal, readEnv, LOCAL_HOSTS,
+  isPlaceholderPassword, PLACEHOLDER_PASSWORDS,
 };

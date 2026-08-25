@@ -379,8 +379,18 @@ NEO4J_USER=neo4j
 NEO4J_PASSWORD=the-password-you-set
 ```
 
-A fresh Neo4j forces a password change on first login — do that at
-<http://localhost:7474> before the first push, or the write fails on auth.
+A fresh Neo4j forces a password change on first login — do that before the
+first push. If `.env` still holds the placeholder above, the push says so and
+stops rather than letting it surface later as a credentials error.
+
+**Neo4j Desktop installs no `neo4j` command.** `which neo4j` finding nothing
+is normal; the app manages the database. What matters is that an instance is
+**Started** and that something is listening on 7687 (`lsof -i :7687`).
+
+**Paste one command at a time.** zsh interactive shells treat `#` as an
+argument, not a comment, so copying a block with trailing comments produces
+`zsh: command not found: #` and feeds the comment words to the previous
+command. Same pitfall as the launchd schedule.
 
 **The shape of the graph is the point.**
 

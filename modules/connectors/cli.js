@@ -592,6 +592,17 @@ async function cmdGraph(opts) {
   const user = process.env.NEO4J_USER || env.NEO4J_USER || 'neo4j';
   const pass = process.env.NEO4J_PASSWORD || env.NEO4J_PASSWORD || '';
 
+  // A placeholder copied out of the docs is not a password. Without this the
+  // failure surfaces much later as "Neo4j rejected the credentials", which
+  // sends you looking at the database instead of at the .env you just wrote.
+  if (G.isPlaceholderPassword(pass)) {
+    console.error(`\n  ${C.r('NEO4J_PASSWORD is still a placeholder.')}  ${C.dim(`("${pass}")`)}`);
+    console.error(C.dim(`  Edit ${path.join(__dirname, '.env')} and put the real password in.`));
+    console.error(C.dim('  It is whatever you set when you first opened the database in'));
+    console.error(C.dim('  Neo4j Desktop — a fresh install makes you choose one.\n'));
+    process.exit(2);
+  }
+
   if (!pass) {
     console.error(`\n  ${C.r('NEO4J_PASSWORD is not set.')}`);
     console.error(C.dim(`  Add it to ${path.join(__dirname, '.env')} (chmod 600):`));
