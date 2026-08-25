@@ -59,12 +59,27 @@ module.exports = function run() {
 
   // ══ generic names are refused ═════════════════════════════════════════
   {
-    for (const g of ['AWS', 'the', 'City', 'United States', '']) {
-      check(`"${g}" is too generic to report as a connection`,
-        X.tooGeneric(X.normalise(g)) === true);
+    const gen = (n) => X.tooGeneric(X.normalise(n), n);
+
+    for (const g of ['AWS', 'the', '']) {
+      check(`"${g}" is too generic to report as a connection`, gen(g) === true);
     }
-    check('but a real short-ish name is kept',
-      X.tooGeneric(X.normalise('Cologix')) === false);
+
+    // Regression from a live run on 1023 results: splitting court captions
+    // produced the plaintiffs' surnames, and they were reported as
+    // connections. A surname on its own connects nothing and matches
+    // thousands of unrelated people.
+    for (const surname of ['Williams', 'Salter', 'Patterson', 'Woodhouse', 'Myers']) {
+      check(`caption surname "${surname}" is not an entity`, gen(surname) === true);
+    }
+
+    // And the same run showed an earlier heuristic dropping real companies.
+    for (const org of ['COLOGIX, INC.', 'VANTAGEKNIGHT LLC', 'NISOURCE INC.',
+                       'ALPINE GROUP PARTNERS, LLC.', 'Meta Platforms, Inc.',
+                       'AWS PUBLIC POLICY, AMERICAS', 'THE NEW ALBANY COMPANY LLC',
+                       'VADATA, INC.', 'AEP Ohio']) {
+      check(`"${org}" is kept`, gen(org) === false);
+    }
   }
 
   // ══ THE POINT: a registrant filing for several clients ════════════════
@@ -145,6 +160,33 @@ module.exports = function run() {
       sp('META PLATFORMS, INC. — DCI GROUP, L.L.C.').length === 2);
     check('a sentence with many "v" fragments is not shredded',
       sp('a v b v c v d v e').length === 1);
+  }
+
+  // ══ a document title is not a party ═══════════════════════════════════
+  // A live run reported "Self-Regulatory Organizations; Nasdaq MRX, LLC" as
+  // appearing under AWS, Amazon Data Services, and Meta Platforms. That is a
+  // Federal Register NOTICE that the full-text search matched three times —
+  // a search artifact, not a connection between three companies.
+  {
+    check('Federal Register is marked as returning document titles',
+      require('./registry.js').CONNECTORS.federalregister.entityNames === false);
+    check('and Regulations.gov too',
+      require('./registry.js').CONNECTORS.regulationsgov.entityNames === false);
+    check('while connectors that DO return parties are not marked',
+      ['opencorporates', 'senatelda', 'courtlistener', 'usaspending']
+        .every((n) => require('./registry.js').CONNECTORS[n].entityNames !== false));
+
+    const cap = fixture({
+      'live_capture_federalregister_AWS_2026-08-25T01-00-00-000Z.json':
+        { results: [{ document_number: '1', title: 'Self-Regulatory Organizations; Nasdaq MRX, LLC',
+                      publication_date: '2026-01-01', agencies: [] }] },
+      'live_capture_federalregister_Meta_Platforms_2026-08-25T02-00-00-000Z.json':
+        { results: [{ document_number: '2', title: 'Self-Regulatory Organizations; Nasdaq MRX, LLC',
+                      publication_date: '2026-01-02', agencies: [] }] },
+    });
+    const cross = X.crossSubject(X.index(X.readCaptures(cap)).byName, { minSubjects: 2 });
+    check('a rulemaking title under two subjects is NOT reported as a link',
+      cross.length === 0, cross.map((c) => c.name).join(' | '));
   }
 
   // ══ ranking ═══════════════════════════════════════════════════════════

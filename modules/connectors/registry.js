@@ -393,6 +393,11 @@ const CONNECTORS = {
 
   federalregister: {
     label: 'Federal Register',
+    // The `name` this returns is a DOCUMENT TITLE, not a party. crosslink
+    // excludes it from the entity index: a rulemaking notice turning up under
+    // four subjects means the full-text search matched it four times, which is
+    // a search artifact, not a connection between those subjects.
+    entityNames: false,
     keyVar: null,          // no key required — documented divergence
     keyRequired: false,
     calls: 1,
@@ -515,6 +520,11 @@ const CONNECTORS = {
 
   regulationsgov: {
     label: 'Regulations.gov (federal rulemaking)',
+    // The `name` this returns is a DOCUMENT TITLE, not a party. crosslink
+    // excludes it from the entity index: a rulemaking notice turning up under
+    // four subjects means the full-text search matched it four times, which is
+    // a search artifact, not a connection between those subjects.
+    entityNames: false,
     keyVar: 'DATA_GOV_API_KEY',
     keyRequired: true,   // free at api.data.gov/signup; DEMO_KEY works for a trial
     calls: 1,

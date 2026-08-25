@@ -95,11 +95,43 @@ const STOPWORDS = new Set([
   'united states', 'usa', 'department', 'state', 'city', 'county', 'court',
 ]);
 
-function tooGeneric(norm) {
+/**
+ * Markers in the ORIGINAL name that identify an organisation. This is
+ * evidence, not a guess: "LLC" in the name someone filed under is a fact
+ * about the entity.
+ */
+const ORG_MARKERS = /\b(inc|llc|l\.l\.c|ltd|limited|corp|corporation|co|company|group|partners|partnership|holdings?|lp|llp|plc|gmbh|ag|b\.?v|n\.?v|s\.?a|s\.r\.l|pty|associates|systems|services|solutions|technologies|energy|power|electric|gas|utilities|bank|capital|trust|foundation|association|university|college|county|city|state|department|authority|district|commission|board|agency|institute|society|union|council)\b/i;
+
+/**
+ * Is this name too generic — or not an entity at all — to report as a link?
+ *
+ * The hard case is a single bare word. Splitting court captions produced
+ * "Williams", "Salter", "Patterson", "Woodhouse" — the plaintiffs' surnames.
+ * A surname on its own connects nothing, matches thousands of unrelated
+ * people, and reporting it as an overlap is actively misleading.
+ *
+ * An earlier version tried to tell a surname from a company by counting
+ * letters and looking for uncommon ones. That is guessing, and it guessed
+ * wrong in both directions — it dropped ALPINE GROUP PARTNERS and NISOURCE
+ * INC. while keeping "Williams". The rule now asks for actual evidence: does
+ * the name as filed carry a corporate marker? "NISOURCE INC." does.
+ * "Williams" does not.
+ *
+ * A single-word company with no suffix anywhere ("Cologix" bare) is dropped
+ * as a consequence. That is the right side of the trade: it almost always
+ * appears elsewhere WITH a suffix, and a false link costs more than a missed
+ * one in a tool whose entire output is a shortlist to check by hand.
+ */
+function tooGeneric(norm, raw) {
   if (STOPWORDS.has(norm)) return true;
   if (norm.length < 4) return true;
-  // A single very common word is not an entity.
-  if (!norm.includes(' ') && norm.length < 6) return true;
+
+  // A corporate marker in the filed name settles it.
+  if (raw && ORG_MARKERS.test(String(raw))) return false;
+
+  // No marker, and one word after folding: treat as a person's surname.
+  if (!norm.includes(' ')) return true;
+
   return false;
 }
 
@@ -150,6 +182,13 @@ function index(captures) {
       const raw = r.name || r.title || '';
       if (!raw) continue;
 
+      // Some connectors return document titles rather than parties. A Federal
+      // Register notice appearing under four subjects means the full-text
+      // search matched it four times — a search artifact, not a connection.
+      if (R.CONNECTORS[cap.connector] && R.CONNECTORS[cap.connector].entityNames === false) {
+        continue;
+      }
+
       // Lobbying filings assert a relationship rather than merely co-occur.
       if (cap.connector === 'senatelda' && raw.includes(' — ')) {
         const [client, registrant] = raw.split(' — ').map((x) => x.trim());
@@ -165,7 +204,7 @@ function index(captures) {
 
       for (const piece of splitParties(raw)) {
         const key = normalise(piece);
-        if (tooGeneric(key)) continue;
+        if (tooGeneric(key, piece)) continue;
         if (!byName.has(key)) byName.set(key, { key, display: piece.trim(), seen: [] });
         byName.get(key).seen.push({
           connector: cap.connector, subject: cap.subject,
