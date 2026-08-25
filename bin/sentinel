@@ -115,6 +115,9 @@ case "$cmd" in
     echo "== provenance spine =="
     python3 "$ROOT/core/provenance/test_provenance.py"
     echo ""
+    echo "== operator manual vs. dispatcher =="
+    node "$ROOT/core/test_docs.js" || FAILED=1
+    echo ""
     echo "== notification content guard =="
     node "$ROOT/modules/watch/test_notify.js"
     echo ""
