@@ -234,6 +234,30 @@ bin/sentinel watch run --all     # run every saved search once, by hand
 bin/sentinel watch install       # schedule the nightly run via launchd
 ```
 
+The overnight run does two things. It runs your saved searches, and it runs the
+records desk — the clocks on every request you have filed. The desk stage runs
+first and unconditionally: it reads a local file and does arithmetic on dates,
+so it cannot fail because a connector is down.
+
+Each morning it writes:
+
+```
+evidence/watch/MORNING_BRIEF.md
+```
+
+That is the file to read with coffee. It names the agency, the rung, the exact
+draft command, and the deadline basis for each request. It is overwritten each
+run, because it answers "what needs me now" — the history lives in the request
+store.
+
+The notification is a doorbell, not a delivery. It carries counts and request
+IDs and never an agency name, because a notification crosses a lock screen and
+a third party's servers. Open the brief to see what arrived.
+
+If the store is corrupt, the stage fails LOUDLY and the brief says "No clocks
+were checked this morning." A quiet morning you did not verify is the one
+failure that would actually cost you something.
+
 `install` uses launchd rather than cron because launchd catches up a job whose
 window was missed while the Mac was asleep, and a laptop is asleep at 3am.
 
@@ -243,16 +267,15 @@ window was missed while the Mac was asleep, and a laptop is asleep at 3am.
 
 Stated plainly so you are not surprised:
 
-- **The FOIA tracker is not in the overnight run.** `sentinel watch` exists and
-  the tracker exists; nothing joins them, so an escalation will not appear in
-  the morning brief on its own. You have to run `bin/sentinel pra foia`.
-- **`foia --db` is untested against live Postgres.** The store and `--file`
-  paths are exercised; the database path is written but has not been run.
-- **`modules/sentinel-desk/` (the Python desk) does not import.** It is missing
-  `guard.py`, `audit.py`, `store.py`, and `ui.py`. Nothing else depends on it.
 - **Connector hosts were unreachable from the build sandbox**, so no connector
   has been proven against live data. That was a network policy, not the code —
-  see `docs/CONNECTOR_STATUS_REPORT_2026-08-20.md`.
+  see `docs/CONNECTOR_STATUS_REPORT_2026-08-20.md`. This is the only gap left,
+  and it is the one that needs your API keys and your machine to close.
+
+Everything else on this list is now done: the records desk runs overnight and
+writes `evidence/watch/MORNING_BRIEF.md`, `foia --db` works against live
+Postgres, and the Python desk (`bin/sentinel sdesk`) imports and passes 53
+checks.
 
 ---
 
@@ -264,6 +287,8 @@ Everything sensitive is under `evidence/`, which is gitignored in full:
 evidence/foia_requests.json      your records requests + correspondence log
 evidence/sentinel_cases/*.json   your case files
 evidence/sentinel_dashboard.html the generated dashboard
+evidence/watch/MORNING_BRIEF.md  what needs you today
+~/SentinelDesk/                  the Python desk: claims, vault, audit chain
 ```
 
 All written mode 600 — your user only. `modules/pra/.env` holds your API keys

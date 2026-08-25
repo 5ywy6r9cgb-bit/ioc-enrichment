@@ -19,6 +19,7 @@
 #   sentinel montage <args...>      openmontage video engine
 #   sentinel vuln <args...>         atlas CVE prioritization
 #   sentinel desk                   open the research desk in a browser
+#   sentinel sdesk <args...>        the Python desk: claims, gates, dossiers
 #
 #   sentinel case new <ID> "..."    start a case file
 #   sentinel case add <ID> <EX> <f> add an exhibit  (--kind financial --pages 44)
@@ -106,6 +107,12 @@ case "$cmd" in
       echo "(not present yet — see docs/RECONSTRUCTION_STATUS.md, priority 4)"
     fi
     echo ""
+    echo "== sentinel desk =="
+    ( cd "$ROOT/modules/sentinel-desk" && python3 test_sentinel.py ) || FAILED=1
+    echo ""
+    echo "== desk -> video seam =="
+    ( cd "$ROOT/modules/sentinel-desk" && python3 test_video_seam.py ) || FAILED=1
+    echo ""
     echo "== openmontage self-test =="
     python3 "$ROOT/modules/openmontage/engine/openmontage.py" --self-test 2>/dev/null \
       && echo "openmontage self-test ok" || echo "(openmontage self-test skipped — needs ffmpeg/Pillow)"
@@ -146,6 +153,11 @@ case "$cmd" in
 
   case)
     python3 "$ROOT/modules/research-desk/case.py" "$@"
+    ;;
+
+  sdesk)
+    # The Python research desk: cases, claims, gates, dossier export.
+    ( cd "$ROOT/modules/sentinel-desk" && python3 -m sentinel "$@" )
     ;;
 
   dash|dashboard)

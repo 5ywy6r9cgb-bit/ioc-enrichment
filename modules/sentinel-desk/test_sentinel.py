@@ -10,6 +10,7 @@ from __future__ import annotations
 import io
 import json
 import shutil
+import sqlite3
 import sys
 import tempfile
 import zipfile
@@ -30,6 +31,16 @@ def check(name: str, cond: bool, detail: str = ""):
     else:
         FAIL += 1
         print(f"  FAIL {name}" + (f"\n         {detail}" if detail else ""))
+
+
+
+def _trigger_blocks(c) -> bool:
+    """True if the append-only trigger refuses an UPDATE on audit."""
+    try:
+        c.execute("UPDATE audit SET actor='x' WHERE seq=1")
+        return False
+    except sqlite3.IntegrityError:
+        return True
 
 
 ROOT = Path(tempfile.mkdtemp(prefix="sentinel-test-"))
@@ -61,7 +72,7 @@ except guard.RefusedInput as ex:
 # ── ingest & container detection ──────────────────────────────────────────
 print("\nINGEST")
 conn.execute("INSERT INTO cases (slug,title,jurisdiction,status,opened,updated) "
-             "VALUES ('t','Test Case','Ohio','ACTIVE','2026-01-01','2026-01-01')")
+             "VALUES ('t','Test Case','Ohio','OPEN','2026-01-01','2026-01-01')")
 
 work = ROOT / "src"
 work.mkdir()
@@ -217,6 +228,15 @@ n_db = conn.execute("SELECT COUNT(*) FROM audit").fetchone()[0]
 check("mirror and table agree", n_disk == n_db, f"{n_disk} vs {n_db}")
 
 # Tamper with a row and confirm the chain names the break.
+#
+# The append-only TRIGGERS have to be dropped first, and that is the point of
+# the exercise rather than a workaround. There are three locks on this table:
+# no update/delete function in audit.py, the triggers, and the hash chain. The
+# first two stop accidents. Only the third works against someone who is
+# trying — someone editing the SQLite file with another tool, which is exactly
+# what dropping the trigger here simulates.
+check("the trigger refuses an ordinary UPDATE", _trigger_blocks(conn))
+conn.execute("DROP TRIGGER audit_no_update")
 conn.execute("UPDATE audit SET payload='{\"tampered\":true}' WHERE seq=2")
 ok2, msg2 = audit.verify(conn)
 check("editing a row breaks the chain", not ok2, msg2)
@@ -255,6 +275,7 @@ Path(d["vault"]).write_text("SOMEONE CHANGED THIS")
 check("altering a vaulted file is caught",
       {c.id: c for c in security.audit_desk(c2, R2)}["SC-7"].result == security.FAIL)
 
+c2.execute("DROP TRIGGER audit_no_update")   # lock 2; the chain is lock 3
 c2.execute("UPDATE audit SET payload='{\"x\":1}' WHERE seq=1")
 check("a tampered audit row is caught",
       {c.id: c for c in security.audit_desk(c2, R2)}["SC-8"].result == security.FAIL)

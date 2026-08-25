@@ -46,7 +46,8 @@ STDLIB_OK = {
     "__future__", "argparse", "ast", "collections", "dataclasses", "datetime",
     "decimal", "hashlib", "html", "http", "io", "json", "os", "pathlib", "re",
     "secrets", "shutil", "sqlite3", "stat", "string", "sys", "tempfile",
-    "threading", "typing", "urllib", "zipfile", "socket", "textwrap", "time",
+    "threading", "typing", "unicodedata", "urllib", "zipfile", "socket",
+    "textwrap", "time",
 }
 
 
