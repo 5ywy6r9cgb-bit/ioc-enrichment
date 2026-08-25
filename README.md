@@ -16,10 +16,15 @@ speak `provenance/1`, and one ledger covers everything the system produces.
 
 ## Start here
 
+**New here? Read [`docs/GET_RUNNING.md`](docs/GET_RUNNING.md)** — the exact
+commands, in order, from a fresh Mac to a working desk.
+
 ```bash
 bin/sentinel status     # what is set up and what is not
 bin/sentinel test       # every module's tests
-bin/sentinel desk       # open the desk in a browser
+bin/sentinel pra foia   # the records desk — no database required
+bin/sentinel case list  # the case desk — no database required
+bin/sentinel dash       # build + open the dashboard
 ```
 
 The desk (`modules/research-desk/app/desk.html`) is the single surface over the
@@ -28,11 +33,10 @@ local service if that service happens to be running.
 
 **Current state:** the provenance spine, the connectors, the ingest seam, the
 desk, the database schema, and the seed data all work. The PRA server runtime
-(`modules/pra/server/`) is not yet in the repository, so the live database
-features are not runnable end to end. See
-[`docs/RECONSTRUCTION_STATUS.md`](docs/RECONSTRUCTION_STATUS.md) for an exact
-inventory — what is present, what is missing, and what was verified by running
-it rather than by reading it.
+(`modules/pra/server/`) is now present and tested. The records desk and the
+case desk run with no database at all — Node and Python are the only
+requirements. See [`docs/GET_RUNNING.md`](docs/GET_RUNNING.md) for the setup
+path and, at the end of it, an honest list of what is still not done.
 
 ---
 

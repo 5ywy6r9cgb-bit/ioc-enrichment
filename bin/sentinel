@@ -19,6 +19,13 @@
 #   sentinel montage <args...>      openmontage video engine
 #   sentinel vuln <args...>         atlas CVE prioritization
 #   sentinel desk                   open the research desk in a browser
+#
+#   sentinel case new <ID> "..."    start a case file
+#   sentinel case add <ID> <EX> <f> add an exhibit  (--kind financial --pages 44)
+#   sentinel case read <ID> <EX> N  record pages read
+#   sentinel case ask/conflict ...  log an open question / a contradiction
+#   sentinel case status <ID>       can this be published, and what is blocking
+#   sentinel dash                   build + open the dashboard over all cases
 #   sentinel connect test           which connector API keys are set + reachable
 #   sentinel connect <c> "<query>"  search a connector -> evidence inbox
 #
@@ -37,7 +44,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 bold() { printf '\033[1m%s\033[0m\n' "$1"; }
 
 usage() {
-  sed -n '3,28p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  sed -n '3,40p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
 }
 
 cmd="${1:-help}"; shift || true
@@ -82,11 +89,14 @@ case "$cmd" in
     echo "== notification content guard =="
     node "$ROOT/modules/watch/test_notify.js"
     echo ""
+    FAILED=0
+    echo "== case gate =="
+    python3 "$ROOT/modules/research-desk/test_case.py" || FAILED=1
+    echo ""
     echo "== pra =="
     # A missing suite must not abort the whole run: under `set -e` one absent
     # module would hide every result after it, which is the opposite of what a
     # test command is for. Report and carry on; track the exit code instead.
-    FAILED=0
     if [ -f "$ROOT/modules/pra/tests/run_all.js" ]; then
       ( cd "$ROOT/modules/pra" && node tests/run_all.js ) || FAILED=1
     else
@@ -129,6 +139,16 @@ case "$cmd" in
   desk)
     open "$ROOT/modules/research-desk/app/desk.html" 2>/dev/null \
       || echo "open modules/research-desk/app/desk.html in your browser"
+    ;;
+
+  case)
+    python3 "$ROOT/modules/research-desk/case.py" "$@"
+    ;;
+
+  dash|dashboard)
+    out="$(python3 "$ROOT/modules/research-desk/dashboard.py" | sed 's/^wrote //; s/ (.*//')"
+    echo "$out"
+    open "$out" 2>/dev/null || echo "open it in your browser"
     ;;
 
   connect)
