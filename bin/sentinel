@@ -33,6 +33,8 @@
 #   sentinel dash                   build + open the dashboard over all cases
 #   sentinel connect test           which connector API keys are set + reachable
 #   sentinel connect <c> "<query>"  search a connector -> evidence inbox
+#   sentinel connect all "<subject>"  search every source at once
+#   sentinel connect crosslink      what appears under more than one subject
 #
 #   sentinel watch run              run every saved search that is due
 #   sentinel watch run --all        ignore cadence, run them all
@@ -119,6 +121,9 @@ case "$cmd" in
     echo "== connector verdicts =="
     node "$ROOT/modules/connectors/test_connect.js" || FAILED=1
     echo ""
+    echo "== crosslink =="
+    node "$ROOT/modules/connectors/test_crosslink.js" || FAILED=1
+    echo ""
     echo "== records desk (overnight stage) =="
     node "$ROOT/modules/watch/test_records_desk.js" || FAILED=1
     echo ""
@@ -204,7 +209,7 @@ case "$cmd" in
     # works when the module is called directly is not yet a command that works.
     action="${1:-test}"; shift || true
     case "$action" in
-      test|list|all)
+      test|list|all|crosslink)
         node "$ROOT/modules/connectors/cli.js" "$action" "$@"
         ;;
       *)

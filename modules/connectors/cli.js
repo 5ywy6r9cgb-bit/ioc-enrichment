@@ -428,6 +428,78 @@ async function cmdAll(query, opts) {
   console.log(C.dim('\n  Watch it instead of re-running by hand:  see watchlist.json\n'));
 }
 
+/**
+ * Cross-reference everything already captured. No network call.
+ */
+function cmdCrosslink(opts) {
+  const X = require('./crosslink.js');
+  const dir = require('path').join(R.EVIDENCE, 'captures');
+  const captures = X.readCaptures(dir);
+
+  if (!captures.length) {
+    console.log(`\n  ${C.dim('No captures yet. Run some searches first:')}`);
+    console.log(C.dim('    sentinel connect all "<subject>" --into <name>\n'));
+    return;
+  }
+
+  const unparsed = captures.filter((c) => c.unparsed);
+  const total = captures.reduce((n, c) => n + c.results.length, 0);
+  const subjects = [...new Set(captures.map((c) => c.subject))];
+
+  console.log(`\n  ${C.b('CROSS-REFERENCE')}`);
+  console.log(C.dim(`  ${captures.length} capture(s) · ${total} result(s) · `
+    + `${subjects.length} subject(s) · no network call\n`));
+
+  const { byName, edges } = X.index(captures);
+
+  // ---- lobbying edges: an asserted relationship, not a coincidence ------
+  const shared = X.sharedRegistrants(edges, { minClients: 2 });
+  if (shared.length) {
+    console.log(`  ${C.b('LOBBYING — one registrant, several clients')}`);
+    console.log(C.dim('  A filing is a sworn statement that this firm lobbied for that'));
+    console.log(C.dim('  client. These are asserted relationships, not name overlaps.\n'));
+    for (const g of shared.slice(0, opts.verbose ? 999 : 8)) {
+      console.log(`    ${C.b(g.registrant)}  ${C.dim(`${g.client_count} clients`)}`);
+      for (const c of g.clients.slice(0, opts.verbose ? 999 : 6)) {
+        console.log(`      ${c.client.slice(0, 56).padEnd(58)}`
+          + C.dim(`${c.filings} filing(s) · via "${c.subjects.join('", "')}"`));
+      }
+      console.log('');
+    }
+  }
+
+  // ---- co-occurrence across subjects ------------------------------------
+  const cross = X.crossSubject(byName, { minSubjects: 2 });
+  if (cross.length) {
+    console.log(`  ${C.b('APPEARS UNDER MORE THAN ONE SUBJECT')}\n`);
+    for (const e of cross.slice(0, opts.verbose ? 999 : 15)) {
+      console.log(`    ${C.b(e.name.slice(0, 52))}`);
+      console.log(C.dim(`      subjects: ${e.subjects.join(' · ')}`));
+      console.log(C.dim(`      sources:  ${e.connectors.join(', ')}  (${e.hits} hit(s))`));
+    }
+    if (!opts.verbose && cross.length > 15) {
+      console.log(C.dim(`\n    …and ${cross.length - 15} more (--verbose for all)`));
+    }
+  } else {
+    console.log(C.dim('  Nothing appears under more than one subject yet.'));
+    console.log(C.dim('  That is a real answer: these searches have not overlapped.'));
+  }
+
+  if (unparsed.length) {
+    console.log(C.y(`\n  ${unparsed.length} capture(s) could not be re-parsed`));
+    console.log(C.dim('  The bytes are on disk and hashed. They are not in this analysis.'));
+    for (const c of unparsed.slice(0, 5)) console.log(C.dim(`    ${c.file}`));
+  }
+
+  console.log('\n' + C.dim('  ' + '─'.repeat(74)));
+  console.log(C.y('  A CO-OCCURRENCE IS NOT A RELATIONSHIP.'));
+  console.log(C.dim('  Two firms with similar names, a registrant with four hundred clients,'));
+  console.log(C.dim('  a court caption containing a word — all look identical here. This is'));
+  console.log(C.dim('  a shortlist of places to look. Confirm same-entity, then pull the'));
+  console.log(C.dim('  filing itself and cite that.'));
+  console.log(C.dim('\n  Open a case for what survives:  sentinel case new <ID> "..."\n'));
+}
+
 async function cmdSearch(name, query, opts) {
   const c = R.CONNECTORS[name];
   if (!c) {
@@ -515,6 +587,7 @@ async function main() {
 
   if (action === 'test') return cmdTest();
   if (action === 'list') return cmdList();
+  if (action === 'crosslink') return cmdCrosslink({ verbose: argv.includes('--verbose') });
   if (action === 'all') {
     const parsed = parseAllArgs(argv.slice(1));
     if (parsed.error) {
