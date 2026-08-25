@@ -292,15 +292,30 @@ async function cmdAll(query, opts) {
   for (const r of rows) {
     if (!r.results.length) continue;
     console.log(`  ${C.b(r.label)}  ${C.dim(`${r.results.length}`)}`);
-    for (const hit of r.results.slice(0, opts.verbose ? 999 : 5)) {
+    // Clean matches first. A substring hit is real output and is never
+    // dropped — you cannot audit what you never saw — but it should not sit
+    // above the thing you were actually looking for.
+    const marked = r.results.map((hit) => ({
+      hit, sub: R.looksLikeSubstringMatch(query, hit.name || hit.title || ''),
+    }));
+    marked.sort((a, b) => (a.sub === b.sub ? 0 : a.sub ? 1 : -1));
+    const nSub = marked.filter((m) => m.sub).length;
+
+    for (const { hit, sub } of marked.slice(0, opts.verbose ? 999 : 5)) {
       const line = hit.name || hit.title || hit.external_id || '(unnamed)';
       const extra = [hit.jurisdiction, hit.amount, hit.agency, hit.incorporated, hit.date]
         .filter(Boolean).join(' · ');
-      console.log(`    ${String(line).slice(0, 62)}`);
+      const text = String(line).slice(0, 62);
+      console.log(sub ? C.dim(`    ${text}   ← substring, probably not it`)
+                      : `    ${text}`);
       if (extra) console.log(C.dim(`      ${extra.slice(0, 68)}`));
     }
-    if (!opts.verbose && r.results.length > 5) {
-      console.log(C.dim(`    …and ${r.results.length - 5} more (all in the capture)`));
+    if (!opts.verbose && marked.length > 5) {
+      console.log(C.dim(`    …and ${marked.length - 5} more (all in the capture)`));
+    }
+    if (nSub) {
+      console.log(C.dim(`    ${nSub} of ${marked.length} match only inside a longer `
+        + `word (ECOLOGIX for Cologix) — kept, not dropped`));
     }
     console.log(C.dim(`    capture  ${path.relative(R.EVIDENCE, r.capturePath)}`));
     console.log('');

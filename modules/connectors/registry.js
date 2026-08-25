@@ -233,6 +233,90 @@ async function request(method, url, headers, body) {
   };
 }
 
+/**
+ * Turn a non-2xx into the reason the API actually gave.
+ *
+ * A live run reported `regulationsgov… failed: HTTP 403`. Three unrelated
+ * things produce that status here and the operator cannot tell them apart:
+ *
+ *   - the key is wrong
+ *   - the key is fine and the hourly quota is spent (api.data.gov answers
+ *     OVER_RATE_LIMIT with 403, not 429 — a documented quirk that makes a
+ *     temporary condition look like a permanent one)
+ *   - something between you and the host refused the request
+ *
+ * The body says which. Throwing it away and printing the bare number turns a
+ * "wait an hour" into "my key is broken", which is how someone re-registers a
+ * key that was never the problem.
+ *
+ * The response body is untrusted remote text: it is trimmed hard, stripped of
+ * control characters, and never interpreted — only shown.
+ */
+function explainHttpError(res) {
+  const base = `HTTP ${res.status}`;
+  const raw = res.body ? res.body.toString('utf8').slice(0, 2000) : '';
+  if (!raw) return base;
+
+  let detail = '';
+  try {
+    const j = JSON.parse(raw);
+    detail = j.error?.message || j.error?.code || j.message
+          || (Array.isArray(j.errors) && (j.errors[0]?.detail || j.errors[0]?.title))
+          || j.detail || '';
+  } catch {
+    // Not JSON. Take the first line that carries words rather than markup —
+    // an HTML error page's first line is "<html>", which tells nobody anything.
+    detail = raw.split('\n')
+      .map((l) => l.replace(/<[^>]*>/g, ' ').trim())
+      .find((l) => l.length > 3) || '';
+  }
+
+  detail = String(detail).replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, 180);
+  if (!detail) return base;
+
+  // The distinction worth calling out by name.
+  if (/OVER_RATE_LIMIT|rate limit|quota/i.test(detail)) {
+    return `${base} — rate limited, not a bad key. ${detail}`;
+  }
+  if (/API_KEY_INVALID|API_KEY_MISSING|invalid[ _]api[ _]?key|api[ _]?key.*(invalid|missing|not valid)/i.test(detail)) {
+    return `${base} — the key was refused. ${detail}`;
+  }
+  return `${base} — ${detail}`;
+}
+
+/**
+ * Flag a hit whose name only matches as a SUBSTRING of a longer word.
+ *
+ * A live search for "Cologix" returned, from USAspending:
+ *
+ *     ECOLOGIX ENVIRONMENTAL SYSTEMS LLC   $933,200   Department of Defense
+ *
+ * That is not Cologix. USAspending matches recipient text as a substring, so
+ * "cologix" is inside "ecologix", and a data-center library quietly acquires a
+ * wastewater-treatment contractor. The same trap catches "Meta" inside
+ * "Metabolic", "AWS" inside "LAWSON", "Vantage" inside "Advantage".
+ *
+ * These are NOT dropped. A connector that silently discards results is worse
+ * than one that returns noise, because you cannot audit what you never saw,
+ * and the occasional real hit does live inside a longer legal name. They are
+ * marked, so the eye can skip them and a later reader can see the judgement
+ * that was made.
+ *
+ * The test is deliberately narrow: the query appears in the name, but not at a
+ * word boundary. "COLOGIX, INC." keeps a clean match; "ECOLOGIX" does not.
+ */
+function looksLikeSubstringMatch(query, name) {
+  if (!query || !name) return false;
+  const q = String(query).toLowerCase().trim();
+  const n = String(name).toLowerCase();
+  if (q.length < 4) return false;          // short queries match everything
+  if (!n.includes(q)) return false;        // no match at all is not this problem
+
+  // A word-boundary occurrence anywhere means it is a real name match.
+  const bounded = new RegExp(`(^|[^a-z0-9])${q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^a-z0-9]|$)`);
+  return !bounded.test(n);
+}
+
 // ---------------------------------------------------------------- registry
 /**
  * Each connector declares what it will do BEFORE it does it, so the announce
@@ -638,7 +722,8 @@ async function runConnector(name, query, opts = {}) {
   const res = await request(spec.method, spec.url, spec.headers, spec.body);
   if (res.status === 0) return { ok: false, status: 0, error: res.error, results: [] };
   if (res.status < 200 || res.status >= 300) {
-    return { ok: false, status: res.status, error: `HTTP ${res.status}`, results: [] };
+    return { ok: false, status: res.status,
+             error: explainHttpError(res), results: [] };
   }
 
   const evidenceRoot = opts.evidenceRoot || EVIDENCE;
@@ -691,6 +776,7 @@ async function runConnector(name, query, opts = {}) {
 }
 
 module.exports = {
+  explainHttpError, looksLikeSubstringMatch,
   checkKeyShape, KEY_SHAPES,
   stripAuth, AUTH_HEADERS, MAX_REDIRECTS,
   CONNECTORS, VERSION, EVIDENCE, CAPTURES, LEDGER,

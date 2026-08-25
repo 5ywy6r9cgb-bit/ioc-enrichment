@@ -249,6 +249,62 @@ module.exports = function run() {
       Object.keys(R.CONNECTORS).filter((n) => verbs.includes(n)).join(','));
   }
 
+  // ══ a 403 that is not a bad key ══════════════════════════════════════
+  // A live run reported `regulationsgov… failed: HTTP 403`. Three unrelated
+  // things produce that status, and api.data.gov answers OVER_RATE_LIMIT with
+  // 403 rather than 429 — so a temporary condition reads as a broken key, and
+  // someone re-registers a key that was never the problem.
+  {
+    const B = (o) => Buffer.from(JSON.stringify(o));
+    const rate = R.explainHttpError({ status: 403,
+      body: B({ error: { code: 'OVER_RATE_LIMIT', message: 'You have exceeded your rate limit.' } }) });
+    check('a rate limit is named as a rate limit, not a bad key',
+      /rate limited, not a bad key/.test(rate), rate);
+
+    const badkey = R.explainHttpError({ status: 403,
+      body: B({ error: { code: 'API_KEY_INVALID', message: 'An invalid api_key was supplied.' } }) });
+    check('an invalid key IS named as one', /the key was refused/.test(badkey), badkey);
+    check('and the two do not read the same',
+      !/rate limited/.test(badkey) && !/key was refused/.test(rate));
+
+    check('a JSON:API error surfaces its detail',
+      /page\[size\]/.test(R.explainHttpError({ status: 400,
+        body: B({ errors: [{ title: 'Bad Request', detail: 'page[size] must be one of 5,10,25' }] }) })));
+    check('an HTML error page yields words, not markup',
+      R.explainHttpError({ status: 502,
+        body: Buffer.from('<html>\n<head><title>502 Bad Gateway</title></head>') })
+        === 'HTTP 502 — 502 Bad Gateway');
+    check('no body degrades to the bare status',
+      R.explainHttpError({ status: 500 }) === 'HTTP 500');
+    check('a control character in a remote body cannot reach the terminal',
+      !/\u001b/.test(R.explainHttpError({ status: 400,
+        body: Buffer.from('{"message":"\u001b[31mfake red\u001b[0m"}') })));
+  }
+
+  // ══ ECOLOGIX is not Cologix ══════════════════════════════════════════
+  {
+    const f = R.looksLikeSubstringMatch;
+    check('ECOLOGIX is flagged for a Cologix search',
+      f('Cologix', 'ECOLOGIX ENVIRONMENTAL SYSTEMS LLC') === true);
+    check('COLOGIX, INC. is NOT flagged', f('Cologix', 'COLOGIX, INC.') === false);
+    check('nor a suffixed legal name', f('Cologix', 'COLOGIX MTL8, LLC') === false);
+    check('Metabolic is flagged for Meta', f('Meta', 'Metabolic Research Inc') === true);
+    check('Meta Platforms is not', f('Meta', 'Meta Platforms, Inc.') === false);
+    check('Advantage is flagged for Vantage', f('Vantage', 'Advantage Solutions') === true);
+    check('a name with no match at all is not flagged',
+      f('Cologix', 'Franklin County Auditor') === false);
+    check('a short query is never flagged — it would match everything',
+      f('AWS', 'LAWSON PRODUCTS') === false);
+    check('regex metacharacters in a query do not throw',
+      (() => { try { f('a.b*c', 'xa.b*cy'); return true; } catch { return false; } })());
+
+    const cli2 = require('fs').readFileSync(require.resolve('./cli.js'), 'utf8');
+    check('flagged hits are marked, never dropped',
+      /kept, not dropped/.test(cli2) && !/filter\(.*looksLikeSubstring/.test(cli2));
+    check('and clean matches sort above them',
+      /marked\.sort/.test(cli2));
+  }
+
   console.log(`\n  ${FAIL === 0 ? 'PASS' : 'FAIL'} — ${PASS}/${PASS + FAIL} checks\n`);
   return FAIL;
 };
