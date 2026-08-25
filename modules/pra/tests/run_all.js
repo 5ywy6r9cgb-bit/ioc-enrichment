@@ -28,6 +28,7 @@ const SUITES = [
   ['push_notify',                require('./push_notify.test.js')],
   ['foia_tracker',              require('./foia_tracker.test.js')],
   ['foia_store',                require('./foia_store.test.js')],
+  ['foia_db_adapter',           require('./foia_db_adapter.test.js')],
 ];
 
 (async () => {

@@ -94,16 +94,24 @@ async function loadFromStore() {
 }
 
 async function loadFromDb() {
+  // Deliberately NOT repo.listRequests().map(normalise). The requests table
+  // calls the submission column `submitted_at`; normalise() looked for
+  // `submitted_on`/`filed_date`/`filed_on` and found none of them, so every
+  // request arrived with no clock and the desk printed "Nothing needs you"
+  // over a request that was 22 business days overdue. foia_db_adapter throws
+  // rather than return a request whose clock silently did not load.
   const { Db } = require('../server/db.js');
-  const { MetadataRepository } = require('../server/metadata_repository.js');
+  const A = require('../server/foia_db_adapter.js');
   const db = new Db();
   if (!(await db.isAvailable())) {
     throw new Error(`database unreachable: ${db.lastError()}`);
   }
-  const repo = new MetadataRepository(db);
-  const rows = await repo.listRequests({});
-  await db.close();
-  return rows.map(normalise);
+  try {
+    const { requests } = await A.loadAll(db);
+    return requests;
+  } finally {
+    await db.close();
+  }
 }
 
 function printItem(e, verbose) {
