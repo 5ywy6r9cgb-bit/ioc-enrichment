@@ -10,6 +10,7 @@
     "setup": "./scripts/setup_macos.sh",
     "seed": "node scripts/load_seeds.js",
     "brief": "node scripts/daily_brief.js",
+    "foia": "node scripts/foia.js",
     "portals": "node scripts/check_portals.js",
     "service": "node scripts/start_service.js",
     "backup": "./scripts/backup.sh",

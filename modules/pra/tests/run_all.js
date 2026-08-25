@@ -26,6 +26,7 @@ const SUITES = [
   ['intel_repo',                require('./intel_repo.test.js')],
   ['olac_lobbying',             require('./olac_lobbying.test.js')],
   ['push_notify',                require('./push_notify.test.js')],
+  ['foia_tracker',              require('./foia_tracker.test.js')],
 ];
 
 (async () => {

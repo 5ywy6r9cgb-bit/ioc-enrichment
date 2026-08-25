@@ -11,6 +11,8 @@
 #   sentinel test                   run every module's test suite
 #
 #   sentinel pra <args...>          public records atlas (brief, seed, backup...)
+#   sentinel pra foia               records desk: what needs you, most urgent first
+#   sentinel pra foia draft <ID>    draft the follow-up for one request
 #   sentinel montage <args...>      openmontage video engine
 #   sentinel vuln <args...>         atlas CVE prioritization
 #   sentinel desk                   open the research desk in a browser
@@ -104,11 +106,12 @@ case "$cmd" in
       setup)   ./scripts/setup_macos.sh "$@" ;;
       seed)    node scripts/load_seeds.js "$@" ;;
       brief)   node scripts/daily_brief.js "$@" ;;
+      foia)    node scripts/foia.js "$@" ;;
       portals) node scripts/check_portals.js "$@" ;;
       backup)  ./scripts/backup.sh "$@" ;;
       verify)  ./scripts/verify_integrity.sh "$@" ;;
       test)    node tests/run_all.js ;;
-      *)       echo "pra subcommands: setup seed brief portals backup verify test" ;;
+      *)       echo "pra subcommands: setup seed brief foia portals backup verify test" ;;
     esac
     ;;
 
