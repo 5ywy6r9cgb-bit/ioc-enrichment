@@ -15,8 +15,18 @@
 name: tests
 
 on:
+  # `push` is limited to main on purpose. With `branches: ['**']`, a commit on
+  # a branch that has an open PR fires BOTH events and runs the whole suite
+  # twice — two identical runs, double the minutes, and two notifications for
+  # every result. (Measured, not assumed: one commit here produced runs 
+  # 32806322905 (push) and 32806325903 (pull_request), both green.)
+  #
+  # The tradeoff: a branch with no PR open gets no automatic run. That is the
+  # usual convention and it is the right side of the trade here, because the
+  # work on this repo goes through PRs. `workflow_dispatch` covers the case
+  # where you want a run without opening one.
   push:
-    branches: ['**']
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
@@ -24,9 +34,14 @@ permissions:
   contents: read
 
 concurrency:
-  # A new push supersedes an in-flight run on the same ref. Nobody needs the
+  # A new push supersedes an in-flight run on the same PR. Nobody needs the
   # results of a commit that has already been replaced.
-  group: ${{ github.workflow }}-${{ github.ref }}
+  #
+  # Keyed on the PR number where there is one: for a pull_request event
+  # github.ref is the merge ref, which differs from the branch ref a push
+  # event carries, so a bare github.ref would put the two in separate groups
+  # and neither would cancel the other.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
