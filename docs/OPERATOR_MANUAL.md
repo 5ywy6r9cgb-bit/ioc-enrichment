@@ -418,6 +418,61 @@ MATCH (a:Org)-[:APPEARS_UNDER]->(s:Subject)<-[:APPEARS_UNDER]-(b:Org)
 WHERE a <> b RETURN a,s,b LIMIT 50
 ```
 
+**Queries worth running.** Paste these into Neo4j Browser
+(<http://localhost:7474>), not the terminal — zsh will try to interpret
+Cypher as shell.
+
+*Did the push land?* Compare these to what the preview printed.
+
+```cypher
+MATCH (n) RETURN labels(n)[0] AS label, count(*) AS n ORDER BY n DESC
+MATCH ()-[r]->() RETURN type(r) AS rel, count(*) AS n ORDER BY n DESC
+```
+
+*One firm, several clients.* This is the finding the desk exists to surface —
+a single registrant carrying two clients you care about.
+
+```cypher
+MATCH (r:Org)-[f:FILED_FOR]->(c:Org)
+WITH r, count(DISTINCT c) AS clients, sum(f.filings) AS filings,
+     collect(c.name) AS names
+WHERE clients > 1
+RETURN r.name AS registrant, clients, filings, names
+ORDER BY clients DESC, filings DESC
+```
+
+*See it.* The same thing as a picture.
+
+```cypher
+MATCH (r:Org)-[:FILED_FOR]->(:Org)
+WITH r, count(*) AS n WHERE n > 1
+MATCH p = (r)-[:FILED_FOR]->(:Org)
+RETURN p
+```
+
+*Names that span your searches.* Not a relationship — a reason to look.
+
+```cypher
+MATCH (o:Org)-[:APPEARS_UNDER]->(s:Subject)
+WITH o, count(DISTINCT s) AS subjects, collect(s.name) AS which
+WHERE subjects > 1
+RETURN o.name AS org, subjects, which
+ORDER BY subjects DESC LIMIT 25
+```
+
+*Everything two hops from one company.* Change the name to any company.
+`toUpper` because `CONTAINS` is case-sensitive and the sources disagree
+about capitalisation.
+
+```cypher
+MATCH (a:Org)-[:APPEARS_UNDER]->(s:Subject)<-[:APPEARS_UNDER]-(b:Org)
+WHERE toUpper(a.name) CONTAINS 'NISOURCE' AND a <> b
+RETURN a.name AS from, s.name AS via, b.name AS to LIMIT 100
+```
+
+That last one is co-occurrence. `via` names the search that connected them,
+and it is the whole reason they appear together — nothing else.
+
 **Counts are floors.** Where any capture was truncated, every node carries
 `counts_are_floors: true` and the terminal says so. `filings` counts filings
 **in your library**, not in the world.
