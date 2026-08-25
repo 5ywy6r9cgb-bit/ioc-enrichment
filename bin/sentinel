@@ -16,6 +16,10 @@
 #   sentinel pra foia add <ID> "<Agency>"   record a new request
 #   sentinel pra foia sent <ID>     log that you sent it (stops the reminders)
 #   sentinel pra foia history <ID>  every letter and field change, in order
+#   sentinel pra mail review        letters awaiting your sign-off
+#   sentinel pra mail approve <ID>  sign off on ONE letter
+#   sentinel pra mail send          send only what you approved
+#   sentinel pra mail fetch         read replies, log them against requests
 #   sentinel montage <args...>      openmontage video engine
 #   sentinel vuln <args...>         atlas CVE prioritization
 #   sentinel desk                   open the research desk in a browser
@@ -133,11 +137,12 @@ case "$cmd" in
       seed)    node scripts/load_seeds.js "$@" ;;
       brief)   node scripts/daily_brief.js "$@" ;;
       foia)    node scripts/foia.js "$@" ;;
+      mail)    node scripts/mail.js "$@" ;;
       portals) node scripts/check_portals.js "$@" ;;
       backup)  ./scripts/backup.sh "$@" ;;
       verify)  ./scripts/verify_integrity.sh "$@" ;;
       test)    node tests/run_all.js ;;
-      *)       echo "pra subcommands: setup seed brief foia portals backup verify test" ;;
+      *)       echo "pra subcommands: setup seed brief foia mail portals backup verify test" ;;
     esac
     ;;
 
