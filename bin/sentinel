@@ -13,6 +13,9 @@
 #   sentinel pra <args...>          public records atlas (brief, seed, backup...)
 #   sentinel pra foia               records desk: what needs you, most urgent first
 #   sentinel pra foia draft <ID>    draft the follow-up for one request
+#   sentinel pra foia add <ID> "<Agency>"   record a new request
+#   sentinel pra foia sent <ID>     log that you sent it (stops the reminders)
+#   sentinel pra foia history <ID>  every letter and field change, in order
 #   sentinel montage <args...>      openmontage video engine
 #   sentinel vuln <args...>         atlas CVE prioritization
 #   sentinel desk                   open the research desk in a browser

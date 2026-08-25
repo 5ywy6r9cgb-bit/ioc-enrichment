@@ -27,6 +27,7 @@ const SUITES = [
   ['olac_lobbying',             require('./olac_lobbying.test.js')],
   ['push_notify',                require('./push_notify.test.js')],
   ['foia_tracker',              require('./foia_tracker.test.js')],
+  ['foia_store',                require('./foia_store.test.js')],
 ];
 
 (async () => {
