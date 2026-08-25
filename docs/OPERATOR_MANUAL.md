@@ -234,6 +234,8 @@ bin/sentinel connect all "<subject>"         # search every source at once
 bin/sentinel connect all "<subject>" --into <investigation>
 bin/sentinel connect all "<subject>" --dry-run
 bin/sentinel connect crosslink               # what appears under more than one subject
+bin/sentinel connect lobby                   # read every captured lobbying filing
+bin/sentinel connect lobby --chart           # …and write the charts
 bin/sentinel connect <connector> "<query>"   # one source only
 ```
 
@@ -300,6 +302,54 @@ Crosslink deliberately ignores `federalregister` and `regulationsgov`
 results, because those return *document titles*, not parties — otherwise a
 single SEC notice matched three times gets reported as linking three
 companies.
+
+### `connect lobby` — the lobbying filings, read properly
+
+```bash
+bin/sentinel connect lobby                      # to the terminal
+bin/sentinel connect lobby --verbose            # every registrant, every issue
+bin/sentinel connect lobby --chart              # → evidence/lobbying.html
+bin/sentinel connect lobby --chart ~/lobby.html # somewhere else
+```
+
+Makes **no network call**. It reads the `senatelda` captures already on disk
+and reports what the filings assert. First search some clients, then run it:
+
+```bash
+bin/sentinel connect senatelda "Amazon Data Services"
+bin/sentinel connect all "NiSource" --into energy
+bin/sentinel connect lobby --chart
+```
+
+The chart is one self-contained HTML file — no scripts, no fonts, no CDN. It
+will still render years from now with the Wi-Fi off.
+
+**Why this is separate from `crosslink`.** Crosslink reports co-occurrence.
+A lobbying filing is a *sworn statement* under 2 U.S.C. 1603–1604 that a
+named registrant lobbied for a named client, in a named quarter, on named
+issues. That is a much stronger object than a name turning up twice, and it
+deserves its own arithmetic.
+
+**The four ways this data will mislead you.** All four produce a number that
+is wrong and looks completely right on a chart. Each is handled, and the
+output tells you so:
+
+| Trap | What goes wrong | What the desk does |
+|---|---|---|
+| `income` vs `expenses` | They are different money — income is what an outside firm reports **receiving**; expenses are what an organisation reports **spending** in-house. Adding them gives a plausible, meaningless total. | Kept in two separate totals. **Never summed.** Every figure says which it is. |
+| Amendments | A quarter filed as `Q2` and again as `Q2A` appears twice, and the amendment **restates** the quarter rather than adding to it. | Deduped per (registrant, client, year, period), latest posting wins. The number collapsed is reported. |
+| Truncation | The connector asks for 25 filings and does not follow the next page. A client with 60 filings gives you 25. | The raw response's `count` is compared to what was kept. Short captures are named: *"kept 25 of 60 — these totals are floors, not totals."* |
+| Client-name search only | The connector searches by **client name**. You see a registrant's other clients only where you happened to search those clients too. | Every client count reads **"in this library"**, never "in the world." |
+
+A blank income column means **no figure was reported** — an absent
+disclosure. It does not mean zero, and the desk will not print `$0` for it.
+
+**What you are looking for** is the "one registrant, several clients"
+section: a single lobbying firm carrying two clients you care about. From
+this desk's own captures, `ALPINE GROUP PARTNERS, LLC.` files for both
+`AWS PUBLIC POLICY, AMERICAS` and `NISOURCE INC.` — one firm, a hyperscaler
+and a gas utility. That is a thread worth pulling. It is still a lead: a firm
+with four hundred clients will appear there for reasons that mean nothing.
 
 ---
 
@@ -541,6 +591,9 @@ DATABASE_URL            # Postgres, for `foia --db`
 | `ECOLOGIX...` in a `Cologix` search | Substring match, correctly flagged | Ignore it, or don't — the flag is advice, not a filter |
 | `Could not resolve host: github.com` | No network | Nothing to fix in the desk; retry |
 | A watch shows `failed` | The source was unreachable | Nothing to do — `last_run_at` wasn't advanced, so it retries |
+| `connect lobby` says *"No lobbying captures yet"* | Nothing has searched `senatelda` yet | `bin/sentinel connect all "<client>"`, then run it again |
+| `connect lobby` reports *"kept 25 of 60"* | The connector asks for 25 filings and does not page | Nothing is broken. Those totals are **floors**. Narrow the search or read the rest at lda.gov |
+| A registrant shows fewer clients than you expect | The search is by **client name** — you only see clients you searched | Search the other clients too, then re-run `connect lobby` |
 
 ---
 

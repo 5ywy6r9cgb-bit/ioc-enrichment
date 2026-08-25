@@ -81,6 +81,38 @@ if (praLine) {
   }
 }
 
+// ---- connect subverbs: cli.js and the dispatcher must agree ----------
+// `all` was added to cli.js and not to bin/sentinel's pass-through list, so
+// `sentinel connect all "X"` became `cli.js search all "X"` and reported
+// "unknown connector: all". Nothing was broken in the module — the module
+// worked perfectly when called directly. The dispatcher is the surface an
+// operator actually types, so a verb that works only via `node cli.js` is
+// not yet a command. This checks the two lists against each other, and the
+// manual against both.
+const connectArm = dispatcher.match(/^ {6}(test\|[a-z|]+)\)/m);
+ok(!!connectArm, 'bin/sentinel lists the connect verbs it passes through');
+if (connectArm) {
+  const passed = connectArm[1].split('|');
+  const cliSrc = fs.readFileSync(path.join(ROOT, 'modules', 'connectors', 'cli.js'), 'utf8');
+  const handled = [...cliSrc.matchAll(/action === '([a-z]+)'/g)].map((m) => m[1]);
+
+  // `search` is the one verb deliberately NOT passed through. The dispatcher's
+  // fallback arm supplies it — `sentinel connect fec "X"` becomes
+  // `cli.js search fec "X"` — so an operator never types it and it must not
+  // be in the pass-through list, or a connector named "search" would shadow it.
+  const INTERNAL = new Set(['search']);
+  for (const v of handled) {
+    if (INTERNAL.has(v)) continue;
+    ok(passed.includes(v),
+      `bin/sentinel passes "connect ${v}" through (cli.js handles it)`);
+  }
+  for (const v of passed) {
+    ok(handled.includes(v), `cli.js handles "connect ${v}" (the dispatcher passes it)`);
+    ok(new RegExp(`sentinel connect ${v}\\b`).test(manual),
+      `docs/OPERATOR_MANUAL.md documents "sentinel connect ${v}"`);
+  }
+}
+
 // ---- connector names -------------------------------------------------
 // A connector you cannot name is a connector you cannot search.
 const registry = fs.readFileSync(path.join(ROOT, 'modules', 'connectors', 'registry.js'), 'utf8')

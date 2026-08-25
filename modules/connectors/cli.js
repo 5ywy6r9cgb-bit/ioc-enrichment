@@ -500,6 +500,122 @@ function cmdCrosslink(opts) {
   console.log(C.dim('\n  Open a case for what survives:  sentinel case new <ID> "..."\n'));
 }
 
+/**
+ * Read every captured lobbying filing and say what they assert. No network.
+ *
+ * ─────────────────────────────────────────────────────────────────────────
+ * WHY THIS IS NOT PART OF crosslink
+ *
+ * crosslink answers "what name turns up under more than one subject", over
+ * every connector. That is co-occurrence, and it is worth exactly a look.
+ *
+ * A lobbying filing asserts the relationship. Someone signed, under
+ * 2 U.S.C. 1603-1604, that this registrant lobbied for that client in that
+ * quarter on those issues. Mixing an asserted relationship into a pile of
+ * name overlaps loses the only thing that made it worth reading, so the
+ * filings get their own reader, their own arithmetic, and their own page.
+ *
+ * The arithmetic is where this data misleads. income and expenses are
+ * different money; amendments restate rather than add; the capture stops at
+ * 25; and you only ever see the clients you searched. lobby.js defends
+ * against all four — this function's job is to make sure the operator is
+ * TOLD about them rather than handed a clean-looking number.
+ */
+function cmdLobby(opts) {
+  const L = require('./lobby.js');
+  const dir = path.join(R.EVIDENCE, 'captures');
+  const { filings: raw, subjects, unparsed } = L.readFilings(dir);
+
+  if (!subjects.length) {
+    console.log(`\n  ${C.dim('No lobbying captures yet. Search a client first:')}`);
+    console.log(C.dim('    sentinel connect senatelda "Amazon Data Services"'));
+    console.log(C.dim('    sentinel connect all "NiSource" --into energy\n'));
+    return;
+  }
+
+  const { filings, superseded } = L.dedupe(raw);
+  const analysis = L.analyse(filings);
+  const shared = L.sharedRegistrants(analysis);
+
+  console.log(`\n  ${C.b('LOBBYING FILINGS')}`);
+  console.log(C.dim(`  ${subjects.length} capture(s) · ${raw.length} filing(s) read · `
+    + `${filings.length} after collapsing ${superseded} amendment(s) · no network call\n`));
+
+  // ---- coverage, before any number that depends on it -------------------
+  const truncated = subjects.filter((s) => s.truncated);
+  const unknown = subjects.filter((s) => s.total === null);
+  if (truncated.length) {
+    console.log(`  ${C.y('TRUNCATED — these totals are floors, not totals')}`);
+    console.log(C.dim('  The connector asks for 25 filings and does not follow the next page.'));
+    for (const s of truncated) {
+      console.log(C.dim(`    ${s.subject.slice(0, 40).padEnd(42)}kept ${s.kept} of ${s.total}`));
+    }
+    console.log('');
+  }
+  if (unknown.length) {
+    console.log(C.dim(`  ${unknown.length} capture(s) reported no total count — `
+      + `whether they are complete is unknown, not assumed.\n`));
+  }
+
+  // ---- the finding this module exists for -------------------------------
+  if (shared.length) {
+    console.log(`  ${C.b('ONE REGISTRANT, SEVERAL CLIENTS')}`);
+    console.log(C.dim('  Each row rests on signed filings, not a name overlap. "Clients" means'));
+    console.log(C.dim('  clients IN THIS LIBRARY — the search is by client name, so a firm\'s'));
+    console.log(C.dim('  other clients are invisible unless you searched them too.\n'));
+    for (const g of shared.slice(0, opts.verbose ? 999 : 10)) {
+      console.log(`    ${C.b(g.name.slice(0, 52))}  ${C.dim(`${g.clients.length} clients · ${g.filings} filings`)}`);
+      for (const c of g.clients) console.log(C.dim(`      ${c.slice(0, 62)}`));
+      console.log('');
+    }
+  } else {
+    console.log(C.dim('  No registrant here files for more than one captured client.'));
+    console.log(C.dim('  That is a real answer about your library, not about lobbying.\n'));
+  }
+
+  // ---- money, split and never summed ------------------------------------
+  const income = L.sumOrNull(analysis.byYear.map((y) => y.income));
+  const expenses = L.sumOrNull(analysis.byYear.map((y) => y.expenses));
+  console.log(`  ${C.b('REPORTED FIGURES')}`);
+  console.log(C.dim('  Two different kinds of money. They are never added together.'));
+  console.log(`    income (outside firms paid by a client)      ${income === null ? C.dim('none reported') : '$' + income.toLocaleString('en-US')}`);
+  console.log(`    expenses (organisations, in-house lobbying)  ${expenses === null ? C.dim('none reported') : '$' + expenses.toLocaleString('en-US')}`);
+  console.log('');
+
+  if (analysis.issues.length) {
+    console.log(`  ${C.b('ISSUES')}`);
+    for (const s of analysis.issues.slice(0, opts.verbose ? 999 : 10)) {
+      console.log(`    ${s.issue.slice(0, 46).padEnd(48)}${C.dim(`${s.filings} filing(s)`)}`);
+    }
+    console.log('');
+  }
+
+  if (unparsed.length) {
+    console.log(C.y(`  ${unparsed.length} capture(s) would not parse and are excluded`));
+    for (const u of unparsed.slice(0, 5)) console.log(C.dim(`    ${u.file}`));
+    console.log(C.dim('  The bytes are on disk and hashed. They are not in this analysis.\n'));
+  }
+
+  if (opts.chart) {
+    const CH = require('./lobby_chart.js');
+    const out = opts.chart === true
+      ? path.join(R.EVIDENCE, 'lobbying.html') : path.resolve(opts.chart);
+    require('fs').writeFileSync(out, CH.render({
+      analysis, shared, subjects, unparsed, superseded,
+      kept: filings.length, generated: new Date().toISOString().replace('T', ' ').slice(0, 16) + ' UTC',
+    }));
+    console.log(`  ${C.g('chart written')}  ${out}`);
+    console.log(C.dim('  One self-contained file. No scripts, no fonts, no network — it will'));
+    console.log(C.dim('  still render years from now with the Wi-Fi off.\n'));
+  }
+
+  console.log(C.dim('  ' + '─'.repeat(74)));
+  console.log(C.y('  A FILING IS AN ASSERTION, NOT A FINDING.'));
+  console.log(C.dim('  It is evidence that someone SAID this, which is much stronger than a'));
+  console.log(C.dim('  name overlap and still not proof of what was done. Pull the filing at'));
+  console.log(C.dim('  lda.gov and cite that.\n'));
+}
+
 async function cmdSearch(name, query, opts) {
   const c = R.CONNECTORS[name];
   if (!c) {
@@ -588,6 +704,20 @@ async function main() {
   if (action === 'test') return cmdTest();
   if (action === 'list') return cmdList();
   if (action === 'crosslink') return cmdCrosslink({ verbose: argv.includes('--verbose') });
+  if (action === 'lobby') {
+    // --chart writes to the default path; --chart <path> or --chart=<path>
+    // writes where you say. A bare --chart followed by another flag is the
+    // default, not a path — absorbing "--verbose" as a filename is exactly
+    // the class of silent corruption that broke `--into`.
+    let chart = false;
+    const i = argv.findIndex((a) => a === '--chart' || a.startsWith('--chart='));
+    if (i >= 0) {
+      if (argv[i].startsWith('--chart=')) chart = argv[i].slice('--chart='.length);
+      else if (argv[i + 1] && !argv[i + 1].startsWith('--')) chart = argv[i + 1];
+      else chart = true;
+    }
+    return cmdLobby({ verbose: argv.includes('--verbose'), chart });
+  }
   if (action === 'all') {
     const parsed = parseAllArgs(argv.slice(1));
     if (parsed.error) {
@@ -600,7 +730,7 @@ async function main() {
   if (R.CONNECTORS[action]) return cmdSearch(action, args.slice(1).join(' '), opts);
 
   console.error(`unknown action: ${action}`);
-  console.error('usage: cli.js test | list | all "<subject>" [--into INV] | search <connector> "<query>" [--dry-run]');
+  console.error('usage: cli.js test | list | all "<subject>" [--into INV] | crosslink | lobby [--chart] | search <connector> "<query>" [--dry-run]');
   process.exit(2);
 }
 
@@ -610,4 +740,4 @@ if (require.main === module) {
   main().catch((e) => { console.error(e); process.exit(1); });
 }
 
-module.exports = { verdictFor, cmdTest, wrap, parseAllArgs };
+module.exports = { verdictFor, cmdTest, wrap, parseAllArgs, cmdLobby };
