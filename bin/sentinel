@@ -6,7 +6,7 @@
 # and one provenance discipline. This dispatcher is the single command you
 # run; it delegates to the module that owns each job.
 #
-#   sentinel help
+#   sentinel help                   this list (sentinel commands works too)
 #   sentinel status                 what is set up, what is not
 #   sentinel test                   run every module's test suite
 #
@@ -31,6 +31,7 @@
 #   sentinel case ask/conflict ...  log an open question / a contradiction
 #   sentinel case status <ID>       can this be published, and what is blocking
 #   sentinel dash                   build + open the dashboard over all cases
+#                                   (sentinel dashboard works too)
 #   sentinel connect test           which connector API keys are set + reachable
 #   sentinel connect <c> "<query>"  search a connector -> evidence inbox
 #   sentinel connect all "<subject>"  search every source at once
@@ -52,7 +53,13 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 bold() { printf '\033[1m%s\033[0m\n' "$1"; }
 
 usage() {
-  sed -n '3,40p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  # Print the header block by finding where it ENDS, not by a line number.
+  # This was `sed -n '3,40p'`, and the header outgrew it: `sentinel help`
+  # silently stopped after `watch run` and omitted six real commands
+  # (watch run --all/status/install/uninstall, prov verify/ingest). Nothing
+  # failed. The help just quietly got shorter than the truth, which is the
+  # worst way for a help screen to be wrong -- you cannot tell by reading it.
+  awk 'NR>=3 { if (/^# =+$/) exit; print }' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
   cat <<'EXTRA'
 
 WHAT THIS IS NOT

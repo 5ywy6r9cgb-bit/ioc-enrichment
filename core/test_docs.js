@@ -68,6 +68,34 @@ for (const v of [...verbs].sort()) {
     `docs/OPERATOR_MANUAL.md documents "sentinel ${v}"`);
 }
 
+// ---- the help screen must not silently shrink ------------------------
+// `sentinel help` used to print a hardcoded line range of its own header
+// (`sed -n '3,40p'`). The header grew past line 40 and help quietly stopped
+// after `watch run`, omitting six real commands. Nothing failed and nothing
+// warned -- the help screen just became shorter than the truth, and the only
+// way to notice was to already know what was missing.
+//
+// So: every top-level verb the dispatcher answers to must actually appear in
+// what `sentinel help` prints. Not in the source -- in the OUTPUT.
+const helpOut = require('child_process')
+  .execFileSync(DISPATCHER, ['help'], { encoding: 'utf8' });
+
+ok(helpOut.length > 500, 'sentinel help prints something substantial');
+for (const v of [...verbs].sort()) {
+  ok(new RegExp(`sentinel ${v}\\b`).test(helpOut),
+    `sentinel help lists "sentinel ${v}"`);
+}
+
+// The header block has to be terminated, or the awk that prints it runs on
+// past the comments and dumps the shell source at the operator. Checking for
+// the closing ==== rule is NOT enough -- the opening rule matches the same
+// pattern, so that check passes even with the terminator deleted. Test the
+// property that actually matters: help prints help, not code.
+for (const leak of ['set -euo pipefail', 'usage()', 'BASH_SOURCE', '${ROOT}']) {
+  ok(!helpOut.includes(leak),
+    `sentinel help does not leak shell source ("${leak}")`);
+}
+
 // ---- pra subcommands -------------------------------------------------
 // The dispatcher prints its own list when you type a bad one. That line is
 // the authoritative set, so read it rather than the case arms — if the two
