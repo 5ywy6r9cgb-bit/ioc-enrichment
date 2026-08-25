@@ -422,10 +422,20 @@ WHERE a <> b RETURN a,s,b LIMIT 50
 (<http://localhost:7474>), not the terminal — zsh will try to interpret
 Cypher as shell.
 
-*Did the push land?* Compare these to what the preview printed.
+**One query at a time.** Neo4j Browser runs whatever is in the editor as a
+single statement, so two queries pasted together become one malformed query.
+Clear the box before each paste — if the editor still holds the `:connect`
+from signing in, your paste lands on the end of it and Browser reports
+`Unknown command ":connectMATCH ..."`.
+
+*Did the push land?* Compare these to what the preview printed. Run them
+separately.
 
 ```cypher
 MATCH (n) RETURN labels(n)[0] AS label, count(*) AS n ORDER BY n DESC
+```
+
+```cypher
 MATCH ()-[r]->() RETURN type(r) AS rel, count(*) AS n ORDER BY n DESC
 ```
 
@@ -736,6 +746,8 @@ DATABASE_URL            # Postgres, for `foia --db`
 | `connect graph --push` says "neo4j-driver is not installed" | `cd modules/connectors && npm install neo4j-driver`. Everything else on the desk, including the graph **preview**, runs without it. |
 | `connect graph` refuses: "That Neo4j is not on this machine" | `NEO4J_URI` points somewhere hosted. That is the guard working. If you meant it, add `--allow-remote`. |
 | The graph shows two companies with no line between them | Correct, if all they share is a search. Co-occurrence is two hops, through the `Subject` node. Only a sworn filing draws a direct edge. |
+| Neo4j Browser: `Unknown command ":connectMATCH ..."` | Two things ran together. The editor still held `:connect` from signing in and the paste landed on the end of it. Clear the editor box, paste one query, run it. |
+| Neo4j Browser errors on a block that looks fine | Browser runs the whole editor as ONE statement. Two queries pasted together are one malformed query. Run them one at a time. |
 
 
 ## 12. Re-deriving this page
