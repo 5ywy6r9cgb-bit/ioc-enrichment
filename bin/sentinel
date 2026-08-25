@@ -82,6 +82,7 @@ case "$cmd" in
 
   test)
     bold "Running every module's tests"
+    FAILED=0
     echo ""
     echo "== provenance spine =="
     python3 "$ROOT/core/provenance/test_provenance.py"
@@ -89,7 +90,9 @@ case "$cmd" in
     echo "== notification content guard =="
     node "$ROOT/modules/watch/test_notify.js"
     echo ""
-    FAILED=0
+    echo "== records desk (overnight stage) =="
+    node "$ROOT/modules/watch/test_records_desk.js" || FAILED=1
+    echo ""
     echo "== case gate =="
     python3 "$ROOT/modules/research-desk/test_case.py" || FAILED=1
     echo ""

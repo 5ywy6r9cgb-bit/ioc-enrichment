@@ -41,6 +41,7 @@ const fs = require('fs');
 const path = require('path');
 const R = require('../connectors/registry.js');
 const notify = require('./notify.js');
+const recordsDesk = require('./records_desk.js');
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const EVIDENCE = process.env.SENTINEL_EVIDENCE_DIR || path.join(ROOT, 'evidence');
@@ -237,8 +238,14 @@ async function cmdRun(opts) {
   console.log(C.dim(`  watchlist: ${path.relative(ROOT, CONFIG_PATH)}`));
   console.log(C.dim(`  ${watches.length} configured · ${due.length} due${opts.dryRun ? ' · DRY RUN' : ''}`));
 
+  // The records desk runs FIRST and runs unconditionally. It is the one stage
+  // that cannot fail for a network reason, and an overdue clock is the thing
+  // most likely to actually cost you something today.
+  const desk = opts.dryRun ? null : runRecordsDesk(opts);
+
   if (!due.length) {
-    console.log(C.dim('\n  Nothing due. Use --all to force every watch.\n'));
+    console.log(C.dim('\n  No watches due. Use --all to force every watch.\n'));
+    if (desk) await notifyDesk(desk, cfg);
     return;
   }
 
@@ -262,11 +269,13 @@ async function cmdRun(opts) {
   if (opts.dryRun) { console.log(C.dim('\n  Dry run — nothing written, nothing sent.\n')); return; }
 
   // ---- notify ---------------------------------------------------------
-  // Counts and watch labels only. See notify.js for why.
-  if (totalNew || failed.length) {
+  // Counts, watch labels, and request IDs only. See notify.js for why.
+  const deskLine = desk ? recordsDesk.notifyLine(desk) : null;
+  if (totalNew || failed.length || deskLine) {
     const bits = [];
     if (totalNew) bits.push(`${totalNew} new on ${withNew.map((r) => r.watch.id).join(', ')}`);
     if (failed.length) bits.push(`${failed.length} failed`);
+    if (deskLine) bits.push(deskLine);
     const res = await notify.send({
       title: 'Sentinel watch',
       body: bits.join(' · '),
@@ -282,6 +291,48 @@ async function cmdRun(opts) {
     console.log(C.dim('  underlying document before any of it is used.'));
   }
   console.log('');
+}
+
+/**
+ * Run the records desk stage and print it. Returns the result so the caller can
+ * fold it into one notification rather than sending two.
+ */
+function runRecordsDesk(opts) {
+  const result = recordsDesk.run(opts);
+  const brief = recordsDesk.writeBrief(result, opts);
+
+  console.log('\n  ' + C.b('Records desk'));
+  if (!result.ok) {
+    // Loud, because the alternative is reading silence as "nothing is overdue."
+    console.log(`    ${C.r('FAILED')} ${result.reason}`);
+    console.log(C.dim('    No clocks were checked. Do not read this run as quiet.'));
+  } else if (!result.total) {
+    console.log(C.dim('    no requests tracked yet'));
+  } else if (!result.needs_attention) {
+    console.log(`    ${C.g('nothing needs you')} ${C.dim(`(${result.total} tracked)`)}`);
+  } else {
+    console.log(`    ${C.y(`${result.needs_attention} of ${result.total} need you`)}`);
+    for (const e of result.items.slice(0, 5)) {
+      console.log(`      ${C.dim(e.request_id.padEnd(34))} ${e.label}`);
+    }
+    if (result.judgment) {
+      console.log(C.dim(`    ${result.judgment} need a decision, not just a letter.`));
+    }
+  }
+  console.log(C.dim(`    brief: ${path.relative(ROOT, brief)}`));
+  return result;
+}
+
+/** Notify for a desk-only run — when no watches were due but a clock moved. */
+async function notifyDesk(desk, cfg) {
+  const line = recordsDesk.notifyLine(desk);
+  if (!line) return;
+  const res = await notify.send({
+    title: 'Sentinel watch',
+    body: line,
+    config: cfg.notify || { backend: 'none' },
+  });
+  if (res.ok && res.via !== 'none') console.log(C.dim(`    notified via ${res.via}`));
 }
 
 function cmdStatus() {
