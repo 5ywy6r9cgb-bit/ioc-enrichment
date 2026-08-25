@@ -300,6 +300,27 @@ const PLACEHOLDER_PASSWORDS = new Set([
   'changeme', 'change-me', 'password', 'neo4j', 'xxx', '...', 'secret',
 ]);
 
+/**
+ * Describe a secret without printing it.
+ *
+ * "Neo4j rejected the credentials" with no other detail is the same failure
+ * shape as `KEY REJECTED — check for a typo` pointing at a key that was never
+ * sent: it tells you the database said no, and nothing about what was asked.
+ * The three things that actually go wrong here are a value that is empty, one
+ * that arrived wrapped in quotes, and one with a stray space on the end --
+ * all invisible in a terminal, all diagnosable from length alone.
+ */
+function describeSecret(pass) {
+  if (pass === undefined || pass === null) return 'not set';
+  const raw = String(pass);
+  if (!raw.length) return 'empty';
+  const notes = [];
+  if (/^["'].*["']$/.test(raw)) notes.push('wrapped in quotes');
+  if (raw !== raw.trim()) notes.push('has leading/trailing whitespace');
+  const head = raw.trim().slice(0, 1);
+  return `${raw.length} chars, starts with "${head}"${notes.length ? ' — ' + notes.join(', ') : ''}`;
+}
+
 function isPlaceholderPassword(pass) {
   if (!pass) return false;
   return PLACEHOLDER_PASSWORDS.has(String(pass).trim().toLowerCase());
@@ -307,5 +328,5 @@ function isPlaceholderPassword(pass) {
 
 module.exports = {
   build, toCypher, push, isLocal, readEnv, LOCAL_HOSTS,
-  isPlaceholderPassword, PLACEHOLDER_PASSWORDS,
+  isPlaceholderPassword, PLACEHOLDER_PASSWORDS, describeSecret,
 };

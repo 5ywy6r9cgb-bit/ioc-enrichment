@@ -214,6 +214,22 @@ module.exports = async function run() {
       !G.isPlaceholderPassword('') && !G.isPlaceholderPassword(undefined));
   }
 
+  // ══ 7c. AN AUTH FAILURE MUST SAY WHAT IT SENT ═════════════════════════
+  {
+    check('describeSecret never returns the secret',
+      !G.describeSecret('hunter2').includes('unter2'));
+    check('length is reported, because that is what diagnoses a typo',
+      G.describeSecret('hunter2').includes('7 chars'));
+    check('a quoted value is called out',
+      /quotes/.test(G.describeSecret('"hunter2"')));
+    check('trailing whitespace is called out',
+      /whitespace/.test(G.describeSecret('hunter2 ')));
+    check('an empty value says empty, not "0 chars"',
+      G.describeSecret('') === 'empty');
+    check('an unset value says not set',
+      G.describeSecret(undefined) === 'not set');
+  }
+
   // ══ 8. push() RUNS THE STATEMENTS, IN ORDER ═══════════════════════════
   {
     const dir = fixture({

@@ -652,9 +652,19 @@ async function cmdGraph(opts) {
     const msg = String(e.message || '');
     if (/Unauthorized|AuthenticationRateLimit/.test(code)) {
       console.error(`\n  ${C.r('Neo4j rejected the credentials.')}`);
-      console.error(C.dim('  NEO4J_USER / NEO4J_PASSWORD do not match this database.'));
-      console.error(C.dim('  On a fresh install the first login forces a password change —'));
-      console.error(C.dim('  set it in the browser at http://localhost:7474 first.\n'));
+      // Say what was actually sent, or this is just "it said no".
+      console.error(C.dim(`  read from   ${path.join(__dirname, '.env')}`));
+      console.error(C.dim(`  uri         ${uri}`));
+      console.error(C.dim(`  user        "${user}"`));
+      console.error(C.dim(`  password    ${G.describeSecret(pass)}`));
+      console.error('');
+      console.error(C.dim('  Check that password against the database itself: open'));
+      console.error(C.dim('  http://localhost:7474 and sign in with the same user and'));
+      console.error(C.dim('  password. If that fails too, the value is wrong. If it works'));
+      console.error(C.dim('  there but not here, the .env line is.'));
+      console.error('');
+      console.error(C.dim('  In Neo4j Desktop the app login is NOT the database password.'));
+      console.error(C.dim('  Each instance has its own, set when the instance was created.\n'));
     } else if (/ServiceUnavailable/.test(code) || /ECONNREFUSED|routing servers|discovery/i.test(msg)) {
       console.error(`\n  ${C.r('Nothing is listening at')} ${uri}`);
       console.error(C.dim('  The database is not started, or it is on a different port.'));
