@@ -159,6 +159,56 @@ module.exports = function run() {
     check('re-running overwrites rather than appending', first === second);
   }
 
+  // ══ the notification must survive a BUSY night ══════════════════════
+  // Regression guard. The first real overnight run produced 289 hits across
+  // 13 watches, the body came to 254 characters against a 240 cap, and
+  // notify.js refused it — so a perfect run sent nothing. The busier the
+  // night, the more certain the doorbell did not ring.
+  {
+    const notify = require('./notify.js');
+    const { buildNotifyBody } = require('./run.js');
+
+    const mkWatches = (n) => Array.from({ length: n }, (_, i) => ({
+      watch: { id: `WATCH-SOMETHING-RATHER-LONG-${String(i).padStart(2, '0')}` },
+      newHits: [1],
+    }));
+
+    // The exact shape that failed.
+    const busy = buildNotifyBody(289, mkWatches(13), [],
+      '1 records request(s) need you: PRR-2026-391');
+    check('a busy night produces a body within the cap',
+      busy.length <= notify.MAX_LEN, `${busy.length} chars: ${busy}`);
+    check('and notify.js accepts it', notify.guard(busy).ok === true);
+    check('it still reports the total', /289 new/.test(busy), busy);
+    check('and the number of watches', /13 watch/.test(busy), busy);
+    check('the records desk leads — a legal clock outranks a search result',
+      busy.startsWith('1 records request'), busy);
+
+    // A quiet night still names the watches, because it fits.
+    const quiet = buildNotifyBody(2, mkWatches(1), [], null);
+    check('a quiet night names the watch rather than counting',
+      /WATCH-SOMETHING/.test(quiet), quiet);
+
+    // Failures are never dropped, however busy it is.
+    const withFail = buildNotifyBody(500, mkWatches(30), [{}, {}], null);
+    check('failures survive truncation',
+      /2 watch\(es\) FAILED/.test(withFail) && withFail.length <= notify.MAX_LEN,
+      `${withFail.length}: ${withFail}`);
+
+    // The absolute worst case still sends SOMETHING.
+    const monstrous = buildNotifyBody(9999, mkWatches(200), [{}],
+      'x'.repeat(300));
+    check('an impossible body is trimmed, never refused outright',
+      monstrous.length <= notify.MAX_LEN && monstrous.length > 0,
+      String(monstrous.length));
+    check('and it is still accepted by the guard',
+      notify.guard(monstrous).ok === true);
+
+    check('the cap is read from notify.js, not copied',
+      require('fs').readFileSync(require.resolve('./run.js'), 'utf8')
+        .includes('notify.MAX_LEN'));
+  }
+
   console.log(`\n  ${FAIL === 0 ? 'PASS' : 'FAIL'} — ${PASS}/${PASS + FAIL} checks\n`);
   return FAIL;
 };

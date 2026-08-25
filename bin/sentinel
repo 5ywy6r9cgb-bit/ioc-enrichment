@@ -198,6 +198,37 @@ case "$cmd" in
           exit 1
         fi
         HOUR="${1:-8}"
+        # Validate before writing a plist. An unvalidated value goes straight
+        # into <integer>__HOUR__</integer>, launchd refuses the malformed job,
+        # and the only symptom is that the overnight run never fires — which
+        # you discover by not getting a morning brief, weeks later.
+        #
+        # This is not hypothetical. On a real install the value was "#",
+        # because macOS runs zsh and zsh does NOT treat # as a comment in an
+        # interactive shell (interactive_comments is off by default). A pasted
+        # `bin/sentinel watch install      # then schedule it` handed "#" in
+        # as $1 and the command cheerfully reported "every day at #:00".
+        case "$HOUR" in
+          ''|*[!0-9]*)
+            echo ""
+            echo "  Not an hour: '$HOUR'"
+            echo ""
+            echo "  Usage:  sentinel watch install [HOUR]     # 0-23, default 8"
+            echo ""
+            echo "  If you pasted a command with a trailing comment, note that"
+            echo "  zsh (the macOS default) does not strip '#' in an interactive"
+            echo "  shell the way bash does — everything after it was passed in"
+            echo "  as arguments. Retype the command without the comment."
+            echo ""
+            exit 2
+            ;;
+        esac
+        if [ "$HOUR" -gt 23 ]; then
+          echo ""
+          echo "  Not an hour: $HOUR. Use 0-23."
+          echo ""
+          exit 2
+        fi
         mkdir -p "$HOME/Library/LaunchAgents" "$ROOT/evidence/watch"
         sed -e "s|__ROOT__|$ROOT|g" \
             -e "s|__HOUR__|$HOUR|g" \

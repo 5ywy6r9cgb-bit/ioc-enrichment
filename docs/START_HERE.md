@@ -175,8 +175,34 @@ your keys. Send me that output — it's safe to share.
 
 ## 9. The overnight run
 
+**Type these one line at a time. Do not paste a line that has a `#` comment on
+the end of it** — macOS runs zsh, and zsh does not strip `#` in an interactive
+shell the way bash does. Everything after it is passed in as arguments, so
+
+```
+bin/sentinel watch install      # then schedule it
+```
+
+hands `#` in as the hour and schedules the job for `#:00`, which launchd
+refuses. The command now catches that and refuses rather than writing a broken
+schedule, but the simplest fix is to not paste the comment.
+
 ```bash
-bin/sentinel watch install
+cp modules/watch/watchlist.example.json watchlist.json
+open -e watchlist.json
+```
+
+Edit it to your actual subjects, save, close. Then run it once by hand — you
+want to watch it work before it runs unattended at 6am:
+
+```bash
+bin/sentinel watch run --all
+```
+
+Then schedule it. The number is the hour, 0-23:
+
+```bash
+bin/sentinel watch install 6
 ```
 
 Schedules it via launchd, not cron — launchd catches up a run missed while the

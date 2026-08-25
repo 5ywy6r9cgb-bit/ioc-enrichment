@@ -272,13 +272,9 @@ async function cmdRun(opts) {
   // Counts, watch labels, and request IDs only. See notify.js for why.
   const deskLine = desk ? recordsDesk.notifyLine(desk) : null;
   if (totalNew || failed.length || deskLine) {
-    const bits = [];
-    if (totalNew) bits.push(`${totalNew} new on ${withNew.map((r) => r.watch.id).join(', ')}`);
-    if (failed.length) bits.push(`${failed.length} failed`);
-    if (deskLine) bits.push(deskLine);
     const res = await notify.send({
       title: 'Sentinel watch',
-      body: bits.join(' · '),
+      body: buildNotifyBody(totalNew, withNew, failed, deskLine),
       config: cfg.notify || { backend: 'none' },
     });
     if (res.ok && res.via !== 'none') console.log(`    notified   via ${res.via}`);
@@ -291,6 +287,64 @@ async function cmdRun(opts) {
     console.log(C.dim('  underlying document before any of it is used.'));
   }
   console.log('');
+}
+
+/**
+ * Build the notification body, within the length cap, without ever dropping
+ * the fact that something happened.
+ *
+ * ─────────────────────────────────────────────────────────────────────────
+ * WHY THIS IS ITS OWN FUNCTION
+ *
+ * The first version enumerated every watch that had new hits:
+ *
+ *     `${totalNew} new on ${withNew.map((r) => r.watch.id).join(', ')}`
+ *
+ * On the first real overnight run — 289 hits across 13 watches — that produced
+ * a 254-character body and notify.js refused it against a 240 cap. The run
+ * worked perfectly and the operator got no notification at all.
+ *
+ * That failure is exactly backwards. The busier the night, the longer the ID
+ * list, the more certain the doorbell does not ring. The one morning you most
+ * need to be told something happened is the one morning you are not.
+ *
+ * So the body degrades instead of failing: name the watches while they fit,
+ * fall back to a count of watches when they do not. A notification is a
+ * doorbell, not a delivery — "289 new across 13 watches" is a complete
+ * doorbell. The detail is in NEW_HITS.md, which never left the machine.
+ *
+ * Truncation is measured against notify.MAX_LEN rather than a number copied
+ * here, so the two cannot drift apart.
+ */
+function buildNotifyBody(totalNew, withNew, failed, deskLine) {
+  const cap = notify.MAX_LEN;
+
+  // Built most-important-first. The desk line goes first: an overdue records
+  // request is a legal clock, and it outranks a search result.
+  const parts = [];
+  if (deskLine) parts.push(deskLine);
+  if (failed.length) parts.push(`${failed.length} watch(es) FAILED`);
+
+  const short = totalNew
+    ? `${totalNew} new across ${withNew.length} watch(es)`
+    : null;
+  const long = totalNew
+    ? `${totalNew} new on ${withNew.map((r) => r.watch.id).join(', ')}`
+    : null;
+
+  // Prefer naming the watches; fall back to counting them.
+  for (const candidate of [long, short]) {
+    if (!candidate) continue;
+    const body = [...parts, candidate].join(' · ');
+    if (body.length <= cap) return body;
+  }
+
+  const body = parts.join(' · ');
+  if (body.length <= cap) return body;
+
+  // Last resort. Everything above is already terse, so reaching here means a
+  // single component is itself too long — trim rather than send nothing.
+  return body.slice(0, cap - 1) + '…';
 }
 
 /**
@@ -368,4 +422,7 @@ async function main() {
   process.exit(2);
 }
 
-main().catch((e) => { console.error(e); process.exit(1); });
+if (require.main === module) main().catch((e) => { console.error(e); process.exit(1); });
+
+// Exported for tests. main() only runs when invoked directly.
+module.exports = { buildNotifyBody };
