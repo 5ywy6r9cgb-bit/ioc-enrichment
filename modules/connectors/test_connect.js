@@ -215,6 +215,40 @@ module.exports = function run() {
       /LEADS, not findings/.test(cli));
   }
 
+  // ══ the dispatcher must reach every verb ═════════════════════════════
+  // `all` was added to cli.js and not to bin/sentinel, so the module worked
+  // when called directly and `sentinel connect all "X"` reported
+  // "unknown connector: all". The dispatcher is the surface an operator
+  // actually types; a command that works only when the module is invoked
+  // directly is not yet a command.
+  {
+    const fs2 = require('fs');
+    const path2 = require('path');
+    const bin = fs2.readFileSync(
+      path2.resolve(__dirname, '..', '..', 'bin', 'sentinel'), 'utf8');
+    const cli = fs2.readFileSync(require.resolve('./cli.js'), 'utf8');
+
+    // Every `action === 'verb'` branch in cli.js is a verb the dispatcher
+    // must pass through rather than rewrite into a connector name.
+    const verbs = [...cli.matchAll(/action === '([a-z]+)'/g)].map((m) => m[1]);
+    check('cli.js declares at least test, list, and all',
+      ['test', 'list', 'all'].every((v) => verbs.includes(v)), verbs.join(','));
+
+    const passthrough = (bin.match(/^\s*(test\|list\|all[a-z|]*)\)/m) || [])[1] || '';
+    for (const v of verbs) {
+      if (v === 'search') continue;   // search is the implicit default
+      check(`bin/sentinel passes '${v}' through instead of treating it as a connector`,
+        passthrough.split('|').includes(v),
+        `dispatcher passthrough list is: ${passthrough || '(none found)'}`);
+    }
+
+    check('and anything else still falls through to search',
+      /node "\$ROOT\/modules\/connectors\/cli\.js" search "\$action"/.test(bin));
+    check('no connector is named after a verb, which would shadow it',
+      !Object.keys(R.CONNECTORS).some((n) => verbs.includes(n)),
+      Object.keys(R.CONNECTORS).filter((n) => verbs.includes(n)).join(','));
+  }
+
   console.log(`\n  ${FAIL === 0 ? 'PASS' : 'FAIL'} — ${PASS}/${PASS + FAIL} checks\n`);
   return FAIL;
 };

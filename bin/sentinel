@@ -175,13 +175,21 @@ case "$cmd" in
     ;;
 
   connect)
+    # Verbs pass straight through; anything else is a connector NAME and gets
+    # the implicit `search`. Keep this list in step with cli.js — `all` was
+    # added there and not here, so `sentinel connect all "X"` became
+    # `cli.js search all "X"` and reported "unknown connector: all". The
+    # dispatcher is the surface an operator actually types, so a command that
+    # works when the module is called directly is not yet a command that works.
     action="${1:-test}"; shift || true
-    if [ "$action" = "test" ]; then
-      node "$ROOT/modules/connectors/cli.js" test
-    else
-      # action is the connector name; next arg is the query
-      node "$ROOT/modules/connectors/cli.js" search "$action" "$@"
-    fi
+    case "$action" in
+      test|list|all)
+        node "$ROOT/modules/connectors/cli.js" "$action" "$@"
+        ;;
+      *)
+        node "$ROOT/modules/connectors/cli.js" search "$action" "$@"
+        ;;
+    esac
     ;;
 
   watch)
