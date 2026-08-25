@@ -459,6 +459,11 @@ const CONNECTORS = {
 
   bls: {
     label: 'BLS (labor statistics)',
+    // This API takes SERIES IDS, not names. "Cologix" is not a series id, and
+    // a fan-out across every connector would otherwise spend a call asking a
+    // statistics API about a company. `connect all` reads this flag and skips
+    // it with a reason rather than making the call and reporting nothing.
+    freeText: false,
     keyVar: 'BLS_API_KEY',
     keyRequired: false,  // v2 works unregistered at a low daily cap; a key raises it
     calls: 1,

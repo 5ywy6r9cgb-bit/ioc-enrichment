@@ -194,6 +194,130 @@ function cmdList() {
   console.log('');
 }
 
+/**
+ * Search EVERY usable connector for one subject.
+ *
+ * ─────────────────────────────────────────────────────────────────────────
+ * WHY THIS EXISTS
+ *
+ * Building a library on a subject means asking the same question of every
+ * source: is there a company registration, a federal contract, a lobbying
+ * filing, a lawsuit, a rulemaking comment. Nine connectors done one at a time
+ * is nine commands per subject, and for a dozen subjects nobody does it twice.
+ *
+ * WHAT IT KEEPS FROM THE SINGLE-CONNECTOR RUN
+ *
+ * The announce step, in full. Every call is declared before any call is made,
+ * including the total — a fan-out is the one place where "it made how many
+ * requests?" is a real question, and the answer should be on screen before
+ * the operator commits rather than after.
+ *
+ * Calls run one at a time, deliberately. Nine parallel requests is how a free
+ * API tier revokes a key, and the wall-clock saving is seconds.
+ *
+ * A connector that fails does not stop the rest. A partial library is worth
+ * having; the failures are listed at the end rather than buried.
+ */
+async function cmdAll(query, opts) {
+  if (!query) {
+    console.error('\n  usage: sentinel connect all "<subject>" [--into <investigation>]\n');
+    process.exit(2);
+  }
+
+  const env = R.loadEnv();
+  const names = Object.keys(R.CONNECTORS);
+
+  // Sort into what will run and what cannot, before anything runs.
+  const runnable = [];
+  const skipped = [];
+  for (const name of names) {
+    const c = R.CONNECTORS[name];
+    if (opts.only && !opts.only.includes(name)) continue;
+    if (opts.skip && opts.skip.includes(name)) { skipped.push([name, 'skipped by --skip']); continue; }
+    // Some connectors do not take a name. BLS wants a series id; asking it
+    // about a company spends a call to learn nothing.
+    if (c.freeText === false) {
+      skipped.push([name, 'takes an identifier, not a name — query it directly']);
+      continue;
+    }
+    const key = c.keyVar ? (env[c.keyVar] || (c.keyVarAlt ? env[c.keyVarAlt] : '') || '') : '';
+    if (c.keyRequired && !key) { skipped.push([name, `${c.keyVar} not set`]); continue; }
+    runnable.push(name);
+  }
+
+  console.log('\n' + C.b(`AUTHORIZED RUN — ${runnable.length} connector(s)`));
+  console.log(`  subject     ${C.b(query)}`);
+  console.log(`  calls       ${runnable.length} (exactly, one per connector, sequential)`);
+  if (opts.into) console.log(`  filing to   evidence/investigations/${opts.into}/`);
+  console.log('  boundary    every hit lands as a LEAD requiring a primary source');
+  for (const name of runnable) {
+    console.log(C.dim(`    ${name.padEnd(18)} ${R.CONNECTORS[name].describe(query)}`));
+  }
+  for (const [name, why] of skipped) {
+    console.log(C.y(`    ${name.padEnd(18)} SKIPPED — ${why}`));
+  }
+
+  if (opts.dryRun) {
+    console.log('\n  ' + C.y('DRY RUN — no network call made, nothing written.') + '\n');
+    return;
+  }
+
+  console.log('');
+  const rows = [];
+  const failures = [];
+  for (const name of runnable) {
+    process.stdout.write(C.dim(`  ${name}… `));
+    const out = await R.runConnector(name, query, { env, investigation: opts.into });
+    if (!out.ok) {
+      failures.push([name, out.error]);
+      console.log(C.r(`failed: ${out.error}`));
+      continue;
+    }
+    if (out.parseError) {
+      failures.push([name, `captured but unparsed: ${out.parseError}`]);
+      console.log(C.y(`captured, unparsed`));
+      continue;
+    }
+    rows.push({ name, label: R.CONNECTORS[name].label, results: out.results,
+      capturePath: out.capturePath, captureHash: out.captureHash });
+    console.log(out.results.length
+      ? C.g(`${out.results.length} lead(s)`) : C.dim('nothing'));
+  }
+
+  // ---- the library view -------------------------------------------------
+  const total = rows.reduce((n, r) => n + r.results.length, 0);
+  console.log('\n' + C.dim('  ' + '─'.repeat(74)));
+  console.log(`  ${C.b(`${total} candidate lead(s)`)} across ${rows.filter((r) => r.results.length).length} source(s)\n`);
+
+  for (const r of rows) {
+    if (!r.results.length) continue;
+    console.log(`  ${C.b(r.label)}  ${C.dim(`${r.results.length}`)}`);
+    for (const hit of r.results.slice(0, opts.verbose ? 999 : 5)) {
+      const line = hit.name || hit.title || hit.external_id || '(unnamed)';
+      const extra = [hit.jurisdiction, hit.amount, hit.agency, hit.incorporated, hit.date]
+        .filter(Boolean).join(' · ');
+      console.log(`    ${String(line).slice(0, 62)}`);
+      if (extra) console.log(C.dim(`      ${extra.slice(0, 68)}`));
+    }
+    if (!opts.verbose && r.results.length > 5) {
+      console.log(C.dim(`    …and ${r.results.length - 5} more (all in the capture)`));
+    }
+    console.log(C.dim(`    capture  ${path.relative(R.EVIDENCE, r.capturePath)}`));
+    console.log('');
+  }
+
+  if (failures.length) {
+    console.log(`  ${C.y('Did not complete:')}`);
+    for (const [name, why] of failures) console.log(C.dim(`    ${name.padEnd(18)} ${why}`));
+    console.log(C.dim('  A partial library is still a library. Re-run to retry these.\n'));
+  }
+
+  console.log(C.y('  These are LEADS, not findings.'));
+  console.log(C.dim('  A name match is not an identification. Confirm same-entity and pull'));
+  console.log(C.dim('  the underlying document before any of it is used.'));
+  console.log(C.dim('\n  Watch it instead of re-running by hand:  see watchlist.json\n'));
+}
+
 async function cmdSearch(name, query, opts) {
   const c = R.CONNECTORS[name];
   if (!c) {
@@ -281,11 +405,28 @@ async function main() {
 
   if (action === 'test') return cmdTest();
   if (action === 'list') return cmdList();
+  if (action === 'all') {
+    const valOf = (n) => {
+      const hit = argv.find((a) => a.startsWith(`--${n}=`));
+      if (hit) return hit.slice(n.length + 3);
+      const i = argv.indexOf(`--${n}`);
+      return i >= 0 ? argv[i + 1] : null;
+    };
+    const listOf = (n) => { const v = valOf(n); return v ? v.split(',').map((x) => x.trim()) : null; };
+    // The subject is everything positional after `all`, minus any flag values.
+    const flagVals = new Set(['into', 'only', 'skip'].map(valOf).filter(Boolean));
+    const subject = args.slice(1).filter((a) => !flagVals.has(a)).join(' ');
+    return cmdAll(subject, {
+      dryRun: opts.dryRun, into: valOf('into'),
+      only: listOf('only'), skip: listOf('skip'),
+      verbose: argv.includes('--verbose'),
+    });
+  }
   if (action === 'search') return cmdSearch(args[1], args.slice(2).join(' '), opts);
   if (R.CONNECTORS[action]) return cmdSearch(action, args.slice(1).join(' '), opts);
 
   console.error(`unknown action: ${action}`);
-  console.error('usage: cli.js test | list | search <connector> "<query>" [--dry-run]');
+  console.error('usage: cli.js test | list | all "<subject>" [--into INV] | search <connector> "<query>" [--dry-run]');
   process.exit(2);
 }
 

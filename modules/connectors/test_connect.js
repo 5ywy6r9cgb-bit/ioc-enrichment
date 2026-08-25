@@ -184,6 +184,37 @@ module.exports = function run() {
       /not usable, whatever HTTP said/.test(cliSrc));
   }
 
+  // ══ the fan-out ══════════════════════════════════════════════════════
+  {
+    const cli = require('fs').readFileSync(require.resolve('./cli.js'), 'utf8');
+
+    check('every call is announced before any call is made',
+      cli.indexOf('AUTHORIZED RUN') < cli.indexOf('await R.runConnector'),
+      'the announce block must precede the loop');
+    check('the total number of calls is stated up front',
+      /calls\s+\$\{runnable\.length\} \(exactly/.test(cli));
+    check('calls are sequential, not parallel',
+      !/Promise\.all/.test(cli) && /for \(const name of runnable\)/.test(cli),
+      'nine parallel requests is how a free tier revokes a key');
+    check('one connector failing does not abort the rest',
+      /failures\.push/.test(cli) && /continue;/.test(cli));
+    check('a dry run makes no call',
+      cli.indexOf('DRY RUN') < cli.indexOf('await R.runConnector'));
+
+    // A connector that cannot answer a name query must not be asked one.
+    check('BLS declares it does not take free text',
+      R.CONNECTORS.bls.freeText === false);
+    check('and the fan-out skips it with a reason',
+      /takes an identifier, not a name/.test(cli));
+    for (const [name, c] of Object.entries(R.CONNECTORS)) {
+      if (name === 'bls') continue;
+      check(`${name} accepts a name query`, c.freeText !== false);
+    }
+
+    check('the leads boundary is restated on the fan-out too',
+      /LEADS, not findings/.test(cli));
+  }
+
   console.log(`\n  ${FAIL === 0 ? 'PASS' : 'FAIL'} — ${PASS}/${PASS + FAIL} checks\n`);
   return FAIL;
 };
