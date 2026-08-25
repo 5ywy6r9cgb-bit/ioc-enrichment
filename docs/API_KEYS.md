@@ -34,10 +34,41 @@ on the same line:
 
 ```
 OPENSANCTIONS_API_KEY=...
-COURTLISTENER_API_TOKEN=...
-FEC_API_KEY=...
 DATA_GOV_API_KEY=...
+FEC_API_KEY=...
+OPENCORPORATES_API_KEY=...
+COURTLISTENER_API_TOKEN=...
+BLS_API_KEY=...
+LDA_API_KEY=...
 ```
+
+## Paste the key, not the sentence around it
+
+The single most common failure, and it looks like a rejected key rather than a
+paste mistake:
+
+```
+FEC_API_KEY       you…0N (63 chars)   → KEY REJECTED (HTTP 403)
+DATA_GOV_API_KEY  you…01 (54 chars)   → KEY REJECTED (HTTP 403)
+```
+
+An api.data.gov key is **exactly 40 characters**. Both of those were far too
+long and both began `you` — the "Your API key is: …" line from the signup email
+had been pasted along with the key.
+
+`connect test` now checks the shape before it makes any network call, so this
+reports as `KEY MALFORMED — 63 chars` with the expected length, instead of
+sending you hunting for a stray quote in a value that is twenty characters too
+long. Expected shapes:
+
+| Variable | Shape |
+|---|---|
+| `DATA_GOV_API_KEY` | exactly 40 letters and digits |
+| `FEC_API_KEY` | same — it is an api.data.gov key |
+| `OPENSANCTIONS_API_KEY` | 24–64 letters and digits |
+| `OPENCORPORATES_API_KEY` | 20–64 letters, digits, underscores |
+| `COURTLISTENER_API_TOKEN` | 20–64 letters and digits |
+| `BLS_API_KEY` | 32 hex characters |
 
 `DATA_GOV_API_KEY` is worth knowing about: **one api.data.gov key serves several
 connectors at once** — Regulations.gov, BLS, and others on that platform. If you

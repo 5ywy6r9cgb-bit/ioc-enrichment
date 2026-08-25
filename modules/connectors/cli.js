@@ -54,6 +54,21 @@ function verdictFor(c, key, res) {
   const usesDemoFallback = /DEMO_KEY/.test(c.probe('').url || '')
     || /DEMO_KEY/.test(JSON.stringify(c.probe('').headers || {}));
 
+  // Shape first. A key that cannot possibly be valid should not need a
+  // network round trip and a 403 to discover, and "check for a stray quote"
+  // is the wrong advice for a value that is twenty characters too long.
+  const shape = c.keyVar ? R.checkKeyShape(c.keyVar, key) : null;
+  if (shape) {
+    return {
+      text: C.r(`KEY MALFORMED — ${shape.length} chars`),
+      note: `${c.keyVar} should be ${shape.expected}, and yours is `
+        + `${shape.length} characters.`
+        + (shape.hints.length ? ` Looks like ${shape.hints.join('; and ')}.` : '')
+        + ` Re-copy just the key itself from ${shape.where}`,
+      ok: false,
+    };
+  }
+
   if (c.keyVar && c.keyRequired && !key) {
     return {
       text: C.y('NOT TESTED — no key set'),

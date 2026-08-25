@@ -36,6 +36,96 @@ function loadEnv() {
   return env;
 }
 
+/**
+ * What a valid key for each provider looks like.
+ *
+ * ─────────────────────────────────────────────────────────────────────────
+ * WHY SHAPE-CHECKING EARNS ITS PLACE
+ *
+ * A real run reported:
+ *
+ *     FEC_API_KEY       you…0N (63 chars)   → KEY REJECTED (HTTP 403)
+ *     DATA_GOV_API_KEY  you…01 (54 chars)   → KEY REJECTED (HTTP 403)
+ *
+ * An api.data.gov key is exactly 40 alphanumeric characters. Both of those
+ * were far too long and both began "you" — surrounding prose had been pasted
+ * along with the key, almost certainly from the "Your API key is: …" line of
+ * a signup email.
+ *
+ * Everything needed to say that was already on screen. The length was right
+ * there. But the advice said "check for a stray quote or a trailing space",
+ * which sends you looking for a one-character mistake in a value that is
+ * twenty-three characters too long.
+ *
+ * These checks run locally and cost nothing. A key that cannot possibly be
+ * valid should never require a network round trip and a 403 to discover.
+ *
+ * NOTE ON WHAT IS NOT DONE HERE: the key is never logged, echoed, or included
+ * in any error text. Only its length and whether it matched.
+ */
+const KEY_SHAPES = {
+  DATA_GOV_API_KEY: {
+    test: (k) => /^[A-Za-z0-9]{40}$/.test(k),
+    describe: 'exactly 40 letters and digits',
+    where: 'https://api.data.gov/signup',
+  },
+  FEC_API_KEY: {
+    // FEC issues api.data.gov keys; DEMO_KEY is the documented trial value.
+    test: (k) => /^[A-Za-z0-9]{40}$/.test(k) || k === 'DEMO_KEY',
+    describe: 'exactly 40 letters and digits (it is an api.data.gov key)',
+    where: 'https://api.data.gov/signup',
+  },
+  OPENSANCTIONS_API_KEY: {
+    test: (k) => /^[A-Za-z0-9]{24,64}$/.test(k),
+    describe: '24-64 letters and digits',
+    where: 'https://www.opensanctions.org/account/',
+  },
+  COURTLISTENER_API_TOKEN: {
+    test: (k) => /^[A-Za-z0-9]{20,64}$/.test(k),
+    describe: '20-64 letters and digits',
+    where: 'https://www.courtlistener.com/profile/api/',
+  },
+  OPENCORPORATES_API_KEY: {
+    test: (k) => /^[A-Za-z0-9_]{20,64}$/.test(k),
+    describe: '20-64 letters, digits, or underscores',
+    where: 'https://opencorporates.com/api_accounts/new',
+  },
+  BLS_API_KEY: {
+    test: (k) => /^[a-f0-9]{32}$/i.test(k),
+    describe: '32 hex characters',
+    where: 'https://data.bls.gov/registrationEngine/',
+  },
+};
+
+/**
+ * Check a key's shape without ever revealing it.
+ * Returns null when it looks fine, or a problem description when it does not.
+ */
+function checkKeyShape(keyVar, key) {
+  if (!key) return null;
+  const shape = KEY_SHAPES[keyVar];
+  if (!shape) return null;
+  if (shape.test(key)) return null;
+
+  // Say WHICH way it is wrong. "Malformed" sends you back to stare at it.
+  const hints = [];
+  if (/\s/.test(key)) hints.push('it contains a space or a line break');
+  if (/^["'`]|["'`]$/.test(key)) hints.push('it starts or ends with a quote mark');
+  if (/=/.test(key)) hints.push('it contains an "=", so the variable name may have been pasted twice');
+  if (/^(your|paste|enter|api[_ -]?key|key)\b/i.test(key)) {
+    hints.push('it begins with placeholder or label text — check for a '
+      + '"Your API key is:" prefix pasted along with the key');
+  }
+  if (/[:<>]/.test(key)) hints.push('it contains ":" or "<" or ">"');
+
+  return {
+    length: key.length,
+    expected: shape.describe,
+    where: shape.where,
+    hints,
+  };
+}
+
 function mask(k) {
   return k ? `${k.slice(0, 3)}…${k.slice(-2)} (${k.length} chars)` : null;
 }
@@ -293,15 +383,18 @@ const CONNECTORS = {
     keyVar: 'LDA_API_KEY',
     keyRequired: false,  // anonymous works; a free key raises the rate limit
     calls: 1,
-    describe: (q) => `GET https://lda.senate.gov/api/v1/filings/  (client/registrant: ${q})`,
+    describe: (q) => `GET https://lda.gov/api/v1/filings/  (client/registrant: ${q})`,
     probe: (key) => ({
       method: 'GET',
-      url: 'https://lda.senate.gov/api/v1/filings/?page_size=1',
+      // lda.senate.gov 301s to lda.gov. Following it works (see request()),
+      // but paying a redirect on every call to reach a known destination is
+      // waste; the hop was observed in a real run on 2026-08-25.
+      url: 'https://lda.gov/api/v1/filings/?page_size=1',
       headers: key ? { Authorization: `Token ${key}` } : {},
     }),
     run: (q, key) => ({
       method: 'GET',
-      url: `https://lda.senate.gov/api/v1/filings/?client_name=${encodeURIComponent(q)}&page_size=25&ordering=-dt_posted`,
+      url: `https://lda.gov/api/v1/filings/?client_name=${encodeURIComponent(q)}&page_size=25&ordering=-dt_posted`,
       headers: key ? { Authorization: `Token ${key}` } : {},
     }),
     parse: (json) => (json.results || []).map((r) => ({
@@ -413,6 +506,54 @@ const CONNECTORS = {
       }
       return out;
     },
+    identify: (r) => r.external_id,
+  },
+
+  opencorporates: {
+    label: 'OpenCorporates (company registry)',
+    keyVar: 'OPENCORPORATES_API_KEY',
+    keyRequired: true,   // the open endpoints are heavily throttled without one
+    calls: 1,
+    describe: (q) => `GET https://api.opencorporates.com/v0.4/companies/search  (company: ${q})`,
+    probe: (key) => ({
+      method: 'GET',
+      url: 'https://api.opencorporates.com/v0.4/companies/search?q=test&per_page=1'
+         + (key ? `&api_token=${encodeURIComponent(key)}` : ''),
+      headers: {},
+    }),
+    run: (q, key) => ({
+      method: 'GET',
+      url: 'https://api.opencorporates.com/v0.4/companies/search'
+         + `?q=${encodeURIComponent(q)}&per_page=25&order=score`
+         + (key ? `&api_token=${encodeURIComponent(key)}` : ''),
+      headers: {},
+    }),
+    /**
+     * A company registry entry is a REGISTRATION, not a finding. It says a
+     * name was filed with a registrar on a date. It does not say the company
+     * did anything, and — the trap here — two companies in different
+     * jurisdictions can carry the same name and be unrelated. So the
+     * jurisdiction and the company number travel with every row: they are what
+     * make same-entity a question you can actually answer later.
+     */
+    parse: (json) => {
+      const rows = (json.results && json.results.companies) || [];
+      return rows.map(({ company: c }) => ({
+        external_id: `${c.jurisdiction_code}/${c.company_number}`,
+        name: c.name,
+        company_number: c.company_number,
+        jurisdiction: c.jurisdiction_code,
+        status: c.current_status || '',
+        type: c.company_type || '',
+        incorporated: c.incorporation_date || '',
+        dissolved: c.dissolution_date || '',
+        address: (c.registered_address_in_full || '').slice(0, 160),
+        url: c.opencorporates_url || '',
+      }));
+    },
+    // jurisdiction + number, never the name. Names collide across registries
+    // and change on re-registration; the pair is the registrar's own identity
+    // for the filing and is what a later reader can check.
     identify: (r) => r.external_id,
   },
 
@@ -545,6 +686,7 @@ async function runConnector(name, query, opts = {}) {
 }
 
 module.exports = {
+  checkKeyShape, KEY_SHAPES,
   stripAuth, AUTH_HEADERS, MAX_REDIRECTS,
   CONNECTORS, VERSION, EVIDENCE, CAPTURES, LEDGER,
   loadEnv, mask, request, runConnector,

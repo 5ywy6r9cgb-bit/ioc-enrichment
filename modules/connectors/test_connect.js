@@ -67,8 +67,11 @@ module.exports = function run() {
     check('and does not send you hunting for a typo in a key you never set',
       !/stray quote/.test(rejected.note || ''), rejected.note);
 
-    // The typo advice IS right when a key was actually sent.
-    const realTypo = verdictFor(fec, 'sk-whatever', { status: 401 });
+    // A well-SHAPED key that the host still refuses. The fixture has to be
+    // 40 alphanumerics or the shape check (correctly) catches it first, and
+    // this block is about the rejection path, not the shape path.
+    const WELL_FORMED = 'a'.repeat(40);
+    const realTypo = verdictFor(fec, WELL_FORMED, { status: 401 });
     check('a 401 WITH a key set does report the key as rejected',
       /KEY REJECTED/.test(strip(realTypo.text)));
     check('and then the typo advice is the correct advice',
@@ -83,7 +86,7 @@ module.exports = function run() {
       /proxy|VPN|blocked IP/.test(refused.note), refused.note);
 
     // A key that IS set and works is the only path to CONNECTED.
-    const good = verdictFor(fec, 'realkey', { status: 200 });
+    const good = verdictFor(fec, WELL_FORMED, { status: 200 });
     check('a set key with a 2xx is the only way to reach CONNECTED',
       /CONNECTED/.test(strip(good.text)) && good.ok === true);
 
@@ -101,6 +104,32 @@ module.exports = function run() {
 
     check('requiring the CLI does not fire a live run of every connector',
       typeof verdictFor === 'function');
+
+    // ── the shape check, from the run that motivated it ────────────────
+    // FEC_API_KEY  you…0N (63 chars)  → KEY REJECTED (HTTP 403)
+    // An api.data.gov key is 40 characters. The length was on screen the
+    // whole time and the advice still said "check for a stray quote".
+    const pasted = 'your API key is: ' + 'b'.repeat(40) + ' 01';
+    const mal = verdictFor(fec, pasted, { status: 403 });
+    check('a key of impossible length is caught as MALFORMED, not as rejected',
+      /MALFORMED/.test(strip(mal.text)) && !/KEY REJECTED/.test(strip(mal.text)),
+      strip(mal.text));
+    check('and it states the expected shape and the actual length',
+      /40 letters and digits/.test(mal.note) && new RegExp(String(pasted.length)).test(mal.note),
+      mal.note);
+    check('it spots pasted label text specifically',
+      /Your API key is/i.test(mal.note), mal.note);
+    check('and it never echoes the key itself',
+      !mal.note.includes(pasted) && !mal.note.includes('b'.repeat(40)), mal.note);
+    check('a correctly shaped key passes the shape check',
+      verdictFor(fec, WELL_FORMED, { status: 200 }).ok === true);
+    check('the shape check runs before the network verdict is trusted',
+      /MALFORMED/.test(strip(verdictFor(fec, pasted, { status: 200 }).text)),
+      'even an HTTP 200 must not override a malformed key');
+    check('a connector with no declared shape is not blocked by this',
+      R.checkKeyShape('LDA_API_KEY', 'anything-at-all') === null);
+    check('an absent key is not reported as malformed',
+      R.checkKeyShape('DATA_GOV_API_KEY', '') === null);
   }
 
   // ── redirects ────────────────────────────────────────────────────────
