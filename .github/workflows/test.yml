@@ -45,17 +45,22 @@ jobs:
         with:
           python-version: '3.11'
 
-      # No `npm ci`: modules/pra has no lockfile and no runtime dependencies
-      # outside the standard library. Installing nothing is faster and removes
-      # a whole class of supply-chain surface from CI. If a real dependency is
-      # ever added, this becomes `npm ci` and the absence of a lockfile becomes
-      # a failure rather than a shrug.
-      - name: Check for unexpected dependencies
+      # Deliberately no `npm ci`. modules/pra DOES declare runtime dependencies
+      # (pg, web-push, playwright) for the local service and the browser shell,
+      # but no test suite touches them — tests/run_all.js states that it runs on
+      # a clean checkout with nothing installed, and it does. Installing nothing
+      # is faster and keeps a whole supply chain out of CI.
+      #
+      # This step asserts the property that makes that true, so that if a suite
+      # ever grows a real dependency, CI says exactly that instead of failing
+      # somewhere confusing three steps later.
+      - name: The suites need nothing installed
         run: |
-          if [ -s modules/pra/package-lock.json ]; then
-            echo "A lockfile appeared. Switch this step to 'npm ci'."
+          if [ -d modules/pra/node_modules ]; then
+            echo "::error::node_modules is present in a fresh checkout — is it committed?"
             exit 1
           fi
+          echo "No node_modules. The suites below run against a bare checkout."
 
       - name: Run every suite
         run: bin/sentinel test
