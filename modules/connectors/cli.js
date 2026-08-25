@@ -521,6 +521,145 @@ function cmdCrosslink(opts) {
  * against all four — this function's job is to make sure the operator is
  * TOLD about them rather than handed a clean-looking number.
  */
+/**
+ * connect graph — push the captured relationships into Neo4j.
+ *
+ * WHY THIS IS NOT JUST "EXPORT EVERYTHING"
+ *   A graph makes every edge look like a fact. `crosslink` is careful, in the
+ *   terminal, to say that a name appearing under two subjects is a search
+ *   result and not a relationship. If the graph then draws both as a line
+ *   between two companies, that care is gone -- and the graph is the thing
+ *   that gets screenshotted.
+ *
+ *   So co-occurrence is never an Org->Org edge. Two companies found by the
+ *   same search are joined only through the Subject node naming that search,
+ *   two hops apart. The only direct edge between organisations is FILED_FOR,
+ *   which comes from a sworn filing with a URL on it.
+ *
+ * NOTHING IS WRITTEN WITHOUT --push
+ *   The default prints what WOULD be written. Writing into a database is not
+ *   reversible by re-running, and a graph you did not mean to build is worse
+ *   than no graph.
+ */
+async function cmdGraph(opts) {
+  const G = require('./graph.js');
+  const X = require('./crosslink.js');
+
+  const captures = X.readCaptures(R.CAPTURES);
+  if (!captures.length) {
+    console.log(`\n  ${C.dim('No captures yet. Search something first:')}`);
+    console.log(C.dim('    sentinel connect all "NiSource" --into energy\n'));
+    return;
+  }
+
+  const g = G.build(captures);
+  const stmts = G.toCypher(g);
+
+  console.log(`\n  ${C.b('Graph from the captured library')}`);
+  console.log(`  ${captures.length} captures read\n`);
+  console.log(`    ${String(g.orgs.length).padStart(5)}  organisations`);
+  console.log(`    ${String(g.subjects.length).padStart(5)}  subjects (searches you ran)`);
+  console.log(`    ${String(g.filed.length).padStart(5)}  FILED_FOR    ${C.dim('sworn lobbying filings')}`);
+  console.log(`    ${String(g.appears.length).padStart(5)}  APPEARS_UNDER ${C.dim('search results, NOT links between orgs')}`);
+
+  if (g.counts_are_floors) {
+    console.log(`\n  ${C.y('TRUNCATED')} — ${g.truncated_captures} capture(s) held fewer rows than the source reported.`);
+    console.log(C.dim('  Every count in this graph is a floor. Nodes carry counts_are_floors: true.'));
+  }
+  if (g.unparsed) {
+    console.log(`\n  ${C.y(String(g.unparsed) + ' capture(s) would not parse')} and are not in the graph.`);
+  }
+
+  console.log(`\n  ${C.dim('Two companies under the same subject are TWO HOPS apart, through that')}`);
+  console.log(`  ${C.dim('subject. There is no edge saying they are related, because that is not')}`);
+  console.log(`  ${C.dim('a thing your captures establish.')}`);
+
+  if (!opts.push) {
+    console.log(`\n  ${C.b('Nothing was written.')} ${C.dim('This is a preview.')}`);
+    console.log(C.dim('  Statements that would run:'));
+    for (const st of stmts) console.log(C.dim(`    - ${st.note}`));
+    console.log(`\n  ${C.dim('To write it:')}  sentinel connect graph --push\n`);
+    return;
+  }
+
+  // ---- credentials --------------------------------------------------
+  const env = G.readEnv(__dirname);
+  // bolt:// not neo4j:// -- a single local instance is not a cluster, and the
+  // routing protocol's failure message when nothing is listening is
+  // "Could not perform discovery. No routing servers available", which does
+  // not tell you the database is simply not started.
+  const uri = process.env.NEO4J_URI || env.NEO4J_URI || 'bolt://localhost:7687';
+  const user = process.env.NEO4J_USER || env.NEO4J_USER || 'neo4j';
+  const pass = process.env.NEO4J_PASSWORD || env.NEO4J_PASSWORD || '';
+
+  if (!pass) {
+    console.error(`\n  ${C.r('NEO4J_PASSWORD is not set.')}`);
+    console.error(C.dim(`  Add it to ${path.join(__dirname, '.env')} (chmod 600):`));
+    console.error(C.dim('    NEO4J_URI=bolt://localhost:7687'));
+    console.error(C.dim('    NEO4J_USER=neo4j'));
+    console.error(C.dim('    NEO4J_PASSWORD=the-password-you-set\n'));
+    process.exit(2);
+  }
+
+  // The library stays on this machine unless you say otherwise, out loud.
+  // A NEO4J_URI pointing somewhere hosted would ship the whole graph of
+  // who-lobbies-for-whom to someone else's server, with no visible difference
+  // in the command you typed.
+  if (!G.isLocal(uri) && !opts.allowRemote) {
+    console.error(`\n  ${C.r('That Neo4j is not on this machine.')}  ${C.dim(uri)}`);
+    console.error(C.dim('  This graph is your investigative library. Pushing it to a hosted'));
+    console.error(C.dim('  instance puts it on somebody else\'s server.'));
+    console.error(C.dim('  If you meant to: sentinel connect graph --push --allow-remote\n'));
+    process.exit(2);
+  }
+
+  let neo4j;
+  try {
+    neo4j = require('neo4j-driver');
+  } catch {
+    console.error(`\n  ${C.r('neo4j-driver is not installed.')}`);
+    console.error(C.dim('    cd modules/connectors && npm install neo4j-driver\n'));
+    process.exit(2);
+  }
+
+  const driver = neo4j.driver(uri, neo4j.auth.basic(user, pass));
+  const session = driver.session();
+  try {
+    console.log(`\n  writing to ${C.b(uri)} as ${user} …`);
+    const done = await G.push(g, session);
+    for (const note of done) console.log(`    ${C.g('ok')}  ${note}`);
+    console.log(`\n  ${C.g('Done.')} ${C.dim('Re-running updates in place — every write is a MERGE.')}`);
+    console.log(C.dim('  Try in Neo4j Browser:'));
+    console.log(C.dim('    MATCH (r:Org)-[:FILED_FOR]->(c:Org) RETURN r,c LIMIT 50'));
+    console.log(C.dim('    MATCH (a:Org)-[:APPEARS_UNDER]->(s:Subject)<-[:APPEARS_UNDER]-(b:Org)'));
+    console.log(C.dim('    WHERE a <> b RETURN a,s,b LIMIT 50   // co-occurrence, two hops\n'));
+  } catch (e) {
+    // The driver's own messages are about its internals -- "Could not perform
+    // discovery", "No routing servers available" -- which do not tell you the
+    // database is simply not started, or the password is wrong. Say which.
+    const code = String(e.code || '');
+    const msg = String(e.message || '');
+    if (/Unauthorized|AuthenticationRateLimit/.test(code)) {
+      console.error(`\n  ${C.r('Neo4j rejected the credentials.')}`);
+      console.error(C.dim('  NEO4J_USER / NEO4J_PASSWORD do not match this database.'));
+      console.error(C.dim('  On a fresh install the first login forces a password change —'));
+      console.error(C.dim('  set it in the browser at http://localhost:7474 first.\n'));
+    } else if (/ServiceUnavailable/.test(code) || /ECONNREFUSED|routing servers|discovery/i.test(msg)) {
+      console.error(`\n  ${C.r('Nothing is listening at')} ${uri}`);
+      console.error(C.dim('  The database is not started, or it is on a different port.'));
+      console.error(C.dim('  Neo4j Desktop: the instance must say Started, not Stopped.'));
+      console.error(C.dim('  Docker: docker ps should show the container up.\n'));
+    } else {
+      console.error(`\n  ${C.r('Neo4j refused the write:')} ${msg}`);
+      console.error(C.dim('  Nothing partial was left behind — every write is a MERGE.\n'));
+    }
+    process.exitCode = 1;
+  } finally {
+    await session.close();
+    await driver.close();
+  }
+}
+
 function cmdLobby(opts) {
   const L = require('./lobby.js');
   const dir = path.join(R.EVIDENCE, 'captures');
@@ -718,6 +857,12 @@ async function main() {
     }
     return cmdLobby({ verbose: argv.includes('--verbose'), chart });
   }
+  if (action === 'graph') {
+    return cmdGraph({
+      push: argv.includes('--push'),
+      allowRemote: argv.includes('--allow-remote'),
+    });
+  }
   if (action === 'all') {
     const parsed = parseAllArgs(argv.slice(1));
     if (parsed.error) {
@@ -740,4 +885,4 @@ if (require.main === module) {
   main().catch((e) => { console.error(e); process.exit(1); });
 }
 
-module.exports = { verdictFor, cmdTest, wrap, parseAllArgs, cmdLobby };
+module.exports = { verdictFor, cmdTest, wrap, parseAllArgs, cmdLobby, cmdGraph };

@@ -236,6 +236,8 @@ bin/sentinel connect all "<subject>" --dry-run
 bin/sentinel connect crosslink               # what appears under more than one subject
 bin/sentinel connect lobby                   # read every captured lobbying filing
 bin/sentinel connect lobby --chart           # …and write the charts
+bin/sentinel connect graph                   # preview the Neo4j graph (writes nothing)
+bin/sentinel connect graph --push            # write it into Neo4j
 bin/sentinel connect <connector> "<query>"   # one source only
 ```
 
@@ -350,6 +352,76 @@ this desk's own captures, `ALPINE GROUP PARTNERS, LLC.` files for both
 `AWS PUBLIC POLICY, AMERICAS` and `NISOURCE INC.` — one firm, a hyperscaler
 and a gas utility. That is a thread worth pulling. It is still a lead: a firm
 with four hundred clients will appear there for reasons that mean nothing.
+
+### `connect graph` — push the relationships into Neo4j
+
+```bash
+bin/sentinel connect graph                   # preview: prints what WOULD be written
+bin/sentinel connect graph --push            # actually write it
+bin/sentinel connect graph --push --allow-remote   # to a Neo4j that is not on this Mac
+```
+
+Reads the captures on disk and builds a graph. **Nothing is written without
+`--push`** — the default is a preview, because a graph you did not mean to
+build is worse than no graph.
+
+**Setup, once.**
+
+```bash
+cd modules/connectors && npm install neo4j-driver
+```
+
+Then a `.env` next to it (this file is gitignored; `chmod 600` it):
+
+```
+NEO4J_URI=bolt://localhost:7687
+NEO4J_USER=neo4j
+NEO4J_PASSWORD=the-password-you-set
+```
+
+A fresh Neo4j forces a password change on first login — do that at
+<http://localhost:7474> before the first push, or the write fails on auth.
+
+**The shape of the graph is the point.**
+
+| | |
+|---|---|
+| `(:Org)-[:FILED_FOR]->(:Org)` | A registrant filed for a client. A sworn statement under 2 U.S.C. 1603–1604, with a URL on it. **One hop.** |
+| `(:Org)-[:APPEARS_UNDER]->(:Subject)` | This name was returned by that search. **Not** a claim about the organisation. |
+
+There is deliberately **no edge between two organisations that merely
+co-occur.** Two companies found by the same search are *two hops* apart,
+joined only through the `Subject` node naming the search that found them.
+
+That is the whole design. A line between two nodes reads as "these two are
+connected" and nobody asks how the line got there — so a property saying
+`basis: "co-occurrence"` would have been ignored, while a missing edge cannot
+be. To see co-occurrence you have to ask for it, and the query says out loud
+what it is:
+
+```cypher
+// sworn relationships
+MATCH (r:Org)-[:FILED_FOR]->(c:Org) RETURN r,c LIMIT 50
+
+// co-occurrence — two hops, through the search that found them
+MATCH (a:Org)-[:APPEARS_UNDER]->(s:Subject)<-[:APPEARS_UNDER]-(b:Org)
+WHERE a <> b RETURN a,s,b LIMIT 50
+```
+
+**Counts are floors.** Where any capture was truncated, every node carries
+`counts_are_floors: true` and the terminal says so. `filings` counts filings
+**in your library**, not in the world.
+
+**Re-running is safe.** Every write is a `MERGE`, never a `CREATE`, so
+pushing again after new captures updates in place instead of building a
+second copy.
+
+**It will not leave this machine by accident.** If `NEO4J_URI` points
+anywhere that is not localhost, the push refuses and says so; sending your
+investigative graph to a hosted instance takes `--allow-remote`, typed
+deliberately. Neo4j Aura is somebody else's server.
+
+---
 
 ---
 
@@ -594,8 +666,12 @@ DATABASE_URL            # Postgres, for `foia --db`
 | `connect lobby` says *"No lobbying captures yet"* | Nothing has searched `senatelda` yet | `bin/sentinel connect all "<client>"`, then run it again |
 | `connect lobby` reports *"kept 25 of 60"* | The connector asks for 25 filings and does not page | Nothing is broken. Those totals are **floors**. Narrow the search or read the rest at lda.gov |
 | A registrant shows fewer clients than you expect | The search is by **client name** — you only see clients you searched | Search the other clients too, then re-run `connect lobby` |
+| `connect graph` says "Nothing is listening at bolt://localhost:7687" | The database is not started. Neo4j Desktop must show the instance **Started**; with Docker, `docker ps` must show it up. |
+| `connect graph --push` says "Neo4j rejected the credentials" | A fresh Neo4j forces a password change on first login. Set it at <http://localhost:7474>, then put the same value in `modules/connectors/.env`. |
+| `connect graph --push` says "neo4j-driver is not installed" | `cd modules/connectors && npm install neo4j-driver`. Everything else on the desk, including the graph **preview**, runs without it. |
+| `connect graph` refuses: "That Neo4j is not on this machine" | `NEO4J_URI` points somewhere hosted. That is the guard working. If you meant it, add `--allow-remote`. |
+| The graph shows two companies with no line between them | Correct, if all they share is a search. Co-occurrence is two hops, through the `Subject` node. Only a sworn filing draws a direct edge. |
 
----
 
 ## 12. Re-deriving this page
 

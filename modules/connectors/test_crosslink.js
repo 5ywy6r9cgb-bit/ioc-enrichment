@@ -46,6 +46,20 @@ module.exports = function run() {
       n('COLOGIX, INC.') === n('Cologix Inc') && n('COLOGIX, INC.') === 'cologix');
     check('"The ... Company LLC" folds to the distinctive part',
       n('THE NEW ALBANY COMPANY LLC') === n('New Albany Company'), n('THE NEW ALBANY COMPANY LLC'));
+    // A name made entirely of suffix words used to fold to the empty string,
+    // and every such name then shared one key -- so "Partners Holdings" and
+    // "Group Partners Holdings" became a single entity wired to everything
+    // either of them had ever been filed beside. Registrants really are named
+    // this way.
+    check('a name that is ALL suffix words does not fold to nothing',
+      n('PARTNERS HOLDINGS') !== '', `got ${JSON.stringify(n('PARTNERS HOLDINGS'))}`);
+    check('two different all-suffix names stay different',
+      n('PARTNERS HOLDINGS') !== n('GROUP PARTNERS HOLDINGS'),
+      `${JSON.stringify(n('PARTNERS HOLDINGS'))} vs ${JSON.stringify(n('GROUP PARTNERS HOLDINGS'))}`);
+    check('the all-suffix fallback does not change names that fold normally',
+      n('THE NEW ALBANY COMPANY LLC') === 'new albany',
+      n('THE NEW ALBANY COMPANY LLC'));
+
     check('punctuation does not split an entity',
       n("O'BRIEN & SONS, L.L.C.") === n('OBrien & Sons LLC'),
       `${n("O'BRIEN & SONS, L.L.C.")} vs ${n('OBrien & Sons LLC')}`);

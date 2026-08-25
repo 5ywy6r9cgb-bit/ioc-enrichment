@@ -37,6 +37,8 @@
 #   sentinel connect all "<subject>"  search every source at once
 #   sentinel connect crosslink      what appears under more than one subject
 #   sentinel connect lobby --chart  read the captured lobbying filings, charted
+#   sentinel connect graph          preview the Neo4j graph from your captures
+#   sentinel connect graph --push   write it into Neo4j
 #
 #   sentinel watch run              run every saved search that is due
 #   sentinel watch run --all        ignore cadence, run them all
@@ -137,6 +139,9 @@ case "$cmd" in
     echo ""
     echo "== lobbying filings =="
     node "$ROOT/modules/connectors/test_lobby.js" || FAILED=1
+
+    echo "== graph =="
+    node "$ROOT/modules/connectors/test_graph.js" || FAILED=1
     echo ""
     echo "== records desk (overnight stage) =="
     node "$ROOT/modules/watch/test_records_desk.js" || FAILED=1
@@ -223,7 +228,7 @@ case "$cmd" in
     # works when the module is called directly is not yet a command that works.
     action="${1:-test}"; shift || true
     case "$action" in
-      test|list|all|crosslink|lobby)
+      test|list|all|crosslink|lobby|graph)
         node "$ROOT/modules/connectors/cli.js" "$action" "$@"
         ;;
       *)

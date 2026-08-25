@@ -61,6 +61,18 @@ function normalise(name) {
     .replace(/\s+/g, ' ')
     .trim();
   const words = n.split(' ').filter((w) => w && !SUFFIXES.includes(w));
+
+  // A name made ENTIRELY of suffix words folds to nothing, and every such name
+  // then collapses onto the same empty key: "Partners Holdings", "Group
+  // Holdings" and "Capital Partners" become one entity that appears to be
+  // connected to everything it was ever filed beside. Real registrants and
+  // clients are named this way.
+  //
+  // If there is nothing left, the suffixes ARE the name -- so keep them. This
+  // only fires where the alternative was the empty string, so no name that
+  // folded to something real folds differently now.
+  if (!words.length) return n;
+
   return words.join(' ');
 }
 
@@ -156,16 +168,24 @@ function readCaptures(captureDir) {
     const subject = rest.replace(/_\d{4}-\d{2}-\d{2}T.*$/, '').replace(/_/g, ' ');
 
     let results = [];
+    let total = null;
+    let truncated = false;
     try {
       const body = JSON.parse(fs.readFileSync(path.join(captureDir, f), 'utf8'));
       results = R.CONNECTORS[connector].parse(body) || [];
+      // `count` is what the source said the FULL result set was. Captures stop
+      // at the page size, so a count larger than the rows we kept means this
+      // capture is a slice. Absent count means truncation is unknown, which is
+      // not the same as absent -- so it stays null rather than becoming false.
+      total = Number.isFinite(body && body.count) ? body.count : null;
+      truncated = total !== null && total > results.length;
     } catch {
       // A capture that will not parse is not a crash. It stays on disk, hashed,
       // and is reported in the summary rather than silently skipped.
       out.push({ file: f, connector, subject, results: [], unparsed: true });
       continue;
     }
-    out.push({ file: f, connector, subject, results });
+    out.push({ file: f, connector, subject, results, total, truncated });
   }
   return out;
 }
