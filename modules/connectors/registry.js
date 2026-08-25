@@ -45,10 +45,29 @@ function mask(k) {
  * Exactly one HTTPS request. Returns the raw body so it can be hashed before
  * anything reads it. No retries: a run makes the calls it announced.
  */
-function request(method, url, headers, body) {
+/**
+ * Headers that authenticate us. These are dropped when a redirect crosses to a
+ * different host — forwarding a key to whatever a 301 points at is how an API
+ * key ends up somewhere you did not choose to send it.
+ */
+const AUTH_HEADERS = ['authorization', 'x-api-key', 'x-auth-token', 'cookie'];
+const MAX_REDIRECTS = 3;
+
+function stripAuth(headers) {
+  const out = {};
+  for (const [k, v] of Object.entries(headers || {})) {
+    if (!AUTH_HEADERS.includes(k.toLowerCase())) out[k] = v;
+  }
+  return out;
+}
+
+function requestOnce(method, url, headers, body) {
   return new Promise((resolve) => {
     let u;
     try { u = new URL(url); } catch { return resolve({ status: 0, error: 'bad url' }); }
+    if (u.protocol !== 'https:') {
+      return resolve({ status: 0, error: `refusing non-https url (${u.protocol})` });
+    }
     const req = https.request({
       method,
       hostname: u.hostname,
@@ -61,13 +80,67 @@ function request(method, url, headers, body) {
     }, (res) => {
       const chunks = [];
       res.on('data', (d) => chunks.push(d));
-      res.on('end', () => resolve({ status: res.statusCode, body: Buffer.concat(chunks) }));
+      res.on('end', () => resolve({
+        status: res.statusCode,
+        location: res.headers.location || null,
+        body: Buffer.concat(chunks),
+      }));
     });
     req.on('timeout', () => { req.destroy(); resolve({ status: 0, error: 'timed out' }); });
     req.on('error', (e) => resolve({ status: 0, error: e.code || e.message }));
     if (body) req.write(body);
     req.end();
   });
+}
+
+/**
+ * Follow redirects, because an API that has moved should not read as a
+ * connector that is broken.
+ *
+ * Senate LDA answered a probe with HTTP 301 and `connect test` reported the
+ * bare number in neutral yellow. A moved endpoint and a genuinely failing one
+ * looked the same, and neither looked like something to fix.
+ *
+ * Two rules while following:
+ *   - https only, so a redirect cannot downgrade the transport
+ *   - authenticating headers are dropped the moment the host changes
+ * The second is the one that matters: an Authorization header forwarded to
+ * whatever a 301 names hands a key to a host we never chose to trust.
+ */
+async function request(method, url, headers, body) {
+  let current = url;
+  let hdrs = headers || {};
+  const chain = [];
+
+  for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+    const res = await requestOnce(method, current, hdrs, body);
+    const isRedirect = [301, 302, 303, 307, 308].includes(res.status) && res.location;
+    if (!isRedirect) {
+      if (chain.length) res.redirected_from = chain;
+      return res;
+    }
+
+    let next;
+    try { next = new URL(res.location, current).toString(); }
+    catch { return Object.assign(res, { error: `bad redirect target: ${res.location}` }); }
+
+    if (new URL(next).hostname !== new URL(current).hostname) {
+      hdrs = stripAuth(hdrs);
+    }
+    // 303, and 301/302 in practice, become GET on the way through.
+    if (res.status === 303 || ((res.status === 301 || res.status === 302) && method !== 'GET')) {
+      method = 'GET';
+      body = undefined;
+    }
+    chain.push({ from: current, status: res.status, to: next });
+    current = next;
+  }
+
+  return {
+    status: 0,
+    error: `more than ${MAX_REDIRECTS} redirects starting at ${url}`,
+    redirected_from: chain,
+  };
 }
 
 // ---------------------------------------------------------------- registry
@@ -472,6 +545,7 @@ async function runConnector(name, query, opts = {}) {
 }
 
 module.exports = {
+  stripAuth, AUTH_HEADERS, MAX_REDIRECTS,
   CONNECTORS, VERSION, EVIDENCE, CAPTURES, LEDGER,
   loadEnv, mask, request, runConnector,
 };

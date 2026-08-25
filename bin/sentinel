@@ -91,6 +91,9 @@ case "$cmd" in
     echo "== notification content guard =="
     node "$ROOT/modules/watch/test_notify.js"
     echo ""
+    echo "== connector verdicts =="
+    node "$ROOT/modules/connectors/test_connect.js" || FAILED=1
+    echo ""
     echo "== records desk (overnight stage) =="
     node "$ROOT/modules/watch/test_records_desk.js" || FAILED=1
     echo ""
