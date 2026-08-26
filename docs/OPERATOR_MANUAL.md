@@ -872,6 +872,47 @@ merged inventory of two drives is a list of relative paths you cannot
 locate — `records/a.pdf` exists on both, and nothing says which physical
 object to plug in.
 
+### When a drive drops off mid-scan
+
+USB drives disconnect. Power management, a marginal cable, a hub. On macOS
+the mount point goes with it and every subsequent read raises
+`OSError: [Errno 6] Device not configured`.
+
+An 8,000-file scan takes minutes, so this happens *during* a run, not
+before one. Three things follow:
+
+- **A completed shelf is kept.** If N1 finished and N2 dropped, N1's rows
+  are not thrown away. Re-hashing 8,000 files every time a flaky drive
+  hiccups is how an inventory gets started four times and finished never.
+- **The output is not called `inventory.csv`.** A truncated scan writes
+  `inventory.PARTIAL.csv` plus `_INCOMPLETE.txt`, and exits **4**. The
+  filename is the only label that survives into Numbers, into next month —
+  and a partial read as complete turns "the drive fell off the bus" into
+  "these records do not exist."
+- **`--resume` continues it.** Reuses hashes from the previous run in
+  `--out`, keyed on shelf + path + **size**. A file whose size changed is
+  re-read, because reusing that hash would put a digest in the ledger that
+  does not match the bytes on the drive.
+
+```bash
+bin/sentinel corpus inventory N1 N2 --out ~/sentinel/inventory --resume
+```
+
+An **unreadable file** and a **vanished drive** are different facts and are
+never conflated. A file that cannot be read gets a row saying
+`UNREADABLE — <reason>` and carries no hash; the scan continues. A drive
+that has gone stops the scan for that shelf. The old code did
+`except OSError: continue`, which dropped the file from the inventory
+entirely — so a file the desk could not read became a file the desk had
+never heard of, and the count looked clean.
+
+### Are the two drives copies of each other?
+
+The summary reports files that appear more than once by SHA-256, and says
+how many of those exist on **more than one shelf**. Two drives with nearly
+identical file counts usually means one is a copy, and a merged inventory
+then double-counts the corpus. That changes what "37 GB of records" means.
+
 ### Rebinding
 
 `shelf add` refuses to point an existing name at a different drive. Every
@@ -1145,6 +1186,9 @@ DATABASE_URL            # Postgres, for `foia --db`
 | `SHELF UNAVAILABLE — matches N mounted volumes` | A drive and its clone are both mounted; the volume id cannot pick between them. Unmount one. |
 | `NOTE: /Volumes/N1 exists but carries no volume marker` | A stale mount point — an empty folder left behind by an unclean eject. Scanning that path directly would report zero files as a finding. |
 | `NOT ENOUGH ROOM on the output drive` | OCR extracts page images alongside the text, so derived output runs to roughly the size of the source. Point `--out` at the other drive. |
+| `OSError: [Errno 6] Device not configured` mid-scan | The drive dropped off the USB bus. This no longer crashes: completed shelves are kept, output is written as `inventory.PARTIAL.csv`, exit is 4. Re-seat the drive and re-run with `--resume`. |
+| `inventory.PARTIAL.csv` and `_INCOMPLETE.txt` in the output folder | The scan did not finish. Rows are a prefix of the drive, not a list of it. A file missing from that CSV was not necessarily absent. |
+| `*.superseded` in the output folder | A previous run's CSV, kept out of the way so a stale complete file is not read beside a newer partial one (or the reverse). Delete when you no longer want it. |
 | A document you know you copied is missing from the drive | exFAT is case-insensitive. If two files differed only in case, the copy silently kept one. `bin/sentinel shelf check --probe` reports whether the drive does this. |
 
 

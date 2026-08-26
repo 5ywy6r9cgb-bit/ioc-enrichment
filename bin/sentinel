@@ -166,6 +166,9 @@ case "$cmd" in
 
     echo "== shelves (external drives) =="
     python3 "$ROOT/modules/corpus/test_shelf.py" || FAILED=1
+
+    echo "== inventory (drives that vanish mid-scan) =="
+    python3 "$ROOT/modules/corpus/test_inventory.py" || FAILED=1
     echo ""
     echo "== pra =="
     # A missing suite must not abort the whole run: under `set -e` one absent

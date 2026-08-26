@@ -381,6 +381,34 @@ def resolve_root(spec: str, cfg: Config | None = None) -> tuple[Path, Volume | N
 
 
 # ------------------------------------------------------------- drive health --
+def volume_present(volume_root: Path) -> bool:
+    """Is the drive STILL there?
+
+    Called during a long scan, not just before one. A USB drive that drops off
+    the bus mid-read -- power management, a marginal cable, a hub -- takes its
+    mount point with it, and every subsequent read raises ENXIO ("Device not
+    configured"). Without this check the difference between "one corrupt file"
+    and "the drive is gone" is invisible, and the scan either dies on the spot
+    or manufactures thousands of unreadable rows for files that are perfectly
+    fine on a drive that is simply no longer plugged in.
+    """
+    try:
+        return volume_root.is_dir() and (volume_root / MARKER).is_file()
+    except OSError:
+        return False
+
+
+# errno values that mean the DEVICE went away, not that this file is bad.
+#   ENXIO  6  "Device not configured" -- macOS, USB drive vanished mid-read
+#   EIO    5  hardware read error, often the same event a moment later
+#   ENODEV 19 no such device
+DEVICE_GONE_ERRNOS = frozenset({5, 6, 19})
+
+
+def is_device_gone(exc: OSError) -> bool:
+    return getattr(exc, "errno", None) in DEVICE_GONE_ERRNOS
+
+
 def free_bytes(p: Path) -> int | None:
     try:
         return shutil.disk_usage(p).free

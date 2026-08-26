@@ -59,6 +59,13 @@ TEXT_LAYER_MIN_CHARS = 200
 
 
 def sha256_of(path: Path) -> str:
+    """Hash a file. Raises OSError -- the CALLER decides what that means.
+
+    Deliberately not caught here. An unreadable file and an unplugged drive
+    both surface as OSError, and only the caller knows which one it is looking
+    at. Swallowing it here would turn a vanished 8,000-file volume into 8,000
+    calm rows saying "unreadable".
+    """
     h = hashlib.sha256()
     with path.open("rb") as fh:
         for chunk in iter(lambda: fh.read(1 << 20), b""):
@@ -107,42 +114,96 @@ def classify(row: dict) -> str:
     return "ok"
 
 
-def scan(root: Path, shelf_name: str = "", volume_id: str = "") -> list[dict]:
+def scan(root: Path, shelf_name: str = "", volume_id: str = "",
+         volume_root: Path | None = None,
+         done: dict | None = None) -> tuple[list[dict], str | None]:
     """Inventory one root.
 
     `shelf_name` and `volume_id` are carried onto every row. Without them a
     merged inventory of two drives is a list of relative paths you cannot
     locate: "records/a.pdf" exists on both, and nothing in the CSV says which
     physical object to plug in to go read it.
+
+    Returns (rows, truncation_reason). A reason that is not None means the
+    rows are a PREFIX of the folder, not the folder -- and the caller must not
+    present them as an inventory of it.
     """
-    rows = []
-    files = [p for p in sorted(root.rglob("*")) if p.is_file()]
+    volume_root = volume_root or root
+    done = done or {}
+    rows: list[dict] = []
+
+    def blank(p: Path, note: str) -> dict:
+        """A file that could not be read is still a file. It gets a row.
+
+        The old code did `except OSError: continue`, which dropped the file
+        from the inventory entirely -- so a file the desk could not read became
+        a file the desk had never heard of, and the count looked clean.
+        """
+        return {
+            "shelf": shelf_name, "volume_id": volume_id,
+            "filename": p.name,
+            "relpath": str(p.relative_to(root)),
+            "ext": p.suffix.lower(), "size_bytes": 0, "size_kb": 0.0,
+            "real_type": "unreadable", "sha256": "", "text_chars": None,
+            "verdict": f"UNREADABLE — {note}",
+        }
+
+    try:
+        files = [p for p in sorted(root.rglob("*")) if p.is_file()]
+    except OSError as e:
+        return [], f"could not list {root}: {e}"
+
     total = len(files)
     for i, p in enumerate(files, 1):
         if i % 25 == 0 or i == total:
             print(f"\r  scanning {i}/{total} ...", end="", file=sys.stderr)
+
+        rel = str(p.relative_to(root))
         try:
             size = p.stat().st_size
-        except OSError:
+        except OSError as e:
+            if S.is_device_gone(e) or not S.volume_present(volume_root):
+                print(file=sys.stderr)
+                return rows, f"the drive disappeared after {i - 1} of {total} files"
+            rows.append(blank(p, f"stat failed: {e.strerror or e}"))
             continue
+
+        # Resume: an identical path+size that was already hashed is not
+        # re-read. On a marginal USB drive the scan may take several attempts,
+        # and re-hashing 8,000 files each time is how it never finishes.
+        prior = done.get((shelf_name, rel, size))
+        if prior is not None:
+            rows.append(prior)
+            continue
+
         row = {
             "shelf": shelf_name,
             "volume_id": volume_id,
             "filename": p.name,
-            "relpath": str(p.relative_to(root)),
+            "relpath": rel,
             "ext": p.suffix.lower(),
             "size_bytes": size,
             "size_kb": round(size / 1024, 1),
             "real_type": magic_type(p),
-            "sha256": sha256_of(p) if size else "0" * 64,
+            "sha256": "",
             "text_chars": None,
         }
+        try:
+            row["sha256"] = sha256_of(p) if size else "0" * 64
+        except OSError as e:
+            if S.is_device_gone(e) or not S.volume_present(volume_root):
+                print(file=sys.stderr)
+                return rows, f"the drive disappeared after {i - 1} of {total} files"
+            rows.append(blank(p, f"read failed: {e.strerror or e}"))
+            continue
+
         if row["ext"] == ".pdf" and size > 0:
             row["text_chars"] = pdf_text_chars(p)
         row["verdict"] = classify(row)
         rows.append(row)
+
     print(file=sys.stderr)
-    return rows
+    return rows, None
 
 
 def bar(ax, labels, values, colors, title, xlabel):
@@ -217,6 +278,39 @@ def make_charts(rows: list[dict], outdir: Path) -> None:
         plt.close(fig)
 
 
+def load_previous(outdir: Path) -> dict:
+    """Index a previous run's rows by (shelf, relpath, size) so --resume can
+    skip re-hashing them.
+
+    Size is part of the key on purpose. A file whose size changed is a
+    different file, and reusing the old hash for it would put a digest in the
+    ledger that does not match the bytes on the drive -- the one thing a hash
+    exists to make impossible.
+    """
+    out: dict = {}
+    for name in ("inventory.csv", "inventory.PARTIAL.csv"):
+        f = outdir / name
+        if not f.is_file():
+            continue
+        try:
+            with f.open(newline="") as fh:
+                for row in csv.DictReader(fh):
+                    if not row.get("sha256"):
+                        continue          # never resume an unread file
+                    try:
+                        size = int(row["size_bytes"])
+                    except (KeyError, TypeError, ValueError):
+                        continue
+                    row["size_bytes"] = size
+                    row["size_kb"] = round(size / 1024, 1)
+                    row["text_chars"] = (int(row["text_chars"])
+                                         if row.get("text_chars") else None)
+                    out[(row.get("shelf", ""), row["relpath"], size)] = row
+        except OSError:
+            continue
+    return out
+
+
 def explain_missing(root: Path) -> None:
     """Say WHY the path is not there, not just that it isn't.
 
@@ -263,6 +357,8 @@ def main() -> int:
     ap.add_argument("roots", nargs="+",
                     help="shelf names (N1, N2, N1/records) or folder paths")
     ap.add_argument("--out", default="inventory_out", help="output folder")
+    ap.add_argument("--resume", action="store_true",
+                    help="reuse hashes from a previous run in --out")
     args = ap.parse_args()
 
     # Resolve EVERY root before scanning ANY of them.
@@ -281,22 +377,36 @@ def main() -> int:
         if not root.is_dir():
             explain_missing(root)
             return 2
-        targets.append((spec if vol else "", root, vol.id if vol else ""))
+        targets.append((spec if vol else "", root, vol.id if vol else "",
+                        vol.path if vol else root))
 
     outdir = Path(args.out).expanduser()
     outdir.mkdir(parents=True, exist_ok=True)
 
+    done = load_previous(outdir) if args.resume else {}
+    if done:
+        print(f"Resuming — {len(done):,} files already hashed will not be re-read.")
+
     rows: list[dict] = []
-    for name, root, vid in targets:
+    truncated: list[tuple[str, str]] = []
+    for name, root, vid, vroot in targets:
         label = f"{name} ({root})" if name else str(root)
         print(f"Inventorying {label}")
-        rows.extend(scan(root, shelf_name=name, volume_id=vid))
+        got, why = scan(root, shelf_name=name, volume_id=vid,
+                        volume_root=vroot, done=done)
+        rows.extend(got)
+        if why:
+            truncated.append((name or str(root), why))
+            print(f"\n  !! {label}: {why}", file=sys.stderr)
+            # Keep going. The OTHER drive's scan is complete and real, and
+            # throwing it away because this one dropped is how 8,000 files of
+            # hashing get done four times and finished never.
 
     # An empty folder is a real answer, not a crash. Writing a headerless CSV
     # or dying on rows[0] would both read as "the tool is broken" when the
     # actual fact is "you pointed it at nothing".
     if not rows:
-        where = ", ".join(str(r) for _, r, _ in targets)
+        where = ", ".join(str(r) for _, r, _, _ in targets)
         print(f"\n  No files found under: {where}", file=sys.stderr)
         print("  Nothing was written. An empty result here is not a fact about",
               file=sys.stderr)
@@ -304,11 +414,39 @@ def main() -> int:
               file=sys.stderr)
         return 1
 
-    csv_path = outdir / "inventory.csv"
+    # A partial scan is NOT written to inventory.csv.
+    #
+    # The name is the only thing that survives into Numbers, into a later
+    # session, into next month. A file called inventory.csv is read as the
+    # inventory, and a truncated one read that way turns "the drive fell off
+    # the bus" into "these records do not exist".
+    complete = not truncated
+    csv_path = outdir / ("inventory.csv" if complete else "inventory.PARTIAL.csv")
+    fields = ["shelf", "volume_id", "filename", "relpath", "ext", "size_bytes",
+              "size_kb", "real_type", "sha256", "text_chars", "verdict"]
     with csv_path.open("w", newline="") as fh:
-        w = csv.DictWriter(fh, fieldnames=list(rows[0].keys()))
+        w = csv.DictWriter(fh, fieldnames=fields, extrasaction="ignore")
         w.writeheader()
         w.writerows(rows)
+
+    stale = outdir / ("inventory.PARTIAL.csv" if complete else "inventory.csv")
+    if stale.exists():
+        # A completed run must not leave last night's partial sitting beside
+        # it, and a partial run must not leave a stale "complete" file that is
+        # now the older, smaller truth.
+        stale.rename(outdir / (stale.name + ".superseded"))
+
+    if truncated:
+        marker = outdir / "_INCOMPLETE.txt"
+        with marker.open("w") as fh:
+            fh.write("THIS INVENTORY IS INCOMPLETE.\n\n")
+            for who, why in truncated:
+                fh.write(f"  {who}: {why}\n")
+            fh.write("\nRows for the shelves above are a PREFIX of what is on "
+                     "them, not a list\nof what is on them. A file missing from "
+                     "this CSV was not necessarily\nabsent from the drive -- "
+                     "the scan stopped.\n\nRe-run with --resume to continue "
+                     "without re-hashing what is already here.\n")
 
     make_charts(rows, outdir)
 
@@ -320,7 +458,7 @@ def main() -> int:
     print(f"  {len(rows)} files · {total_mb:,.1f} MB")
     if len(targets) > 1:
         print("-" * 64)
-        for name, root, _ in targets:
+        for name, root, _, _ in targets:
             sub = [r for r in rows if r["shelf"] == name] if name else \
                   [r for r in rows if not r["shelf"]]
             mb = sum(r["size_bytes"] for r in sub) / 1e6
@@ -342,11 +480,42 @@ def main() -> int:
         if len(bad) > 15:
             print(f"   ... and {len(bad)-15} more — see inventory.csv")
 
-    dupes = Counter(r["sha256"] for r in rows if r["size_bytes"] > 0)
-    dupe_hashes = [h for h, n in dupes.items() if n > 1]
-    if dupe_hashes:
-        print(f"\n {len(dupe_hashes)} duplicate file(s) by SHA-256 "
-              f"(same bytes, different names) — filter inventory.csv by sha256")
+    # Duplicates, split by whether they are on the SAME drive or both.
+    #
+    # Two drives with near-identical file counts usually means one is a copy of
+    # the other, and a merged inventory then double-counts the corpus. That
+    # changes what "37 GB of records" means, so it is reported rather than left
+    # for someone to notice.
+    by_hash: dict[str, list[dict]] = {}
+    for r in rows:
+        if r["size_bytes"] > 0 and r["sha256"]:
+            by_hash.setdefault(r["sha256"], []).append(r)
+    cross, within, wasted = 0, 0, 0
+    for h, group in by_hash.items():
+        if len(group) < 2:
+            continue
+        shelves = {g["shelf"] for g in group}
+        if len(shelves) > 1:
+            cross += 1
+        else:
+            within += 1
+        wasted += group[0]["size_bytes"] * (len(group) - 1)
+    if cross or within:
+        print(f"\n {cross + within} file(s) appear more than once by SHA-256 "
+              f"— {wasted/1e6:,.1f} MB of repeats")
+        if cross:
+            print(f"   {cross} of them exist on MORE THAN ONE shelf. If the drives")
+            print(f"   are copies of each other, this corpus is smaller than it looks.")
+
+    if truncated:
+        print("\n" + "!" * 64)
+        print("  THIS INVENTORY IS INCOMPLETE — the scan did not finish.")
+        for who, why in truncated:
+            print(f"    {who}: {why}")
+        print("  A file missing from this CSV was not necessarily absent from")
+        print("  the drive. The scan stopped.")
+        print(f"  Continue with:  --resume")
+        print("!" * 64)
 
     print(f"\n Dataset : {csv_path}")
     if HAVE_PLOT:
@@ -354,7 +523,10 @@ def main() -> int:
     else:
         print(" Charts  : skipped — matplotlib not installed "
               "(pip3 install matplotlib). The CSV above is the dataset.")
-    return 0
+    # Non-zero on truncation. A caller that chains off this -- a script, a
+    # later OCR pass -- must not treat a partial corpus as a finished one just
+    # because the summary printed nicely.
+    return 4 if truncated else 0
 
 
 if __name__ == "__main__":
