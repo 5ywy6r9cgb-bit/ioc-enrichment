@@ -60,6 +60,9 @@ import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import shelf as S
+
 # --------------------------------------------------------------- tunables ---
 IMAGE_EXTS = {".jpeg", ".jpg", ".png", ".tif", ".tiff", ".bmp"}
 PAGE_TIMEOUT_SEC = 180        # per page; a hung tesseract cannot stall the run
@@ -274,8 +277,25 @@ def load_done(manifest: Path) -> set[str]:
     return done
 
 
+def resolve_out(spec: str) -> Path:
+    """Resolve --out, allowing a shelf name for a folder that does not exist yet.
+
+    resolve_root() insists the target already exists, which is right for a
+    corpus you are reading and wrong for a derived folder you are creating.
+    But the VOLUME still has to be mounted -- writing derived text to a stale
+    mount point puts it on the laptop's boot disk under a name that says
+    otherwise, and it is only found again when the disk fills up.
+    """
+    cfg = S.load_config()
+    head, _, tail = spec.partition("/")
+    if head in cfg.shelves:
+        base, _ = S.require(head, cfg)
+        return (base / tail if tail else base).resolve()
+    return Path(spec).expanduser().resolve()
+
+
 def main() -> int:
-    ap = argparse.ArgumentParser(prog="batch_ocr.py")
+    ap = argparse.ArgumentParser(prog="sentinel corpus ocr")
     ap.add_argument("root", help="folder of record bundles")
     ap.add_argument("--out", required=True, help="DERIVED output folder")
     ap.add_argument("--workers", type=int, default=0,
@@ -286,18 +306,45 @@ def main() -> int:
                     help="list what would be processed; read nothing")
     args = ap.parse_args()
 
-    root = Path(args.root).expanduser().resolve()
+    root, src_vol = S.resolve_root(args.root)
     if not root.is_dir():
         sys.exit(f"Not a folder: {root}")
-    outroot = Path(args.out).expanduser().resolve()
+
+    # --out takes a shelf name too, but must not REQUIRE one to exist yet:
+    # the derived folder is normally created by this run.
+    outroot = resolve_out(args.out)
     if outroot == root or root in outroot.parents:
         sys.exit("--out must not be inside the source folder.")
 
     candidates = sorted(p for p in root.rglob("*")
                         if p.is_file() and zipfile.is_zipfile(p))
     if not candidates:
+        # Distinguish "no bundles here" from "nothing here at all". The second
+        # usually means the drive is not mounted, and reporting it as the first
+        # reads as a fact about the records.
+        if not any(root.rglob("*")):
+            print(f"\n  {root} is EMPTY -- not 'no bundles', nothing at all.",
+                  file=sys.stderr)
+            print("  If this is an external drive, check it is really mounted:",
+                  file=sys.stderr)
+            print("    bin/sentinel shelf check\n", file=sys.stderr)
+            return 1
         print("No ZIP bundles found. Nothing to do.")
         return 0
+
+    # Page images are extracted next to the text, so the output is bulk, not a
+    # summary. Running out of room mid-corpus leaves a half-OCR'd folder that
+    # looks finished, so the space is checked against the source size first.
+    need = sum(p.stat().st_size for p in candidates)
+    free = S.free_bytes(outroot if outroot.exists() else outroot.parent)
+    if free is not None and free < need:
+        print(f"\n  NOT ENOUGH ROOM on the output drive.", file=sys.stderr)
+        print(f"  bundles {S.human(need)}  ·  free {S.human(free)}", file=sys.stderr)
+        print(f"  Page images are extracted alongside the text, so plan on at",
+              file=sys.stderr)
+        print(f"  least the size of the source. Point --out at a drive with room.\n",
+              file=sys.stderr)
+        return 1
 
     if args.dry_run:
         print(f"DRY RUN — {len(candidates)} bundle(s) would be processed:\n")

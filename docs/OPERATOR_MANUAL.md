@@ -73,6 +73,9 @@ bin/sentinel dashboard            # same thing, spelled out
 bin/sentinel desk                 # open the research desk HTML in a browser
 bin/sentinel montage ...          # openmontage video engine
 bin/sentinel vuln ...             # atlas CVE prioritization
+bin/sentinel doc get <url>        # fetch one primary source, hashed
+bin/sentinel corpus <sub> ...     # inventory / OCR a folder of records
+bin/sentinel shelf <sub> ...      # external drives, by volume identity
 ```
 
 `bin/sentinel test` runs nine suites and **exits non-zero if any of them
@@ -791,6 +794,94 @@ published claim.
 
 ---
 
+## 4c. Records that do not fit on the laptop — `sentinel shelf`
+
+```bash
+bin/sentinel shelf add N1 /Volumes/N1 --subpath records
+bin/sentinel shelf add N2 /Volumes/N2 --subpath records
+bin/sentinel shelf list
+bin/sentinel shelf check --probe
+bin/sentinel shelf where N1
+
+bin/sentinel corpus inventory N1 N2 --out ~/sentinel/inventory
+bin/sentinel corpus ocr N1 --out N2/derived
+```
+
+A **shelf** is a name for an external drive. Every command that reads a
+corpus accepts a shelf name anywhere it accepts a folder path.
+
+### Why a shelf is not just a shorter path
+
+Because of one failure that has no local equivalent:
+
+> **An unplugged drive is indistinguishable from an empty corpus.**
+
+A scan of a folder that is not there finds zero files. Zero files prints
+calmly, exits clean, and reads as *"no records match that."* The fact is
+*"nobody looked."* Same silent-green failure as everything else on this
+desk; the trigger is a USB connector instead of a bug.
+
+So a shelf resolves to a **volume identity** — a `.sentinel-volume.json`
+marker written once onto the drive — and never to a literal path. The path
+is an output of resolution, never an input. That defeats four separate
+things `/Volumes/N1` does wrong, all of which are ordinary macOS behaviour:
+
+| What happens | What you would have seen |
+|---|---|
+| **Stale mount point.** Eject uncleanly and `/Volumes/N1` survives as an empty folder. | Every path resolves. Every scan finds nothing. |
+| **Name collision.** Something already holds `/Volumes/N1`, so the real drive mounts at `/Volumes/N1 1`. | Your path still points at the stub. |
+| **Label swap.** The drives get swapped in the ports. | `/Volumes/N1` is now N2's contents. Every identifier recorded is attributed to the wrong physical object, permanently and silently. |
+| **A clone.** A drive and its backup are both mounted. | Nothing can tell you which one the inventory read. |
+
+Each of these is refused by name, with the reason, and with the words
+**"Nothing was read. This is NOT a result about the records."**
+
+### Resolution is total, not per-root
+
+`corpus inventory N1 N2` resolves **both** shelves before scanning
+**either**. Scanning as it went would inventory N1, hit an unplugged N2,
+and leave behind a CSV that looks like a complete two-drive inventory and
+is not. Nothing is written unless everything asked for is present.
+
+### What goes on the drives, and what does not
+
+| On the drives | On the laptop |
+|---|---|
+| documents, page images, OCR output | the provenance ledger |
+| anything bulk and re-derivable | inventories, case files, captures |
+
+This is not about size. The ledger is an append-only hash chain, and a
+flash drive pulled mid-write truncates the last line — which breaks
+verification for **every record before it**. Small and irreplaceable stays
+on the machine that is not designed to be unplugged. `shelf check` refuses
+outright if `SENTINEL_EVIDENCE_DIR` points at removable media.
+
+### `shelf check --probe`
+
+Reports free space, filesystem, and whether the drive can tell `Exhibit_A.pdf`
+from `exhibit_a.pdf`. Flash drives ship formatted exFAT, which **cannot** —
+two records differing only in case become one file on copy, the second
+overwrites the first, and nothing reports it. Worth knowing before 37GB
+moves onto it. `--probe` writes one temporary file to find out, which is
+why it is not the default.
+
+### The inventory carries the drive with it
+
+`inventory.csv` gained `shelf` and `volume_id` columns. Without them a
+merged inventory of two drives is a list of relative paths you cannot
+locate — `records/a.pdf` exists on both, and nothing says which physical
+object to plug in.
+
+### Rebinding
+
+`shelf add` refuses to point an existing name at a different drive. Every
+inventory row already recorded under that name came from the old one, and
+rebinding silently makes those rows describe a drive that is no longer
+what the name means. `--rebind` if you mean it.
+
+
+---
+
 ## 5. Case files and the publication gate — `sentinel case`
 
 ```bash
@@ -1048,6 +1139,13 @@ DATABASE_URL            # Postgres, for `foia --db`
 | `connect brief "<name>"` finds nothing you know is there | Sources abbreviate, and court captions abbreviate hardest — the caption is `Licking Hts. Local School Dist. Bd. of Edn.`, so a search for "Licking Heights" matches nothing while the case sits in the capture. The brief now tries the longest distinctive word and tells you what it found. Search the distinctive token, not the full formal name. |
 | A single-connector search returns nonsense, e.g. Mississippi murder cases for an Ohio school district | A flag value was leaking into the subject. `--into new-albany` left `new-albany` in the query, because the flag was stripped and its value was not. Fixed; if a subject still looks wrong, read the `subject` line the run prints — it is the exact string that was sent. |
 | The run says `filing to evidence/investigations/<name>/` | Old output. It never wrote there. `--into` tags the ledger record; captures live in `evidence/captures/`. The line now says `tagging`. |
+| `corpus inventory` finishes and reports very few files | If the corpus is on a drive, **check the drive before believing the number.** `bin/sentinel shelf check`. An unplugged volume used to scan as an empty folder; it is now refused, but a folder you passed as a raw path still is not. |
+| `SHELF UNAVAILABLE — not mounted` | The drive is out, or macOS mounted it somewhere else. `bin/sentinel shelf list` shows what is actually mounted. Nothing was read; this is not a result about the records. |
+| `SHELF UNAVAILABLE — a volume labelled "N1" is mounted, but it is NOT the drive shelf "N1" was bound to` | A different physical drive with the same label. Reading it under that name would file its contents under the wrong volume. `--rebind` only if the swap is intended. |
+| `SHELF UNAVAILABLE — matches N mounted volumes` | A drive and its clone are both mounted; the volume id cannot pick between them. Unmount one. |
+| `NOTE: /Volumes/N1 exists but carries no volume marker` | A stale mount point — an empty folder left behind by an unclean eject. Scanning that path directly would report zero files as a finding. |
+| `NOT ENOUGH ROOM on the output drive` | OCR extracts page images alongside the text, so derived output runs to roughly the size of the source. Point `--out` at the other drive. |
+| A document you know you copied is missing from the drive | exFAT is case-insensitive. If two files differed only in case, the copy silently kept one. `bin/sentinel shelf check --probe` reports whether the drive does this. |
 
 
 ## 12. Re-deriving this page

@@ -37,6 +37,9 @@ import sys
 from collections import Counter
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import shelf as S
+
 # Charts are a bonus; inventory.csv is the dataset. A missing plotting
 # library must not cost you the scan of 349 files -- the run degrades to
 # CSV-only and says so, rather than dying at import with a stack trace.
@@ -104,7 +107,14 @@ def classify(row: dict) -> str:
     return "ok"
 
 
-def scan(root: Path) -> list[dict]:
+def scan(root: Path, shelf_name: str = "", volume_id: str = "") -> list[dict]:
+    """Inventory one root.
+
+    `shelf_name` and `volume_id` are carried onto every row. Without them a
+    merged inventory of two drives is a list of relative paths you cannot
+    locate: "records/a.pdf" exists on both, and nothing in the CSV says which
+    physical object to plug in to go read it.
+    """
     rows = []
     files = [p for p in sorted(root.rglob("*")) if p.is_file()]
     total = len(files)
@@ -116,6 +126,8 @@ def scan(root: Path) -> list[dict]:
         except OSError:
             continue
         row = {
+            "shelf": shelf_name,
+            "volume_id": volume_id,
             "filename": p.name,
             "relpath": str(p.relative_to(root)),
             "ext": p.suffix.lower(),
@@ -247,27 +259,48 @@ def explain_missing(root: Path) -> None:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(prog="desk_inventory.py")
-    ap.add_argument("root", help="folder of records to inventory")
+    ap = argparse.ArgumentParser(prog="sentinel corpus inventory")
+    ap.add_argument("roots", nargs="+",
+                    help="shelf names (N1, N2, N1/records) or folder paths")
     ap.add_argument("--out", default="inventory_out", help="output folder")
     args = ap.parse_args()
 
-    root = Path(args.root).expanduser().resolve()
-    if not root.is_dir():
-        explain_missing(root)
-        return 2
+    # Resolve EVERY root before scanning ANY of them.
+    #
+    # Scanning as we go would inventory N1, then hit an unplugged N2, and leave
+    # behind a CSV that looks like a complete two-drive inventory and is not.
+    # A partial corpus that does not announce itself is the thing this whole
+    # module exists to prevent.
+    targets: list[tuple[str, Path, str]] = []
+    for spec in args.roots:
+        try:
+            root, vol = S.resolve_root(spec, cfg=None)
+        except SystemExit:
+            # resolve_root already explained itself on stderr.
+            return 3
+        if not root.is_dir():
+            explain_missing(root)
+            return 2
+        targets.append((spec if vol else "", root, vol.id if vol else ""))
+
     outdir = Path(args.out).expanduser()
     outdir.mkdir(parents=True, exist_ok=True)
 
-    print(f"Inventorying {root}")
-    rows = scan(root)
+    rows: list[dict] = []
+    for name, root, vid in targets:
+        label = f"{name} ({root})" if name else str(root)
+        print(f"Inventorying {label}")
+        rows.extend(scan(root, shelf_name=name, volume_id=vid))
 
     # An empty folder is a real answer, not a crash. Writing a headerless CSV
     # or dying on rows[0] would both read as "the tool is broken" when the
     # actual fact is "you pointed it at nothing".
     if not rows:
-        print(f"\n  {root} contains no files.", file=sys.stderr)
-        print("  Nothing was written. Check the path, or whether the drive is mounted.",
+        where = ", ".join(str(r) for _, r, _ in targets)
+        print(f"\n  No files found under: {where}", file=sys.stderr)
+        print("  Nothing was written. An empty result here is not a fact about",
+              file=sys.stderr)
+        print("  the records -- check the folder, or run: bin/sentinel shelf check",
               file=sys.stderr)
         return 1
 
@@ -285,6 +318,16 @@ def main() -> int:
     print()
     print("=" * 64)
     print(f"  {len(rows)} files · {total_mb:,.1f} MB")
+    if len(targets) > 1:
+        print("-" * 64)
+        for name, root, _ in targets:
+            sub = [r for r in rows if r["shelf"] == name] if name else \
+                  [r for r in rows if not r["shelf"]]
+            mb = sum(r["size_bytes"] for r in sub) / 1e6
+            unreadable = sum(1 for r in sub
+                             if r["verdict"] not in ("ok", "searchable"))
+            print(f"  {(name or str(root))[:24]:<24} {len(sub):>5} files "
+                  f"{mb:>9,.1f} MB   {unreadable:>4} unreadable")
     print("=" * 64)
     for verdict, n in v.most_common():
         mark = " " if verdict in ("ok", "searchable") else "!"

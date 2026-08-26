@@ -44,6 +44,11 @@
 #   sentinel doc get <url>          fetch a primary source, hashed + text-extracted
 #   sentinel corpus inventory <dir> what a folder of records ACTUALLY holds
 #   sentinel corpus ocr <dir> --out <dir>   read the bundles that only look like PDFs
+#
+#   sentinel shelf add <name> <path>  register an external drive by identity
+#   sentinel shelf list             mounted volumes and registered shelves
+#   sentinel shelf check [name]     is the drive there, and is it usable
+#   sentinel shelf where <name>     print the resolved path (or refuse)
 #   sentinel connect graph          preview the Neo4j graph from your captures
 #   sentinel connect graph --push   write it into Neo4j
 #
@@ -158,6 +163,9 @@ case "$cmd" in
     echo ""
     echo "== case gate =="
     python3 "$ROOT/modules/research-desk/test_case.py" || FAILED=1
+
+    echo "== shelves (external drives) =="
+    python3 "$ROOT/modules/corpus/test_shelf.py" || FAILED=1
     echo ""
     echo "== pra =="
     # A missing suite must not abort the whole run: under `set -e` one absent
@@ -332,6 +340,11 @@ case "$cmd" in
       ocr)       python3 "$ROOT/modules/corpus/batch_ocr.py" "$@" ;;
       *) echo "corpus subcommands: inventory ocr" >&2; exit 2 ;;
     esac
+    ;;
+
+  shelf)
+    # External drives, addressed by volume identity rather than by path.
+    python3 "$ROOT/modules/corpus/shelf_cli.py" "$@"
     ;;
 
   doc)
