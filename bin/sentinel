@@ -42,6 +42,7 @@
 #   sentinel connect brief "NAME"   everything the library holds on one name
 #
 #   sentinel doc get URL            fetch a primary source, hashed + text-extracted
+#   sentinel doc bills              which bills appear in more than one filing
 #   sentinel corpus inventory DIR   what a folder of records ACTUALLY holds
 #   sentinel corpus ocr DIR --out DIR  read the bundles that only look like PDFs
 #
@@ -195,6 +196,9 @@ PYSTATUS
 
     echo "== document fetch =="
     node "$ROOT/modules/docs/test_docs_fetch.js" || FAILED=1
+
+    echo "== bill correlation =="
+    node "$ROOT/modules/docs/test_bills.js" || FAILED=1
     echo ""
     echo "== records desk (overnight stage) =="
     node "$ROOT/modules/watch/test_records_desk.js" || FAILED=1

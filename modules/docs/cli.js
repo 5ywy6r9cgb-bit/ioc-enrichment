@@ -32,7 +32,7 @@ function human(n) {
 
 async function cmdGet(url, opts) {
   if (!url) {
-    console.error('\n  usage: sentinel doc get URL [--case CASE-ID] [--as EX-01]\n');
+    console.error('\n  usage: sentinel doc get URL [--case CASE-ID] [--as EX-01]\n         sentinel doc bills\n');
     process.exit(2);
   }
 
@@ -165,6 +165,64 @@ async function cmdGet(url, opts) {
   console.log(C.dim('  and it is the only thing standing between a lead and a published claim.\n'));
 }
 
+function cmdBills(opts) {
+  const B = require('./bills.js');
+  const dir = path.join(R.EVIDENCE, 'documents');
+  const docs = B.readDocs(dir);
+
+  console.log('\n' + C.b('Bills named across the documents you have fetched'));
+  console.log(C.dim(`  ${dir}\n`));
+
+  if (!docs.length) {
+    console.log('  No extracted text in that folder yet.');
+    console.log(C.dim('  Fetch a filing first:  bin/sentinel doc get URL\n'));
+    return;
+  }
+
+  const { shared, docs: seen } = B.correlate(docs);
+  const withBills = seen.filter((d) => d.bills.size);
+  console.log(C.dim(`  ${seen.length} document(s) · ${withBills.length} naming at least one bill\n`));
+
+  // A document that names no bill is reported, not skipped. Silence about it
+  // reads as "it shares nothing", when the fact may be that it never
+  // extracted or is not a filing at all.
+  const silent = seen.filter((d) => !d.bills.size);
+  if (silent.length) {
+    console.log(C.dim(`  ${silent.length} document(s) name no bill at all:`));
+    for (const d of silent.slice(0, 6)) console.log(C.dim(`    ${d.file}`));
+    if (silent.length > 6) console.log(C.dim(`    … and ${silent.length - 6} more`));
+    console.log('');
+  }
+
+  if (!shared.length) {
+    console.log('  ' + C.y('No bill appears in more than one client\'s filing yet.'));
+    console.log(C.dim('  That is a fact about what you have fetched, not about the record.'));
+    console.log(C.dim('  Fetch more filings and run this again.\n'));
+    return;
+  }
+
+  for (const s of shared) {
+    console.log(`  ${C.b(s.bill)}  ${C.dim(`— ${s.clients.length} clients`)}`);
+    for (const h of s.hits) {
+      const who = h.doc.client || h.doc.file;
+      const by = h.doc.registrant ? C.dim(`  (filed by ${h.doc.registrant})`) : '';
+      console.log(`    ${who}${by}`);
+      console.log(C.dim(`      …${h.context.slice(0, 150)}…`));
+    }
+    console.log('');
+  }
+
+  console.log(C.b('  What this establishes, and what it does not.'));
+  console.log(C.dim('  Both parties told Congress under 2 U.S.C. 1603–1604 that they'));
+  console.log(C.dim('  lobbied on that bill. That is two sworn statements about one object,'));
+  console.log(C.dim('  not a co-occurrence.'));
+  console.log(C.dim('\n  It does NOT establish that they took the same side. A filing names'));
+  console.log(C.dim('  the bill; it does not say for or against. Opposing parties appear on'));
+  console.log(C.dim('  the same bill in the same quarter as a matter of routine — reporting'));
+  console.log(C.dim('  a shared bill as an alignment is the easiest way to publish something'));
+  console.log(C.dim('  false out of accurate records.\n'));
+}
+
 async function main() {
   const argv = process.argv.slice(2);
   const action = argv[0];
@@ -181,8 +239,11 @@ async function main() {
   if (action === 'get') {
     return cmdGet(positional[1], { caseId: val('--case'), as: val('--as') });
   }
+  if (action === 'bills') {
+    return cmdBills({});
+  }
 
-  console.error('\n  usage: sentinel doc get URL [--case CASE-ID] [--as EX-01]\n');
+  console.error('\n  usage: sentinel doc get URL [--case CASE-ID] [--as EX-01]\n         sentinel doc bills\n');
   process.exit(2);
 }
 

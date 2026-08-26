@@ -789,6 +789,47 @@ readable — an error page, a cookie banner and a JavaScript shell all produce
 one, and filing one as a record is how "the filing does not mention that"
 gets written about a filing nobody could read.
 
+### `doc bills` — the step that turns a roster into a position
+
+```bash
+bin/sentinel doc bills
+```
+
+A shared registrant is a **roster**: one firm files for a hyperscaler and a
+gas utility. That is a sworn fact about who retained whom and nothing at all
+about either client's position.
+
+The same **bill** named in two clients' filings is different. Both told
+Congress, under 2 U.S.C. 1603–1604, that they lobbied on that specific
+legislation. Two sworn statements about one object — not a co-occurrence.
+
+```
+H.R. 9126  — 2 clients
+  AWS PUBLIC POLICY, AMERICAS  (filed by ALPINE GROUP PARTNERS, LLC.)
+    …Specific lobbying issues: H.R. 9126 data center energy siting…
+  ATMOS ENERGY CORPORATION  (filed by ALPINE GROUP PARTNERS, LLC.)
+    …HR 9126 concerning pipeline siting…
+```
+
+**What it does not establish.** Two clients on one bill does **not** mean the
+same side. A filing names the bill; it does not say for or against. Opposing
+parties appear on the same bill in the same quarter routinely, and reporting
+a shared bill as an alignment is the easiest way to publish something false
+out of accurate records. The output says so every time.
+
+Three things it refuses to get wrong:
+
+- **Correlation is by client, not by file.** The same filing fetched twice,
+  or a filing and its amendment, is one party. Counting files would
+  manufacture a correlation out of a single sworn statement.
+- **A false bill number is worse than a missed one** — it links two unrelated
+  filings and reads like a finding. A bare `S.` needs two digits, because
+  `S. 1` is also a signature, a section, a rule. Unambiguous forms
+  (`H.Res.`, `S.J.Res.`) take one digit, since resolutions really are
+  numbered that low.
+- **A document naming no bill is reported, not dropped.** Silence about it
+  reads as "shares nothing" when the fact may be that extraction failed.
+
 ### The failure this is built around
 
 A scanned PDF and a text PDF have the same extension and look identical in a
