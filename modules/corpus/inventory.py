@@ -205,6 +205,47 @@ def make_charts(rows: list[dict], outdir: Path) -> None:
         plt.close(fig)
 
 
+def explain_missing(root: Path) -> None:
+    """Say WHY the path is not there, not just that it isn't.
+
+    "Not a folder" is true and useless. Three different situations produce it
+    and they need three different next moves: a typo, a drive that is not
+    mounted, and a folder that simply has not been created yet. Guessing
+    wrong costs an hour of looking in the wrong place.
+    """
+    print(f"Not a folder: {root}", file=sys.stderr)
+
+    # An external volume that is unplugged looks exactly like a bad path.
+    parts = root.parts
+    if len(parts) > 2 and parts[1] == "Volumes":
+        vol = Path("/Volumes") / parts[2]
+        if not vol.exists():
+            print(f"\n  /Volumes/{parts[2]} is not mounted.", file=sys.stderr)
+            print("  Plug the drive in, or point this at a local copy instead.",
+                  file=sys.stderr)
+            return
+
+    # Walk up to the deepest ancestor that DOES exist and show what is in it,
+    # so the real folder name is on screen rather than being guessed at.
+    here = root
+    while here != here.parent and not here.is_dir():
+        here = here.parent
+    if here.is_dir():
+        try:
+            kids = sorted(p.name for p in here.iterdir() if p.is_dir())
+        except OSError:
+            kids = []
+        print(f"\n  Deepest folder that exists: {here}", file=sys.stderr)
+        if kids:
+            print("  It contains these folders:", file=sys.stderr)
+            for k in kids[:20]:
+                print(f"    {here / k}", file=sys.stderr)
+            if len(kids) > 20:
+                print(f"    ... and {len(kids) - 20} more", file=sys.stderr)
+        else:
+            print("  It has no subfolders.", file=sys.stderr)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(prog="desk_inventory.py")
     ap.add_argument("root", help="folder of records to inventory")
@@ -213,13 +254,22 @@ def main() -> int:
 
     root = Path(args.root).expanduser().resolve()
     if not root.is_dir():
-        print(f"Not a folder: {root}", file=sys.stderr)
+        explain_missing(root)
         return 2
     outdir = Path(args.out).expanduser()
     outdir.mkdir(parents=True, exist_ok=True)
 
     print(f"Inventorying {root}")
     rows = scan(root)
+
+    # An empty folder is a real answer, not a crash. Writing a headerless CSV
+    # or dying on rows[0] would both read as "the tool is broken" when the
+    # actual fact is "you pointed it at nothing".
+    if not rows:
+        print(f"\n  {root} contains no files.", file=sys.stderr)
+        print("  Nothing was written. Check the path, or whether the drive is mounted.",
+              file=sys.stderr)
+        return 1
 
     csv_path = outdir / "inventory.csv"
     with csv_path.open("w", newline="") as fh:
