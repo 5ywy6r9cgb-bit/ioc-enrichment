@@ -1297,7 +1297,7 @@ async function cmdBrief(name, opts) {
   console.log(`\n  ${C.dim('Every line here is a LEAD. A name match is not an identification, and')}`);
   console.log(`  ${C.dim('nothing above has been read. Pull the underlying document before any')}`);
   console.log(`  ${C.dim('of it is used, then put it in a case file:')}`);
-  console.log(C.dim(`    sentinel case new CASE-ID "<what you are claiming>"\n`));
+  console.log(C.dim(`    sentinel case new CASE-ID "what you are claiming"\n`));
 }
 
 async function cmdSearch(name, query, opts) {
