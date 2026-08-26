@@ -748,6 +748,8 @@ DATABASE_URL            # Postgres, for `foia --db`
 | The graph shows two companies with no line between them | Correct, if all they share is a search. Co-occurrence is two hops, through the `Subject` node. Only a sworn filing draws a direct edge. |
 | Neo4j Browser: `Unknown command ":connectMATCH ..."` | Two things ran together. The editor still held `:connect` from signing in and the paste landed on the end of it. Clear the editor box, paste one query, run it. |
 | Neo4j Browser errors on a block that looks fine | Browser runs the whole editor as ONE statement. Two queries pasted together are one malformed query. Run them one at a time. |
+| `connect graph --push` says the credentials are rejected, and the password looks right | Read the length it prints. A stray character pasted in front or behind is invisible in an editor and shows up as a length one longer than what you set. This happened: a rogue `w` in front, reported as *17 chars, starts with "w"* against a 16-character password. The length is the tell. |
+| Terminal: `zsh: no such file or directory: http://localhost:7474` | A URL is not a command. `open http://localhost:7474`. |
 
 
 ## 12. Re-deriving this page
