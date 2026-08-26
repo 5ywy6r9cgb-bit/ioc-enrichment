@@ -254,6 +254,48 @@ module.exports = async function run() {
     ok('the restated period is named as such', c.amended === 1, String(c.amended));
   }
 
+  // ══ 5f. --match NARROWS A ROSTER TO WHAT YOU CAN ACTUALLY READ ════════
+  // One registrant's client roster ran to 92 questions on a real library.
+  // Drafting all of them files 92 claims nobody will dispose of, and an
+  // undisposed claim can never reach a dossier -- so the desk fills with
+  // permanently unpublishable material that looks like progress.
+  {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'match-'));
+    const capDir = path.join(dir, 'captures');
+    fs.mkdirSync(capDir, { recursive: true });
+    const clients = ['RWE', 'SIEMENS ENERGY', 'MATCH GROUP HOLDINGS', 'LYFT'];
+    fs.writeFileSync(path.join(capDir,
+      'live_capture_senatelda_Alpine_2026-01-01T00-00-00-000Z.json'),
+      JSON.stringify({ count: 4, results: clients.map((c, i) => ({
+        filing_uuid: `f${i}`, client: { name: c },
+        registrant: { name: 'ALPINE GROUP PARTNERS' },
+        filing_year: 2026, filing_period_display: 'Q2',
+        filing_document_url: `https://lda.gov/f/${i}/`,
+      })) }));
+
+    const saved = process.env.SENTINEL_EVIDENCE_DIR;
+    process.env.SENTINEL_EVIDENCE_DIR = dir;
+    for (const m of ['../connectors/registry.js', '../connectors/crosslink.js', './draft.js']) {
+      delete require.cache[require.resolve(m)];
+    }
+    const D7 = require('./draft.js');
+    const all = D7.gather({});
+    const energy = D7.gather({ match: ['RWE', 'SIEMENS'] });
+    if (saved === undefined) delete process.env.SENTINEL_EVIDENCE_DIR;
+    else process.env.SENTINEL_EVIDENCE_DIR = saved;
+
+    ok('without --match the whole roster is offered', all.claims.length === 4,
+      String(all.claims.length));
+    ok('--match narrows to the named clients', energy.claims.length === 2,
+      energy.claims.map((c) => c.text).join(' | '));
+    ok('the pre-match total stays visible, so the narrowing is checkable',
+      energy.beforeMatch === 4, String(energy.beforeMatch));
+    ok('--match is case-insensitive',
+      D7.gather({ match: ['siemens'] }).claims.length === 1);
+    ok('a --match that hits nothing yields nothing, not everything',
+      D7.gather({ match: ['NOTHING MATCHES THIS'] }).claims.length === 0);
+  }
+
   // ══ 6. THE SEARCH STRING IS NOT PART OF THE CLAIM ═════════════════════
   // Putting it in the text split ONE relationship into several claims,
   // differing only by which search surfaced it:

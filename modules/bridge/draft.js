@@ -258,7 +258,20 @@ function gather(opts) {
              amended: amended > 0 ? amended : 0,
              foundVia: [...c.subjects].sort() };
   });
-  return { claims: unique, unparsed, captures: caps.length, raw: out.length };
+  // --match narrows by what the QUESTION says, not by which search found it.
+  //
+  // A registrant's client roster is the unit the LDA returns, and one firm's
+  // roster can run to ninety clients. Drafting all of them files ninety
+  // claims nobody will ever dispose of, and an undisposed claim can never
+  // reach a dossier -- so the desk fills with material that is permanently
+  // unpublishable and looks like progress.
+  const matched = opts.match && opts.match.length
+    ? unique.filter((c) => opts.match.some(
+        (m) => c.text.toLowerCase().includes(String(m).toLowerCase())))
+    : unique;
+
+  return { claims: matched, unparsed, captures: caps.length, raw: out.length,
+           beforeMatch: unique.length };
 }
 
 function cmdList() {
@@ -308,7 +321,7 @@ function cmdDraft(slug, opts) {
     process.exit(2);
   }
 
-  const { claims, unparsed, captures, raw } = gather(opts);
+  const { claims, unparsed, captures, raw, beforeMatch } = gather(opts);
   const already = new Set(desk.texts);
   const fresh = claims.filter((c) => !already.has(c.text));
   const dupes = claims.length - fresh.length;
@@ -317,6 +330,9 @@ function cmdDraft(slug, opts) {
   console.log(`\n  ${C.b(`Draft into case "${slug}"`)}`);
   console.log(C.d(`  ${captures} capture file(s) → ${raw} row(s) → ${claims.length} distinct question(s)`));
   const folded = claims.reduce((n, c) => n + Math.max(0, (c.folded || 1) - 1), 0);
+  if (opts.match && opts.match.length) {
+    console.log(C.d(`  --match kept ${claims.length} of ${beforeMatch} question(s)`));
+  }
   if (folded) {
     console.log(C.d(`  ${folded} further record(s) stand behind those questions — `
       + `a relationship evidenced many times is still one question`));
@@ -402,13 +418,15 @@ function main() {
   const action = argv[0];
   if (!action || action === 'list') return cmdList();
   if (action.startsWith('--')) {
-    console.error('\n  usage: sentinel draft CASE-SLUG [--subject S ...] [--connector C]'
-      + ' [--limit N] [--apply]\n         sentinel draft list\n');
+    console.error('\n  usage: sentinel draft CASE-SLUG [--subject S ...] [--match TEXT ...]'
+      + '\n                        [--connector C] [--limit N] [--apply]'
+      + '\n         sentinel draft list\n');
     process.exit(2);
   }
   const n = Number(val('--limit'));
   return cmdDraft(action, {
     subjects: vals('--subject'),
+    match: vals('--match'),
     connector: val('--connector'),
     limit: Number.isFinite(n) && n > 0 ? n : 0,
     apply: argv.includes('--apply'),

@@ -1204,6 +1204,26 @@ own identity (`filing_uuid` for LDA) before anything is counted. A count that
 is wrong and looks right is the failure the lobbying module was built around,
 and it must not come back in through this door.
 
+### `--match` — narrowing a roster to what you can actually read
+
+The LDA returns a registrant's whole client roster. On a real library one
+firm produced **92 questions**. Drafting all of them files 92 claims nobody
+will ever dispose of — and an undisposed claim can never reach a dossier, so
+the desk fills with permanently unpublishable material that looks like
+progress.
+
+`--match` filters on what the question *says*, and is repeatable:
+
+```bash
+bin/sentinel draft datacenters --connector senatelda \
+  --subject "Alpine Group Partners" \
+  --match RWE --match "SIEMENS ENERGY" --match ATMOS --match PRIMORIS
+```
+
+The run reports how many it kept out of how many, so the narrowing is
+visible rather than silent. A `--match` that hits nothing yields nothing —
+never everything.
+
 ### More filings than periods means amendments
 
 `Q2` and `Q2A` are one quarter filed twice — an amendment **restates** a
