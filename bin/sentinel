@@ -39,6 +39,7 @@
 #   sentinel connect lobby --chart  read the captured lobbying filings, charted
 #   sentinel connect expand         ask every registrant who else they file for
 #   sentinel connect sweep <set>    run a whole named subject list
+#   sentinel connect brief "<name>"  everything the library holds on one name
 #   sentinel connect graph          preview the Neo4j graph from your captures
 #   sentinel connect graph --push   write it into Neo4j
 #
@@ -230,7 +231,7 @@ case "$cmd" in
     # works when the module is called directly is not yet a command that works.
     action="${1:-test}"; shift || true
     case "$action" in
-      test|list|all|crosslink|lobby|graph|expand|sweep)
+      test|list|all|crosslink|lobby|graph|expand|sweep|brief)
         node "$ROOT/modules/connectors/cli.js" "$action" "$@"
         ;;
       *)

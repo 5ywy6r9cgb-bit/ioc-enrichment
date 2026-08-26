@@ -236,6 +236,7 @@ bin/sentinel connect all "<subject>" --dry-run
 bin/sentinel connect crosslink               # what appears under more than one subject
 bin/sentinel connect lobby                   # read every captured lobbying filing
 bin/sentinel connect lobby --chart           # …and write the charts
+bin/sentinel connect brief "<name>"          # everything the library holds on one name
 bin/sentinel connect sweep                   # list the named subject sets
 bin/sentinel connect sweep datacenters       # the plan, no calls
 bin/sentinel connect sweep datacenters --go  # run it
@@ -359,6 +360,36 @@ this desk's own captures, `ALPINE GROUP PARTNERS, LLC.` files for both
 `AWS PUBLIC POLICY, AMERICAS` and `NISOURCE INC.` — one firm, a hyperscaler
 and a gas utility. That is a thread worth pulling. It is still a lead: a firm
 with four hundred clients will appear there for reasons that mean nothing.
+
+### `connect brief` — read what you captured
+
+```bash
+bin/sentinel connect brief "Alpine Group Partners"
+bin/sentinel connect brief "Licking Heights"
+```
+
+Four hundred captures is not a library you can read. This pulls everything
+mentioning one name out of all of them, no network call, and prints it
+graded by what the source actually establishes:
+
+| | |
+|---|---|
+| **Sworn lobbying filings** | A statement under 2 U.S.C. 1603–1604 that a named firm lobbied for a named client. Period, amount and issues, with the filing URL. |
+| **Corporate registrations** | A filed fact about a legal entity — not proof it is the same company as anything else on the page. |
+| **Court dockets** | A real case with a real caption. Read the docket before characterising it. |
+| **Federal awards** | Money that moved, to a named recipient. |
+| **Documents that mention the name** | The weakest thing here, and labelled as such. A document containing a string is not a fact about the entity. |
+
+Printed in one list they would all read as "evidence". They are printed
+apart because they are not the same kind of thing.
+
+**A name match is not an identification.** `AWS PUBLIC POLICY LLC` registered
+in Oklahoma answers a search for AWS and is almost certainly not Amazon.
+Matches that hit only as a substring are flagged rather than dropped —
+dropping silently is the worse error.
+
+Nothing in a brief has been read. It is the shortlist of documents to go and
+read, and then put in a case file.
 
 ### `connect sweep` — run a whole named subject list
 

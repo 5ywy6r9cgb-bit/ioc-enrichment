@@ -1115,6 +1115,145 @@ async function cmdSweep(setName, opts) {
   console.log(C.dim('    sentinel connect graph --push\n'));
 }
 
+/**
+ * connect brief "<name>" — everything the library holds about one entity.
+ *
+ * 465 captures is not a library you can read. Nothing in this desk turned
+ * captured bytes back into something a person could sit down with, so the
+ * evidence existed and the reading did not.
+ *
+ * WHAT THIS SEPARATES, AND WHY IT IS THE WHOLE POINT
+ *   A lobbying filing is a sworn statement under 2 U.S.C. 1603-1604 that a
+ *   named firm lobbied for a named client. A court docket is a real case with
+ *   a real caption. A corporate registration is a filed fact about a legal
+ *   entity. A federal award is money that moved.
+ *
+ *   A full-text search hit is none of those. It is a document that contained
+ *   a string. Printed in the same list they all read as "evidence", so they
+ *   are printed apart, and the weaker pile says what it is.
+ *
+ * NAME MATCHING IS NOT IDENTIFICATION
+ *   `AWS PUBLIC POLICY LLC` registered in Oklahoma matches a search for AWS
+ *   and is almost certainly not Amazon. This finds strings. Confirming that
+ *   two matches are the same entity is work this cannot do, and the output
+ *   says so rather than implying it did.
+ */
+async function cmdBrief(name, opts) {
+  const X = require('./crosslink.js');
+  if (!name) {
+    console.error('\n  usage: sentinel connect brief "<name>"\n');
+    process.exit(2);
+  }
+  const captures = X.readCaptures(R.CAPTURES);
+  if (!captures.length) {
+    console.log(`\n  ${C.dim('No captures yet.')}\n`);
+    return;
+  }
+
+  const needle = String(name).toLowerCase();
+  const key = X.normalise(name);
+
+  // Two grades of match. Exact-after-folding is the strong one; a substring
+  // is how INTERWEST CONSTRUCTION answers a search for RWE.
+  const strong = [];
+  const weak = [];
+  const subjectsSeen = new Set();
+
+  for (const cap of captures) {
+    for (const r of cap.results) {
+      const raw = String(r.name || r.title || '');
+      if (!raw) continue;
+      const low = raw.toLowerCase();
+      if (!low.includes(needle)) continue;
+      const row = { cap, r, raw };
+      const parts = X.splitParties(raw).map((p) => X.normalise(p));
+      if (parts.includes(key) || X.normalise(raw) === key) strong.push(row);
+      else weak.push(row);
+      subjectsSeen.add(cap.subject);
+    }
+  }
+
+  console.log(`\n${C.b('Brief — ' + name)}`);
+  console.log(`  ${captures.length} captures searched · ${strong.length + weak.length} mention(s)`);
+  console.log(`  found under ${subjectsSeen.size} subject(s): ${C.dim([...subjectsSeen].sort().join(', ') || '—')}`);
+
+  if (!strong.length && !weak.length) {
+    console.log(`\n  ${C.y('Nothing in the library mentions that name.')}`);
+    console.log(C.dim(`    sentinel connect all "${name}" --into <folder>\n`));
+    return;
+  }
+
+  const by = (rows, conn) => rows.filter((x) => x.cap.connector === conn);
+
+  // ---- ASSERTED ------------------------------------------------------
+  const lda = by(strong, 'senatelda').concat(by(weak, 'senatelda'));
+  if (lda.length) {
+    console.log(`\n  ${C.b('SWORN LOBBYING FILINGS')}  ${lda.length}`);
+    console.log(C.dim('  A filing is a sworn statement that this firm lobbied for this client.'));
+    const seen = new Set();
+    for (const { r, raw } of lda) {
+      const sig = `${raw}|${r.period || ''}|${r.amount || ''}`;
+      if (seen.has(sig)) continue;
+      seen.add(sig);
+      console.log(`    ${raw}`);
+      const bits = [r.period, r.amount ? `$${r.amount}` : null, r.issues].filter(Boolean);
+      if (bits.length) console.log(C.dim(`      ${bits.join(' · ')}`));
+      if (r.url) console.log(C.dim(`      ${r.url}`));
+    }
+    const dupes = lda.length - seen.size;
+    if (dupes > 0) console.log(C.dim(`    (${dupes} duplicate filing row(s) collapsed)`));
+  }
+
+  // ---- FILED FACTS ---------------------------------------------------
+  for (const [conn, label, note] of [
+    ['opencorporates', 'CORPORATE REGISTRATIONS', 'A registration is a filed fact about a legal entity — not proof it is the same company as the others here.'],
+    ['courtlistener', 'COURT DOCKETS', 'A real case with a real caption. Read the docket before characterising it.'],
+    ['usaspending', 'FEDERAL AWARDS', 'Money that moved, to a named recipient.'],
+  ]) {
+    const rows = by(strong, conn).concat(by(weak, conn));
+    if (!rows.length) continue;
+    console.log(`\n  ${C.b(label)}  ${rows.length}`);
+    console.log(C.dim(`  ${note}`));
+    const seen = new Set();
+    for (const { r, raw } of rows.slice(0, 40)) {
+      if (seen.has(raw)) continue;
+      seen.add(raw);
+      console.log(`    ${raw}`);
+      const bits = [r.jurisdiction, r.incorporated, r.date, r.agency,
+        r.amount ? `$${r.amount}` : null].filter(Boolean);
+      if (bits.length) console.log(C.dim(`      ${bits.join(' · ')}`));
+      if (r.url) console.log(C.dim(`      ${r.url}`));
+    }
+    if (rows.length > 40) console.log(C.dim(`    …and ${rows.length - 40} more, in the captures`));
+  }
+
+  // ---- WEAKEST -------------------------------------------------------
+  const docs = by(strong, 'federalregister').concat(by(weak, 'federalregister'),
+    by(strong, 'regulationsgov'), by(weak, 'regulationsgov'));
+  if (docs.length) {
+    console.log(`\n  ${C.b('DOCUMENTS THAT MENTION THE NAME')}  ${docs.length}`);
+    console.log(C.y('  These are the WEAKEST thing here.'));
+    console.log(C.dim('  A document containing a string is not a fact about the entity. A'));
+    console.log(C.dim('  Federal Register notice matching four searches matched four times.'));
+    for (const { raw, r } of docs.slice(0, 10)) {
+      console.log(C.dim(`    ${raw.slice(0, 78)}`));
+      if (r.date) console.log(C.dim(`      ${r.date}`));
+    }
+    if (docs.length > 10) console.log(C.dim(`    …and ${docs.length - 10} more`));
+  }
+
+  if (weak.length) {
+    console.log(`\n  ${C.y(`${weak.length} of these matched only as a substring`)}`);
+    console.log(C.dim('  e.g. a longer name containing yours. Kept and flagged, not dropped —'));
+    console.log(C.dim('  dropping silently is the worse error.'));
+  }
+
+  console.log(`\n  ${C.dim('Every line here is a LEAD. A name match is not an identification, and')}`);
+  console.log(`  ${C.dim('nothing above has been read. Pull the underlying document before any')}`);
+  console.log(`  ${C.dim('of it is used, then put it in a case file:')}`);
+  console.log(C.dim(`    sentinel case new <id> "<what you are claiming>"\n`));
+}
+
 async function cmdSearch(name, query, opts) {
   const c = R.CONNECTORS[name];
   if (!c) {
@@ -1235,6 +1374,7 @@ async function main() {
   }
   // --registrant turns the senatelda search around: "who does this firm file
   // for" rather than "who filed for this company".
+  if (action === 'brief') return cmdBrief(args.slice(1).join(' '), {});
   if (action === 'sweep') {
     return cmdSweep(args[1], { go: argv.includes('--go') });
   }
@@ -1270,4 +1410,4 @@ if (require.main === module) {
   main().catch((e) => { console.error(e); process.exit(1); });
 }
 
-module.exports = { verdictFor, cmdTest, wrap, parseAllArgs, cmdLobby, cmdGraph, cmdRegistrant, cmdExpand, cmdSweep };
+module.exports = { verdictFor, cmdTest, wrap, parseAllArgs, cmdLobby, cmdGraph, cmdRegistrant, cmdExpand, cmdSweep, cmdBrief };
