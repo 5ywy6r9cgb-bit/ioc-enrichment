@@ -140,7 +140,9 @@ async function cmdTest() {
   const total = Object.keys(R.CONNECTORS).length;
 
   for (const [, c] of Object.entries(R.CONNECTORS)) {
-    const key = c.keyVar ? (env[c.keyVar] || '') : '';
+    // Same resolver the runner uses. Checking only keyVar here reported
+    // connectors as keyless that would have searched fine.
+    const key = R.resolveKey(c, env);
     const spec = c.probe(key);
     const res = await R.request(spec.method, spec.url, spec.headers);
     const v = verdictFor(c, key, res);

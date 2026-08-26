@@ -28,6 +28,25 @@ function check(label, cond, detail) {
 const cliSrc = require('fs').readFileSync(require.resolve('./cli.js'), 'utf8');
 
 module.exports = function run() {
+
+  // ══ ONE KEY RESOLVER, USED BY BOTH ════════════════════════════════════
+  // `connect test` resolved env[keyVar] alone while the runner resolved
+  // env[keyVar] || env[keyVarAlt]. With only DATA_GOV_API_KEY set, the check
+  // reported FEC as keyless while `connect fec "X"` searched fine -- the
+  // diagnostic contradicting the thing it exists to diagnose.
+  {
+    const fec = R.CONNECTORS.fec;
+    check(fec.keyVarAlt === 'DATA_GOV_API_KEY',
+      'fec still declares an alternate key variable');
+    check(R.resolveKey(fec, { DATA_GOV_API_KEY: 'shared' }) === 'shared',
+      'the federation key resolves for a connector whose own key is unset');
+    check(R.resolveKey(fec, { FEC_API_KEY: 'own', DATA_GOV_API_KEY: 'shared' }) === 'own',
+      'a connector-specific key wins over the federation key');
+    check(R.resolveKey(fec, {}) === '', 'no key set resolves to empty');
+    const lda = R.CONNECTORS.senatelda;
+    check(R.resolveKey(lda, { DATA_GOV_API_KEY: 'shared' }) === '',
+      'the federation key is NOT handed to a connector outside that federation');
+  }
   console.log('\n  connect test — verdict logic\n');
 
   // ── the two false lines, as tests ───────────────────────────────────

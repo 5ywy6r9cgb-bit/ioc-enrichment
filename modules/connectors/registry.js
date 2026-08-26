@@ -37,6 +37,26 @@ function loadEnv() {
 }
 
 /**
+ * The key a connector will actually be given at run time.
+ *
+ * keyVarAlt lets one api.data.gov registration serve every connector in that
+ * federation, so the operator is not asked to register twice for a key the
+ * government already treats as one key.
+ *
+ * THIS EXISTS AS A FUNCTION BECAUSE IT WAS WRITTEN TWICE AND DIVERGED.
+ *   `connect test` checked env[keyVar] alone while the runner checked
+ *   env[keyVar] || env[keyVarAlt]. With only DATA_GOV_API_KEY set, the check
+ *   reported FEC as having no key while `connect fec "X"` searched happily --
+ *   a diagnostic contradicting the thing it exists to diagnose, in the
+ *   direction that makes you go looking for a problem you do not have.
+ *   One resolver, used by both, cannot drift.
+ */
+function resolveKey(c, env) {
+  if (!c.keyVar) return '';
+  return env[c.keyVar] || (c.keyVarAlt ? env[c.keyVarAlt] : '') || '';
+}
+
+/**
  * What a valid key for each provider looks like.
  *
  * ─────────────────────────────────────────────────────────────────────────
@@ -719,10 +739,7 @@ async function runConnector(name, query, opts = {}) {
   if (!query) return { ok: false, error: 'empty query', results: [] };
 
   const env = opts.env || loadEnv();
-  // keyVarAlt lets one api.data.gov registration serve every connector in
-  // that federation, so the operator is not asked to register twice for a
-  // key the government already treats as one key.
-  const key = c.keyVar ? (env[c.keyVar] || (c.keyVarAlt ? env[c.keyVarAlt] : '') || '') : '';
+  const key = resolveKey(c, env);
   if (c.keyRequired && !key) {
     const names = c.keyVarAlt ? `${c.keyVar} (or ${c.keyVarAlt})` : c.keyVar;
     return { ok: false, error: `${names} is not set`, keyMissing: true, results: [] };
@@ -795,6 +812,6 @@ module.exports = {
   explainHttpError, looksLikeSubstringMatch,
   checkKeyShape, KEY_SHAPES,
   stripAuth, AUTH_HEADERS, MAX_REDIRECTS,
-  CONNECTORS, VERSION, EVIDENCE, CAPTURES, LEDGER,
+  CONNECTORS, VERSION, EVIDENCE, CAPTURES, LEDGER, resolveKey,
   loadEnv, mask, request, runConnector,
 };
