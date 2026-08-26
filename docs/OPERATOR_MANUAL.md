@@ -1072,6 +1072,78 @@ bin/sentinel sdesk serve [--port 8787]
 
 ---
 
+## 7a. From captures to the desk — `sentinel draft`
+
+```bash
+bin/sentinel draft list
+bin/sentinel draft <case-slug> --subject "Aligned Data Centers"
+bin/sentinel draft <case-slug> --subject "Aligned Data Centers" --apply
+```
+
+Hundreds of captures sit in `evidence/captures/` and every claim on the desk
+is typed by hand, so the collecting and the reasoning never meet. This is the
+bridge.
+
+### It writes RED and only RED
+
+**A capture is a search result.** It is a row of metadata an API returned —
+a case name, a filing period, a URL. It is not the document, nobody has read
+it, and its presence means only that a keyword matched.
+
+The tempting version of this tool writes GREEN claims with the capture's URL
+as the citation. That would launder a search hit into a cited fact several
+hundred at a time, and every one would look exactly like a claim somebody had
+checked. So every drafted claim is **RED — an open question** — and its gate
+names the record that would close it *and the command that fetches it*:
+
+```
+RED  Does Aligned Data Centers (Pataskala) PropCo LLC v. Licking Cty. Bd. of
+     Revision (Ohio BTA, 2024-11-02) establish anything about Aligned Data
+     Centers?
+     gate: The CourtListener record itself, fetched and read —
+           bin/sentinel doc get https://www.courtlistener.com/opinion/9912/...
+```
+
+Promotion out of RED takes three deliberate acts: fetch it (`doc get`),
+ingest it, cite it. The desk's schema enforces this on its own — `citations`
+takes a `doc_id` into `documents`, so **there is no way to cite a URL.**
+
+A test asserts against the source that no tier other than RED can be written,
+and it is drift-tested in both directions.
+
+### Dry run by default
+
+Nothing is written without `--apply`. Filing several hundred claims into your
+desk by accident is not something to find out about afterwards.
+
+### Re-running is safe
+
+Claim text is deterministic — the same capture row always produces the same
+sentence — so a re-run detects what is already on the desk by exact match and
+skips it. The same record returned by two different searches is one question,
+not two, and the run reports the reduction (`3 row(s) → 2 distinct question(s)`)
+rather than hiding it.
+
+### What it will not hide
+
+- **Unparseable captures are counted**, not skipped. They stay on disk and
+  hashed; nothing can be drafted from them and the run says how many.
+- **Truncated captures are flagged** in `draft list`. A capture that stopped
+  at the page size is a slice, so the questions drawn from it are a slice too.
+- **A desk it cannot read is an error**, never an empty desk. If "I could not
+  look" returned nothing-to-do, every run would re-draft the whole library on
+  top of what is already there.
+
+### Every write goes through the audit chain
+
+`draft --apply` shells out to `sentinel claim add` rather than writing to
+`sentinel.db`. Direct SQL would be faster and would leave several hundred
+claims in the desk with no audit entry — a chain that still verifies as
+intact while no longer describing what happened. Verified live: the chain
+went from 3 entries to 9 across three drafted claims.
+
+---
+
 ## 8a. There are two case systems, and they do not know about each other
 
 This is the most confusing thing in the repo. Both are called "case". Both

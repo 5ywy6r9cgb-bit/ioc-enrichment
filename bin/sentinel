@@ -49,6 +49,9 @@
 #   sentinel shelf list             mounted volumes and registered shelves
 #   sentinel shelf check [name]     is the drive there, and is it usable
 #   sentinel shelf where <name>     print the resolved path (or refuse)
+#
+#   sentinel draft list             which captures could become claims
+#   sentinel draft <case> --apply   file them as open questions on the desk
 #   sentinel connect graph          preview the Neo4j graph from your captures
 #   sentinel connect graph --push   write it into Neo4j
 #
@@ -204,6 +207,9 @@ PYSTATUS
 
     echo "== inventory (drives that vanish mid-scan) =="
     python3 "$ROOT/modules/corpus/test_inventory.py" || FAILED=1
+
+    echo "== captures -> claims bridge =="
+    node "$ROOT/modules/bridge/test_draft.js" || FAILED=1
     echo ""
     echo "== pra =="
     # A missing suite must not abort the whole run: under `set -e` one absent
@@ -383,6 +389,11 @@ PYSTATUS
   shelf)
     # External drives, addressed by volume identity rather than by path.
     python3 "$ROOT/modules/corpus/shelf_cli.py" "$@"
+    ;;
+
+  draft)
+    # Captures -> open questions on the desk. RED only, by design.
+    node "$ROOT/modules/bridge/draft.js" "$@"
     ;;
 
   doc)
