@@ -898,6 +898,8 @@ DATABASE_URL            # Postgres, for `foia --db`
 | A sweep reports `courtlistener … HTTP 429 — Rate limit exceeded: 5/min` | CourtListener allows five calls a minute and enforces it. The runner now paces itself to that and retries once on a 429, reading the wait out of the response. A long sweep is slower because of it — that is the source arriving instead of being refused. |
 | `regulationsgov … HTTP 403 — invalid api_key` | Regulations.gov needs its own key. `bin/sentinel connect test` will say `KEY MALFORMED` if what is in `.env` is the wrong length. |
 | USAspending says *N of 25 match only inside a longer word* | A substring hit — `INTERWEST CONSTRUCTION` matching a search for `RWE`. They are kept and flagged rather than dropped, because dropping silently is worse. Short subjects produce more of them. |
+| `zsh: event not found: …` | zsh expands `!` as history even inside double quotes. Wrap the whole command in SINGLE quotes, or avoid `!` in it. Same family as the `#` pitfall. |
+| `connect brief "<name>"` finds nothing you know is there | Sources abbreviate, and court captions abbreviate hardest — the caption is `Licking Hts. Local School Dist. Bd. of Edn.`, so a search for "Licking Heights" matches nothing while the case sits in the capture. The brief now tries the longest distinctive word and tells you what it found. Search the distinctive token, not the full formal name. |
 
 
 ## 12. Re-deriving this page

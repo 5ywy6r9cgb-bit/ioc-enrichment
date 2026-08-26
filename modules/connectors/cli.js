@@ -1178,8 +1178,32 @@ async function cmdBrief(name, opts) {
   console.log(`  found under ${subjectsSeen.size} subject(s): ${C.dim([...subjectsSeen].sort().join(', ') || '—')}`);
 
   if (!strong.length && !weak.length) {
-    console.log(`\n  ${C.y('Nothing in the library mentions that name.')}`);
-    console.log(C.dim(`    sentinel connect all "${name}" --into <folder>\n`));
+    console.log(`\n  ${C.y('Nothing in the library mentions that string.')}`);
+
+    // Sources abbreviate, and court captions abbreviate hardest: the caption
+    // is "Licking Hts. Local School Dist. Bd. of Edn.", so a search for
+    // "Licking Heights" matches nothing while the case sits right there. A
+    // literal search reporting "not found" over a document it is holding is
+    // the worst answer this tool can give, so before saying nothing, try the
+    // longest distinctive word and say what THAT finds.
+    const words = String(name).split(/\s+/).filter((w) => w.length >= 4)
+      .sort((a, b) => b.length - a.length);
+    for (const w of words.slice(0, 3)) {
+      const lw = w.toLowerCase();
+      let hits = 0;
+      const where = new Set();
+      for (const cap of captures) {
+        for (const r of cap.results) {
+          const raw = String(r.name || r.title || '');
+          if (raw.toLowerCase().includes(lw)) { hits++; where.add(cap.subject); }
+        }
+      }
+      if (hits) {
+        console.log(`\n  ${C.b(`"${w}"`)} appears ${hits} time(s), under: ${C.dim([...where].sort().join(', '))}`);
+        console.log(C.dim(`    sentinel connect brief "${w}"`));
+      }
+    }
+    console.log(C.dim(`\n  Or search for it live:  sentinel connect all "${name}"\n`));
     return;
   }
 
