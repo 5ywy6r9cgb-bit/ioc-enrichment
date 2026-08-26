@@ -171,6 +171,51 @@ function stripAuth(headers) {
   return out;
 }
 
+/**
+ * Per-connector pacing.
+ *
+ * CourtListener allows 5 requests a minute and says so in a 429. A sweep
+ * fires one call per connector per subject with no gap, so on a twelve-subject
+ * sweep CourtListener refused most of them -- and litigation is one of the
+ * better sources for who is fighting whom over siting and power. The run
+ * reported the failures rather than hiding them, which is why it was
+ * noticeable, but reporting a loss is not the same as not losing it.
+ *
+ * So a connector may declare the minimum gap between its own calls, and the
+ * runner waits. The clock is per connector: pacing CourtListener must not
+ * slow down the eight other sources it has nothing to do with.
+ */
+const LAST_CALL = new Map();
+
+function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
+
+async function pace(name, c) {
+  const min = c.minIntervalMs || 0;
+  if (!min) return 0;
+  const last = LAST_CALL.get(name) || 0;
+  const wait = last + min - Date.now();
+  if (wait > 0) await sleep(wait);
+  LAST_CALL.set(name, Date.now());
+  return wait > 0 ? wait : 0;
+}
+
+/**
+ * How long a 429 says to wait, in ms, or null if it does not say.
+ *
+ * Retry-After is the standard and is checked first. CourtListener does not
+ * send it -- it puts "Expected available in 5 seconds." in the body, so that
+ * is read too rather than falling back to a guess. A guessed backoff is
+ * either too short to work or long enough to look like a hang.
+ */
+function retryAfterMs(res) {
+  const h = res.headers && (res.headers['retry-after'] || res.headers['Retry-After']);
+  if (h && /^\d+$/.test(String(h).trim())) return Number(String(h).trim()) * 1000;
+  const body = res.body ? res.body.toString('utf8').slice(0, 500) : '';
+  const m = /available in (\d+) second/i.exec(body);
+  if (m) return (Number(m[1]) + 1) * 1000;
+  return null;
+}
+
 function requestOnce(method, url, headers, body) {
   return new Promise((resolve) => {
     let u;
@@ -193,6 +238,10 @@ function requestOnce(method, url, headers, body) {
       res.on('end', () => resolve({
         status: res.statusCode,
         location: res.headers.location || null,
+        // Kept because a 429 answer may carry Retry-After, and guessing a
+        // backoff is either too short to work or long enough to look like
+        // a hang.
+        headers: res.headers,
         body: Buffer.concat(chunks),
       }));
     });
@@ -387,6 +436,9 @@ const CONNECTORS = {
   courtlistener: {
     label: 'CourtListener',
     keyVar: 'COURTLISTENER_API_TOKEN',
+    // Documented as 5/min, and enforced: a sweep without this lost the source
+    // on most subjects. 13s leaves headroom for clock drift.
+    minIntervalMs: 13000,
     keyRequired: false, // anonymous search works; the token raises rate limits
     calls: 1,
     describe: (q) => `GET https://www.courtlistener.com/api/rest/v4/search/  (q: ${q})`,
@@ -772,7 +824,20 @@ async function runConnector(name, query, opts = {}) {
   }
 
   // ---- capture ---------------------------------------------------------
-  const res = await request(spec.method, spec.url, spec.headers, spec.body);
+  await pace(name, c);
+  let res = await request(spec.method, spec.url, spec.headers, spec.body);
+
+  // A 429 is not a failure, it is "later". The service says how much later;
+  // wait exactly that and try once more. Once, not in a loop -- a retry loop
+  // against a rate limit is how you turn being throttled into being blocked.
+  if (res.status === 429) {
+    const wait = retryAfterMs(res);
+    if (wait !== null && wait <= 90000) {
+      await sleep(wait);
+      LAST_CALL.set(name, Date.now());
+      res = await request(spec.method, spec.url, spec.headers, spec.body);
+    }
+  }
   if (res.status === 0) return { ok: false, status: 0, error: res.error, results: [] };
   if (res.status < 200 || res.status >= 300) {
     return { ok: false, status: res.status,
@@ -836,6 +901,6 @@ module.exports = {
   explainHttpError, looksLikeSubstringMatch,
   checkKeyShape, KEY_SHAPES,
   stripAuth, AUTH_HEADERS, MAX_REDIRECTS,
-  CONNECTORS, VERSION, EVIDENCE, CAPTURES, LEDGER, resolveKey,
+  CONNECTORS, VERSION, EVIDENCE, CAPTURES, LEDGER, resolveKey, retryAfterMs, pace,
   loadEnv, mask, request, runConnector,
 };

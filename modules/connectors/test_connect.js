@@ -29,6 +29,38 @@ const cliSrc = require('fs').readFileSync(require.resolve('./cli.js'), 'utf8');
 
 module.exports = function run() {
 
+  // ══ A RATE LIMIT IS "LATER", NOT "NO" ═════════════════════════════════
+  // CourtListener allows 5/min and enforces it. A twelve-subject sweep fired
+  // calls back to back and lost the source on most subjects -- reported, but
+  // still lost. The run now paces itself and reads the wait out of the 429.
+  {
+    check('courtlistener declares its documented interval',
+      R.CONNECTORS.courtlistener.minIntervalMs >= 12000,
+      String(R.CONNECTORS.courtlistener.minIntervalMs));
+
+    const body = (t) => ({ status: 429, headers: {}, body: Buffer.from(t) });
+    check('the wait is read out of the body when there is no header',
+      R.retryAfterMs(body('Request was throttled. Expected available in 5 seconds.')) === 6000);
+    check('a standard Retry-After header is preferred',
+      R.retryAfterMs({ status: 429, headers: { 'retry-after': '30' }, body: Buffer.from('') }) === 30000);
+    check('an unparseable 429 returns null rather than a guessed backoff',
+      R.retryAfterMs({ status: 429, headers: {}, body: Buffer.from('slow down') }) === null);
+    check('a non-numeric Retry-After is not treated as a number',
+      R.retryAfterMs({ status: 429, headers: { 'retry-after': 'Wed, 21 Oct 2026 07:28:00 GMT' },
+                       body: Buffer.from('') }) === null);
+
+    // The header branch is only reachable if the request layer returns
+    // headers at all. It did not, and the branch was dead code.
+    const src = require('fs').readFileSync(require('path').join(__dirname, 'registry.js'), 'utf8');
+    check('the request layer actually returns headers',
+      /headers: res\.headers/.test(src));
+
+    // Pacing must be per connector: throttling CourtListener must not slow
+    // down eight sources that have nothing to do with it.
+    check('a connector with no declared interval is not paced',
+      !R.CONNECTORS.usaspending.minIntervalMs);
+  }
+
   // ══ TWO QUESTIONS, TWO FIELDS ═════════════════════════════════════════
   // client_name asks "who lobbied FOR this company". registrant_name asks
   // "who does this firm lobby FOR". Only the first existed, and it bounded

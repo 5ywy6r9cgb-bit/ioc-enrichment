@@ -864,6 +864,9 @@ DATABASE_URL            # Postgres, for `foia --db`
 | Neo4j Browser errors on a block that looks fine | Browser runs the whole editor as ONE statement. Two queries pasted together are one malformed query. Run them one at a time. |
 | `connect graph --push` says the credentials are rejected, and the password looks right | Read the length it prints. A stray character pasted in front or behind is invisible in an editor and shows up as a length one longer than what you set. This happened: a rogue `w` in front, reported as *17 chars, starts with "w"* against a 16-character password. The length is the tell. |
 | Terminal: `zsh: no such file or directory: http://localhost:7474` | A URL is not a command. `open http://localhost:7474`. |
+| A sweep reports `courtlistener … HTTP 429 — Rate limit exceeded: 5/min` | CourtListener allows five calls a minute and enforces it. The runner now paces itself to that and retries once on a 429, reading the wait out of the response. A long sweep is slower because of it — that is the source arriving instead of being refused. |
+| `regulationsgov … HTTP 403 — invalid api_key` | Regulations.gov needs its own key. `bin/sentinel connect test` will say `KEY MALFORMED` if what is in `.env` is the wrong length. |
+| USAspending says *N of 25 match only inside a longer word* | A substring hit — `INTERWEST CONSTRUCTION` matching a search for `RWE`. They are kept and flagged rather than dropped, because dropping silently is worse. Short subjects produce more of them. |
 
 
 ## 12. Re-deriving this page
