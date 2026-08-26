@@ -40,6 +40,8 @@
 #   sentinel connect expand         ask every registrant who else they file for
 #   sentinel connect sweep <set>    run a whole named subject list
 #   sentinel connect brief "<name>"  everything the library holds on one name
+#
+#   sentinel doc get <url>          fetch a primary source, hashed + text-extracted
 #   sentinel connect graph          preview the Neo4j graph from your captures
 #   sentinel connect graph --push   write it into Neo4j
 #
@@ -145,6 +147,9 @@ case "$cmd" in
 
     echo "== graph =="
     node "$ROOT/modules/connectors/test_graph.js" || FAILED=1
+
+    echo "== document fetch =="
+    node "$ROOT/modules/docs/test_docs_fetch.js" || FAILED=1
     echo ""
     echo "== records desk (overnight stage) =="
     node "$ROOT/modules/watch/test_records_desk.js" || FAILED=1
@@ -314,6 +319,11 @@ case "$cmd" in
         ;;
       *) echo "watch subcommands: run [--all|--dry-run|--id=ID] | status | install [HOUR] | uninstall" ;;
     esac
+    ;;
+
+  doc)
+    # Fetch a primary source, hash it, and find out if it is readable.
+    node "$ROOT/modules/docs/cli.js" "$@"
     ;;
 
   prov)

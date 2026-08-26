@@ -1,0 +1,186 @@
+#!/usr/bin/env node
+'use strict';
+/**
+ * document.js — get a document onto disk, hashed, and find out if it is readable.
+ *
+ * ─────────────────────────────────────────────────────────────────────
+ * THE GAP THIS CLOSES
+ * ─────────────────────────────────────────────────────────────────────
+ * Every connector in this desk collects METADATA about documents: a case
+ * name, a filing period, an amount, a URL. Not one of them fetches the
+ * document. So a library of hundreds of captures can sit beside a case file
+ * with zero exhibits, and the step in between — open the link, save the PDF,
+ * read it — stays entirely manual and therefore never happens.
+ *
+ * ─────────────────────────────────────────────────────────────────────
+ * THE FAILURE THIS IS BUILT AROUND
+ * ─────────────────────────────────────────────────────────────────────
+ * A scanned PDF and a text PDF have the same extension, open in the same
+ * viewer, and look identical to a person. Run a text extractor over the
+ * scanned one and it returns almost nothing — no error, no warning, just a
+ * near-empty file. The document then appears in your library as "extracted"
+ * and never matches a single search, and you conclude the record does not
+ * mention what you were looking for.
+ *
+ * So extraction reports characters PER PAGE and says plainly when a document
+ * is almost certainly a scan needing OCR. An empty extraction is never
+ * reported as a successful one.
+ */
+
+const fs = require('fs');
+const path = require('path');
+const crypto = require('crypto');
+const { execFileSync } = require('child_process');
+
+/**
+ * Below this many characters per page, a PDF is almost certainly images.
+ *
+ * A genuinely text-bearing page of a court opinion or a filing runs into the
+ * thousands. A scanned page yields a handful of stray characters from
+ * whatever the scanner embedded. 120 sits far below any real page and far
+ * above any scan, so it does not need to be precise to be useful.
+ */
+const SCAN_THRESHOLD_CHARS_PER_PAGE = 120;
+
+function sha256(buf) {
+  return crypto.createHash('sha256').update(buf).digest('hex');
+}
+
+/** A filename that is safe, readable, and traceable back to its source. */
+function nameFor(url, contentType) {
+  let base = 'document';
+  try {
+    const u = new URL(url);
+    const last = u.pathname.split('/').filter(Boolean).pop();
+    if (last) base = decodeURIComponent(last);
+  } catch { /* keep the default */ }
+  base = base.replace(/[^A-Za-z0-9._-]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 80);
+  if (!base) base = 'document';
+  const ct = String(contentType || '');
+  let ext = '';
+  if (/pdf/i.test(ct)) ext = '.pdf';
+  else if (/html/i.test(ct)) ext = '.html';
+  else if (/plain/i.test(ct)) ext = '.txt';
+  if (ext && !base.toLowerCase().endsWith(ext)) base += ext;
+  return base;
+}
+
+/**
+ * Is a command actually on PATH?
+ *
+ * Checked rather than assumed, because the failure mode of assuming is a
+ * thrown ENOENT in the middle of an otherwise successful fetch — the
+ * document is already on disk and the run looks like it failed.
+ */
+function haveTool(bin) {
+  try {
+    execFileSync('command', ['-v', bin], { shell: true, stdio: 'ignore' });
+    return true;
+  } catch { return false; }
+}
+
+/** Page count, or null when nothing can tell us. */
+function pageCount(file, opts = {}) {
+  const bin = opts.pdfinfo || 'pdfinfo';
+  if (!opts.force && !haveTool(bin)) return null;
+  try {
+    const out = execFileSync(bin, [file], { encoding: 'utf8', timeout: 30000 });
+    const m = /^Pages:\s+(\d+)/m.exec(out);
+    return m ? Number(m[1]) : null;
+  } catch { return null; }
+}
+
+/**
+ * Pull the text out, and say honestly what came out.
+ *
+ * Returns `available: false` when the tool is absent — which is NOT the same
+ * as a document with no text, and must not be reported as one.
+ */
+function extractText(file, opts = {}) {
+  const bin = opts.pdftotext || 'pdftotext';
+  if (!opts.force && !haveTool(bin)) {
+    return {
+      available: false,
+      reason: `${bin} is not installed`,
+      install: 'brew install poppler',
+    };
+  }
+  let text = '';
+  try {
+    text = execFileSync(bin, ['-layout', file, '-'], {
+      encoding: 'utf8', timeout: 120000, maxBuffer: 64 * 1024 * 1024,
+    });
+  } catch (e) {
+    return { available: true, ok: false, reason: e.message.slice(0, 200) };
+  }
+
+  const pages = opts.pages !== undefined ? opts.pages : pageCount(file, opts);
+  const chars = text.trim().length;
+  // Guard the division: a page count of zero or null must not produce
+  // Infinity and quietly pass the scan check.
+  const perPage = pages && pages > 0 ? Math.round(chars / pages) : null;
+  const likelyScanned = perPage !== null && perPage < SCAN_THRESHOLD_CHARS_PER_PAGE;
+
+  return {
+    available: true,
+    ok: true,
+    text,
+    chars,
+    pages,
+    charsPerPage: perPage,
+    likelyScanned,
+    empty: chars === 0,
+  };
+}
+
+/**
+ * Fetch a document and put it on disk with its hash.
+ *
+ * `request` is injected so this is testable without a network, and so it
+ * reuses the connector layer's redirect handling and https-only rule rather
+ * than growing a second, subtly different one.
+ */
+async function fetchDocument(url, request, opts = {}) {
+  let u;
+  try { u = new URL(url); }
+  catch { return { ok: false, error: `not a url: ${url}` }; }
+  if (u.protocol !== 'https:') {
+    return { ok: false, error: `refusing non-https url (${u.protocol})` };
+  }
+
+  const res = await request('GET', url, { Accept: '*/*' });
+  if (res.status === 0) return { ok: false, error: res.error || 'no response' };
+  if (res.status < 200 || res.status >= 300) {
+    return { ok: false, status: res.status, error: `HTTP ${res.status}` };
+  }
+  if (!res.body || !res.body.length) {
+    return { ok: false, status: res.status, error: 'empty response body' };
+  }
+
+  const dir = opts.dir || 'documents';
+  fs.mkdirSync(dir, { recursive: true });
+
+  const contentType = (res.headers && (res.headers['content-type'] || '')) || '';
+  // Hash the bytes as received, BEFORE anything is derived from them. The
+  // hash has to describe what the server sent, not what survived processing.
+  const hash = sha256(res.body);
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const file = path.join(dir, `${stamp}__${hash.slice(0, 12)}__${nameFor(url, contentType)}`);
+  fs.writeFileSync(file, res.body);
+
+  return {
+    ok: true,
+    file,
+    sha256: hash,
+    bytes: res.body.length,
+    contentType,
+    isPdf: /pdf/i.test(contentType) || res.body.slice(0, 5).toString('latin1') === '%PDF-',
+    url,
+    fetchedAt: new Date().toISOString(),
+  };
+}
+
+module.exports = {
+  fetchDocument, extractText, pageCount, nameFor, sha256, haveTool,
+  SCAN_THRESHOLD_CHARS_PER_PAGE,
+};

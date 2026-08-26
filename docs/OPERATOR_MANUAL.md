@@ -237,6 +237,7 @@ bin/sentinel connect crosslink               # what appears under more than one 
 bin/sentinel connect lobby                   # read every captured lobbying filing
 bin/sentinel connect lobby --chart           # …and write the charts
 bin/sentinel connect brief "<name>"          # everything the library holds on one name
+bin/sentinel doc get "<url>"                 # fetch a primary source, hashed
 bin/sentinel connect sweep                   # list the named subject sets
 bin/sentinel connect sweep datacenters       # the plan, no calls
 bin/sentinel connect sweep datacenters --go  # run it
@@ -674,6 +675,60 @@ investigative graph to a hosted instance takes `--allow-remote`, typed
 deliberately. Neo4j Aura is somebody else's server.
 
 ---
+
+---
+
+## 4b. Getting the document itself — `sentinel doc`
+
+```bash
+bin/sentinel doc get "https://www.courtlistener.com/opinion/.../x.pdf"
+bin/sentinel doc get "<url>" --case pataskala-valuation --as EX-01
+```
+
+**Every connector collects metadata ABOUT documents. None of them fetches
+one.** That is why a library of hundreds of captures can sit beside a case
+file with zero exhibits: the step from a link to a file you have read stayed
+manual, and manual steps do not happen.
+
+`doc get` fetches over https only, hashes the bytes **as received** before
+anything is derived from them, saves the file under `evidence/documents/`
+with the hash in its name, writes a provenance record, and prints the exact
+`case add` line to file it as an exhibit.
+
+**Install the extractor once:**
+
+```bash
+brew install poppler
+```
+
+That gives `pdftotext` and `pdfinfo`. Without them the document is still
+fetched and hashed — only the text is missing, and the run says so.
+
+### The failure this is built around
+
+A scanned PDF and a text PDF have the same extension and look identical in a
+viewer. Run a text extractor over the scan and it returns almost nothing —
+no error, no warning. The document then sits in your library looking
+extracted, matches no search ever, and every search that misses it reads as
+*"the record does not mention that"*.
+
+So extraction reports **characters per page** and says plainly when a
+document is almost certainly a scan. A real page of a filing runs into the
+thousands; a scan yields a handful. Three things that all look like "no
+text" are kept separate:
+
+| | |
+|---|---|
+| the tool is not installed | says so, and how to install it |
+| the extractor errored | says so, with the error |
+| the document is a scan | says so, with characters per page, and gives the `ocrmypdf` line |
+
+For scans: `brew install ocrmypdf`, then
+`ocrmypdf in.pdf out_ocr.pdf` and fetch the result back in.
+
+**Fetching is not reading.** The gate counts pages you have marked read with
+`case read`, and that is the only thing standing between a lead and a
+published claim.
 
 ---
 
