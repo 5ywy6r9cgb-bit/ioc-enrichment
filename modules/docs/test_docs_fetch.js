@@ -170,6 +170,52 @@ module.exports = async function run() {
       r.available === true && r.ok === false, JSON.stringify(r));
   }
 
+  // ══ 7b. AN HTML RECORD IS A RECORD ════════════════════════════════════
+  // The Senate LDA serves filings as HTML, not PDF -- sworn statements under
+  // 2 U.S.C. 1603, the strongest evidence this desk handles. They used to
+  // land on disk under "Not a PDF, no extraction attempted", unsearchable.
+  // Six months later that reads exactly like a record that says nothing.
+  {
+    const html = '<html><head><style>a{color:red}</style>'
+      + '<script>document.write("NOT THE DOCUMENT")</script></head><body>'
+      + '<h1>LOBBYING REPORT</h1>'
+      + '<table><tr><td>Registrant</td><td>ALPINE GROUP PARTNERS</td></tr>'
+      + '<tr><td>Client</td><td>AWS PUBLIC POLICY, AMERICAS</td></tr></table>'
+      + '<p>Issues: H.R.&nbsp;9126 &mdash; data&nbsp;center energy</p></body></html>';
+    const r = D.extractHtmlText(html);
+
+    check('html text is extracted', r.ok === true && r.chars > 0);
+    check('script contents are not part of the document',
+      !/NOT THE DOCUMENT/.test(r.text), r.text);
+    check('style contents are not part of the document', !/color:red/.test(r.text));
+    check('entities are decoded, so a quote is quotable',
+      r.text.includes('H.R. 9126') && r.text.includes('\u2014'), JSON.stringify(r.text));
+    check('table cells do not run together into one line',
+      /ALPINE GROUP PARTNERS/.test(r.text) && /\n/.test(r.text), JSON.stringify(r.text));
+    check('both parties survive extraction',
+      /ALPINE GROUP PARTNERS/.test(r.text) && /AWS PUBLIC POLICY/.test(r.text));
+  }
+
+  // ══ 7c. A NAV SHELL IS NOT A FILING ═══════════════════════════════════
+  // An error page, a cookie banner, or a document that renders entirely from
+  // JavaScript all produce a page with almost no text. Filing one as a
+  // readable record is how "the filing does not mention that" gets written
+  // about a filing nobody could read.
+  {
+    const shell = '<html><body><nav>Home About</nav>'
+      + '<div id="app"></div><script>render()</script></body></html>';
+    const r = D.extractHtmlText(shell);
+    check('a page carrying almost no text is flagged, not filed as readable',
+      r.likelyEmpty === true, `${r.chars} chars`);
+
+    const real = '<html><body><p>' + 'Registrant: ALPINE GROUP PARTNERS. '.repeat(40)
+      + '</p></body></html>';
+    check('a real filing is not flagged',
+      D.extractHtmlText(real).likelyEmpty === false);
+    check('the threshold is a named constant, not a literal',
+      typeof D.HTML_MIN_CHARS === 'number' && D.HTML_MIN_CHARS > 0);
+  }
+
   // ══ 8. FILENAMES ══════════════════════════════════════════════════════
   {
     check('a filename is taken from the url path',

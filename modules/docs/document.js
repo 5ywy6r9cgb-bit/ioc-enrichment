@@ -158,6 +158,78 @@ function extractText(file, opts = {}) {
 }
 
 /**
+ * Named HTML entities worth decoding. Deliberately short: these are the ones
+ * that appear in filing text and would otherwise land in a quote.
+ */
+const ENTITIES = {
+  amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ',
+  mdash: '\u2014', ndash: '\u2013', rsquo: '\u2019', lsquo: '\u2018',
+  ldquo: '\u201c', rdquo: '\u201d', hellip: '\u2026', middot: '\u00b7',
+};
+
+/**
+ * Pull readable text out of an HTML record.
+ *
+ * ─────────────────────────────────────────────────────────────────────
+ * WHY THIS IS NOT OPTIONAL
+ * ─────────────────────────────────────────────────────────────────────
+ * The Senate LDA serves its filings as HTML, not PDF. Those filings are the
+ * strongest evidence this desk handles -- sworn statements under 2 U.S.C.
+ * 1603 -- and without this they landed on disk as an unsearchable blob under
+ * "Not a PDF, no extraction attempted."
+ *
+ * A record that is saved and hashed but cannot be searched reads, six months
+ * later, exactly like a record that says nothing. That is the same silent
+ * failure as a scanned PDF, arriving through a different door.
+ */
+function extractHtmlText(input) {
+  const raw = Buffer.isBuffer(input) ? input.toString('utf8') : String(input);
+  let t = raw;
+
+  // Script and style contents are not the document.
+  t = t.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ' ');
+  t = t.replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, ' ');
+  t = t.replace(/<!--[\s\S]*?-->/g, ' ');
+
+  // Block boundaries become line breaks, or every field in a filing table
+  // runs together into one unreadable line and a quote spans two cells.
+  t = t.replace(/<\s*(br|hr)\s*\/?\s*>/gi, '\n');
+  t = t.replace(/<\/\s*(p|div|tr|li|h[1-6]|section|article|table|thead|tbody)\s*>/gi, '\n');
+  t = t.replace(/<\/\s*(td|th)\s*>/gi, '\t');
+
+  t = t.replace(/<[^>]+>/g, '');
+
+  t = t.replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(Number(d)));
+  t = t.replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16)));
+  t = t.replace(/&([a-z]+);/gi, (m, name) => {
+    const v = ENTITIES[name.toLowerCase()];
+    return v === undefined ? m : v;
+  });
+
+  // Collapse runs of blank lines and trailing space, keeping the shape.
+  t = t.split('\n').map((l) => l.replace(/[ \t\u00a0]+/g, ' ').trim())
+       .filter((l, i, a) => l !== '' || (a[i - 1] || '') !== '')
+       .join('\n').trim();
+
+  const chars = t.length;
+  return {
+    available: true,
+    ok: true,
+    text: t,
+    chars,
+    // A page whose visible text is almost all chrome -- nav, cookie banner,
+    // a JS shell -- is not a readable record, and must not be filed as one.
+    likelyEmpty: chars < HTML_MIN_CHARS,
+  };
+}
+
+/**
+ * Below this, an HTML page carried no real record: a nav shell, an error
+ * page, or a document that renders entirely from JavaScript.
+ */
+const HTML_MIN_CHARS = 400;
+
+/**
  * Fetch a document and put it on disk with its hash.
  *
  * `request` is injected so this is testable without a network, and so it
@@ -215,6 +287,7 @@ async function fetchDocument(url, request, opts = {}) {
 }
 
 module.exports = {
-  fetchDocument, extractText, pageCount, nameFor, sha256, haveTool, sniff,
-  SCAN_THRESHOLD_CHARS_PER_PAGE,
+  fetchDocument, extractText, extractHtmlText, pageCount, nameFor, sha256,
+  haveTool, sniff,
+  SCAN_THRESHOLD_CHARS_PER_PAGE, HTML_MIN_CHARS,
 };

@@ -113,6 +113,28 @@ for (const leak of ['set -euo pipefail', 'usage()', 'BASH_SOURCE', '${ROOT}']) {
   ok(!m, `sentinel help has no angle-bracket placeholder (found ${m && m[0]})`);
 }
 
+// The help screen was not the only place. A `<case-id>` was still being
+// printed by `doc get` after the first purge, because the guard only looked
+// at one command's output. Every CLI that prints a usage line is checked.
+{
+  const { execFileSync } = require('child_process');
+  const clis = [
+    ['modules/docs/cli.js', []],
+    ['modules/bridge/draft.js', ['--help']],
+  ];
+  for (const [rel, argv] of clis) {
+    const file = require('path').join(__dirname, '..', rel);
+    let out = '';
+    try {
+      out = execFileSync('node', [file, ...argv], { encoding: 'utf8', stdio: 'pipe' });
+    } catch (e) {
+      out = String(e.stdout || '') + String(e.stderr || '');
+    }
+    const m = /<[a-z][a-z0-9 _-]*>/i.exec(out);
+    ok(!m, `${rel} usage has no angle-bracket placeholder (found ${m && m[0]})`);
+  }
+}
+
 
 // ---- pra subcommands -------------------------------------------------
 // The dispatcher prints its own list when you type a bad one. That line is

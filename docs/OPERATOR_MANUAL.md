@@ -766,6 +766,29 @@ brew install poppler
 That gives `pdftotext` and `pdfinfo`. Without them the document is still
 fetched and hashed — only the text is missing, and the run says so.
 
+### HTML records are extracted too
+
+The Senate LDA serves its filings as **HTML, not PDF** — and those filings are
+the strongest evidence this desk handles. They used to land under *"Not a PDF
+— saved as fetched, no extraction attempted"* and sit on disk unsearchable,
+which six months later reads exactly like a record that says nothing.
+
+`doc get` now extracts HTML text, and reports the bill numbers it finds:
+
+```
+text    evidence/documents/…__print.txt  4,812 chars
+Bills named in this document: H.R. 9126, S. 4207
+```
+
+Bill numbers are the reason to open a lobbying filing at all. A shared
+registrant is a roster; **the same bill in two clients' filings is a
+position.**
+
+A page carrying under 400 characters is flagged rather than filed as
+readable — an error page, a cookie banner and a JavaScript shell all produce
+one, and filing one as a record is how "the filing does not mention that"
+gets written about a filing nobody could read.
+
 ### The failure this is built around
 
 A scanned PDF and a text PDF have the same extension and look identical in a

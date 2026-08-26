@@ -1,6 +1,5 @@
 {
   "//": "Named subject sets for `sentinel connect sweep <set>`. Edit this file as you learn names — every abatement agreement and utility filing names the actual contracting entity, and that name is the one worth searching. A subject here is a SEARCH STRING, not a claim that the entity is involved in anything.",
-
   "datacenters": {
     "into": "datacenters",
     "note": "Operators and the single-purpose entities they file under.",
@@ -19,7 +18,6 @@
       "DataBank"
     ]
   },
-
   "energy": {
     "into": "energy",
     "note": "The supply side. AEP Ohio is the distribution utility for central Ohio; PJM runs the interconnection queue that decides whether a load can be served at all.",
@@ -36,7 +34,6 @@
       "Dominion Energy"
     ]
   },
-
   "newalbany": {
     "into": "new-albany",
     "note": "Land assembly and the development vehicles.",
@@ -47,7 +44,6 @@
       "Wexner"
     ]
   },
-
   "lobbying": {
     "into": "lobbying",
     "note": "Firms already seen carrying more than one side of the question. Add any registrant the graph surfaces.",
@@ -59,5 +55,44 @@
       "Elevate Government Affairs",
       "VantageKnight"
     ]
-  }
+  },
+  "surveillance": [
+    "Flock Safety",
+    "Axon Enterprise",
+    "Motorola Solutions",
+    "SoundThinking",
+    "ShotSpotter",
+    "Cellebrite",
+    "Magnet Forensics",
+    "Clearview AI",
+    "Palantir Technologies",
+    "Dataminr",
+    "Babel Street",
+    "ShadowDragon",
+    "Skydio",
+    "BRINC Drones",
+    "Paladin Drones",
+    "Peregrine Technologies",
+    "Fusus",
+    "LexisNexis Risk Solutions",
+    "Thomson Reuters CLEAR"
+  ],
+  "surveillance_money": [
+    "Byrne Justice Assistance Grant",
+    "Urban Area Security Initiative",
+    "COPS Office",
+    "Homeland Security Grant Program",
+    "Ohio Department of Public Safety",
+    "Franklin County Sheriff",
+    "Columbus Division of Police",
+    "Dublin Ohio Police"
+  ],
+  "surveillance_platforms": [
+    "Meta Platforms law enforcement",
+    "TikTok law enforcement",
+    "Google LLC law enforcement",
+    "Snap Inc law enforcement",
+    "Ring LLC",
+    "Amazon Ring law enforcement"
+  ]
 }

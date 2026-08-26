@@ -32,7 +32,7 @@ function human(n) {
 
 async function cmdGet(url, opts) {
   if (!url) {
-    console.error('\n  usage: sentinel doc get <https url> [--case <id>] [--as EX-01]\n');
+    console.error('\n  usage: sentinel doc get URL [--case CASE-ID] [--as EX-01]\n');
     process.exit(2);
   }
 
@@ -92,6 +92,31 @@ async function cmdGet(url, opts) {
     console.log(C.dim('  and a null result on a file like this is NOT evidence of absence.'));
     console.log(C.dim('  Unpack and OCR it:'));
     console.log(C.dim(`    bin/sentinel corpus ocr "${path.dirname(got.file)}" --out "${path.dirname(got.file)}_derived"`));
+  } else if (got.magic === 'html') {
+    // The Senate LDA serves filings as HTML. Those are the strongest records
+    // this desk handles, and "no extraction attempted" left them on disk
+    // unsearchable -- which six months later reads exactly like a record that
+    // says nothing.
+    const ex = D.extractHtmlText(fs.readFileSync(got.file));
+    const txt = got.file.replace(/\.[^.]*$/, '') + '.txt';
+    fs.writeFileSync(txt, ex.text);
+    console.log(`  ${C.g('text')}    ${path.relative(process.cwd(), txt)}  `
+      + C.dim(`${ex.chars.toLocaleString()} chars`));
+    if (ex.likelyEmpty) {
+      readable = false;
+      console.log(`\n  ${C.y('THIS PAGE CARRIED ALMOST NO TEXT.')}`);
+      console.log(C.dim(`  ${ex.chars} characters — a real filing runs into the thousands.`));
+      console.log(C.dim('  Likely a nav shell, an error page, or a document that renders'));
+      console.log(C.dim('  from JavaScript. It is saved and hashed, but it is not the record.'));
+    } else {
+      readable = true;
+      const bills = [...new Set((ex.text.match(/\b(?:H\.?R\.?|S\.?)\s?\d{1,5}\b/g) || []))];
+      if (bills.length) {
+        // The bill numbers are the reason to open a lobbying filing at all.
+        console.log(`\n  ${C.b('Bills named in this document:')} ${bills.slice(0, 12).join(', ')}`
+          + (bills.length > 12 ? ` … +${bills.length - 12}` : ''));
+      }
+    }
   } else {
     console.log(C.dim(`\n  Not a PDF (looks like: ${got.magic}) — saved as fetched, no extraction attempted.`));
   }
@@ -127,7 +152,7 @@ async function cmdGet(url, opts) {
   }
 
   // ---- what to do with it --------------------------------------------
-  const caseId = opts.caseId || '<case-id>';
+  const caseId = opts.caseId || 'CASE-ID';
   const exId = opts.as || 'EX-01';
   console.log(`\n  ${C.b('File it as an exhibit:')}`);
   console.log(`    bin/sentinel case add ${caseId} ${exId} "${got.file}"`
@@ -157,7 +182,7 @@ async function main() {
     return cmdGet(positional[1], { caseId: val('--case'), as: val('--as') });
   }
 
-  console.error('\n  usage: sentinel doc get <https url> [--case <id>] [--as EX-01]\n');
+  console.error('\n  usage: sentinel doc get URL [--case CASE-ID] [--as EX-01]\n');
   process.exit(2);
 }
 
