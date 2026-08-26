@@ -236,6 +236,8 @@ bin/sentinel connect all "<subject>" --dry-run
 bin/sentinel connect crosslink               # what appears under more than one subject
 bin/sentinel connect lobby                   # read every captured lobbying filing
 bin/sentinel connect lobby --chart           # …and write the charts
+bin/sentinel connect expand                  # ask every registrant you already have
+bin/sentinel connect expand --limit 25
 bin/sentinel connect senatelda --registrant "<firm>"   # every client a firm files for
 bin/sentinel connect senatelda --registrant "<firm>" --pages 20
 bin/sentinel connect graph                   # preview the Neo4j graph (writes nothing)
@@ -354,6 +356,31 @@ this desk's own captures, `ALPINE GROUP PARTNERS, LLC.` files for both
 `AWS PUBLIC POLICY, AMERICAS` and `NISOURCE INC.` — one firm, a hyperscaler
 and a gas utility. That is a thread worth pulling. It is still a lead: a firm
 with four hundred clients will appear there for reasons that mean nothing.
+
+### `connect expand` — ask every registrant you already have
+
+```bash
+bin/sentinel connect expand --dry-run     # who it would ask, no calls
+bin/sentinel connect expand               # top 10 registrants, one page each
+bin/sentinel connect expand --limit 25
+```
+
+Every registrant in your library is a question you have not asked. Searching a
+client tells you which firms filed for it — one hop. Those firms' **other**
+clients are the second hop, and they were invisible while the connector only
+asked `client_name`.
+
+This walks the registrants you already have, most filings first, asks each one
+`registrant_name`, and prints only the clients that are **not already in your
+library**. Listing back the ones you searched to get here would look like a
+discovery and be nothing of the kind.
+
+The call count is announced before any call is made, and the calls are
+sequential — a burst of parallel requests is how a free tier revokes a key.
+One page per firm, so every client list it prints is a floor; go deeper on
+anything interesting with `--registrant "<firm>" --pages N`.
+
+Then `connect graph --push` to fold the new captures in.
 
 ### `connect senatelda --registrant` — turn the lobbying search around
 

@@ -903,6 +903,126 @@ async function cmdRegistrant(query, opts) {
   console.log(C.dim('    sentinel connect graph --push\n'));
 }
 
+/**
+ * connect expand — turn every registrant you already have into a search.
+ *
+ * THE LOOP THIS CLOSES
+ *   Searching a client tells you which firms filed for it. That is one hop.
+ *   The firms' OTHER clients are the second hop, and they were invisible,
+ *   because the connector only ever asked client_name. Every registrant in
+ *   the library is therefore a question you have not asked.
+ *
+ *   This asks all of them, one page each, and reports only the clients that
+ *   are NOT already in your library -- because the ones you have are what you
+ *   searched to get here, and listing them back looks like a discovery.
+ *
+ * IT ANNOUNCES BEFORE IT DIALS
+ *   Same rule as `connect all`: the number of live calls is stated up front
+ *   and the work is sequential. A burst of parallel requests is how a free
+ *   tier revokes a key.
+ */
+async function cmdExpand(opts) {
+  const X = require('./crosslink.js');
+  const captures = X.readCaptures(R.CAPTURES);
+  if (!captures.length) {
+    console.log(`\n  ${C.dim('No captures yet — nothing to expand from.')}\n`);
+    return;
+  }
+
+  const { byName, edges } = X.index(captures);
+
+  // Registrants already seen, most filings first: the ones you have most
+  // evidence about are the ones worth asking about first.
+  const seen = new Map();
+  for (const e of edges) {
+    const g = seen.get(e.registrant_key) || { name: e.registrant, filings: 0 };
+    g.filings++;
+    seen.set(e.registrant_key, g);
+  }
+  const registrants = [...seen.values()].sort((a, b) => b.filings - a.filings);
+  if (!registrants.length) {
+    console.log(`\n  ${C.dim('No lobbying registrants in the captures yet. Search a client first:')}`);
+    console.log(C.dim('    sentinel connect senatelda "Amazon Data Services"\n'));
+    return;
+  }
+
+  const limit = Number.isFinite(opts.limit) && opts.limit > 0 ? opts.limit : 10;
+  const targets = registrants.slice(0, limit);
+
+  console.log('\n' + C.b('Expand — ask every registrant who else they file for'));
+  console.log(`  registrants in library   ${registrants.length}`);
+  console.log(`  asking about             ${targets.length}  ${C.dim(`(--limit ${limit})`)}`);
+  console.log(`  ${C.b('live calls')}               ${C.b(String(targets.length))}  ${C.dim('one page each, sequential')}`);
+  console.log('  boundary                 every hit lands as a LEAD requiring a primary source');
+
+  if (opts.dryRun) {
+    console.log(`\n  ${C.y('DRY RUN — no network call made, nothing written.')}`);
+    for (const t of targets) console.log(C.dim(`    would ask: ${t.name}`));
+    console.log('');
+    return;
+  }
+  console.log('');
+
+  const known = new Set(byName.keys());
+  const found = [];
+  let failed = 0;
+
+  for (const t of targets) {
+    const out = await R.runConnector('senatelda', t.name, { mode: 'registrant', page: 1 });
+    if (!out.ok) {
+      failed++;
+      console.log(`  ${C.r('fail')}  ${t.name} — ${out.error}`);
+      continue;
+    }
+    let total = null;
+    const fresh = [];
+    try {
+      const body = JSON.parse(fs.readFileSync(out.capturePath, 'utf8'));
+      if (Number.isFinite(body.count)) total = body.count;
+      const uniq = new Set();
+      for (const r of body.results || []) {
+        const cn = r.client && r.client.name;
+        if (!cn) continue;
+        const k = X.normalise(cn);
+        if (uniq.has(k)) continue;
+        uniq.add(k);
+        if (!known.has(k)) fresh.push(cn);
+      }
+    } catch (e) {
+      console.log(`  ${C.y('kept but unparsed')}  ${t.name} — ${e.message}`);
+      continue;
+    }
+    const totalTxt = total === null ? '?' : String(total);
+    console.log(`  ${C.g('ok')}    ${t.name}  ${C.dim(`${totalTxt} filings total · ${fresh.length} new client(s) on page 1`)}`);
+    for (const cn of fresh) found.push({ registrant: t.name, client: cn, registrantTotal: total });
+  }
+
+  console.log('');
+  if (!found.length) {
+    console.log(`  ${C.dim('No clients on the first page that you did not already have.')}`);
+    console.log(C.dim('  Page 1 is the 25 most recent filings — go deeper on one firm with:'));
+    console.log(C.dim('    sentinel connect senatelda --registrant "<firm>" --pages 20\n'));
+  } else {
+    console.log(`  ${C.b('NEW NAMES')}  ${found.length}  ${C.dim('not previously in your library')}`);
+    for (const f of found) {
+      console.log(`    ${f.client}`);
+      console.log(C.dim(`      via ${f.registrant}`));
+    }
+    console.log(C.dim('\n  These are clients of firms you were already looking at. That is a'));
+    console.log(C.dim('  reason to look, not a connection to anything.'));
+  }
+
+  if (registrants.length > targets.length) {
+    console.log(C.dim(`\n  ${registrants.length - targets.length} registrant(s) not asked about `
+      + `— raise --limit to include them.`));
+  }
+  if (failed) console.log(C.dim(`  ${failed} call(s) failed.`));
+
+  console.log(C.dim('\n  Only page 1 of each firm was fetched, so every client list here is a'));
+  console.log(C.dim('  FLOOR. Fold what you got into the graph with:'));
+  console.log(C.dim('    sentinel connect graph --push\n'));
+}
+
 async function cmdSearch(name, query, opts) {
   const c = R.CONNECTORS[name];
   if (!c) {
@@ -1023,6 +1143,13 @@ async function main() {
   }
   // --registrant turns the senatelda search around: "who does this firm file
   // for" rather than "who filed for this company".
+  if (action === 'expand') {
+    const li = argv.indexOf('--limit');
+    return cmdExpand({
+      limit: li >= 0 && argv[li + 1] ? parseInt(argv[li + 1], 10) : undefined,
+      dryRun: opts.dryRun,
+    });
+  }
   if (argv.includes('--registrant')) {
     const i = argv.indexOf('--registrant');
     const q = argv[i + 1] && !argv[i + 1].startsWith('--') ? argv[i + 1] : args.slice(1).join(' ');
@@ -1048,4 +1175,4 @@ if (require.main === module) {
   main().catch((e) => { console.error(e); process.exit(1); });
 }
 
-module.exports = { verdictFor, cmdTest, wrap, parseAllArgs, cmdLobby, cmdGraph, cmdRegistrant };
+module.exports = { verdictFor, cmdTest, wrap, parseAllArgs, cmdLobby, cmdGraph, cmdRegistrant, cmdExpand };
