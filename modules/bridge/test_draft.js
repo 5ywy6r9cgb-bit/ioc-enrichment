@@ -217,6 +217,43 @@ module.exports = async function run() {
       /lobbying filing/.test(D.describe('senatelda', { name: 'SOLO FIRM' })));
   }
 
+  // ══ 5e. MORE FILINGS THAN PERIODS MEANS AMENDMENTS ════════════════════
+  // Q2 and Q2A are one quarter filed twice -- an amendment RESTATES a period,
+  // it does not add one. Eight filings across seven quarters is not eight
+  // quarters of activity, and a reader will infer that it is unless told.
+  {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'amend-'));
+    const capDir = path.join(dir, 'captures');
+    fs.mkdirSync(capDir, { recursive: true });
+    const mk = (uuid, period) => ({
+      filing_uuid: uuid,
+      client: { name: 'AWS' }, registrant: { name: 'ALPINE' },
+      filing_year: 2025, filing_period_display: period,
+      filing_document_url: `https://lda.gov/f/${uuid}/`,
+    });
+    fs.writeFileSync(path.join(capDir,
+      'live_capture_senatelda_AWS_2026-01-01T00-00-00-000Z.json'),
+      JSON.stringify({ count: 4, results: [
+        mk('a', 'Q1'), mk('b', 'Q2'), mk('c', 'Q2'), mk('d', 'Q3')] }));
+
+    const saved = process.env.SENTINEL_EVIDENCE_DIR;
+    process.env.SENTINEL_EVIDENCE_DIR = dir;
+    for (const m of ['../connectors/registry.js', '../connectors/crosslink.js', './draft.js']) {
+      delete require.cache[require.resolve(m)];
+    }
+    const D6 = require('./draft.js');
+    const g = D6.gather({});
+    if (saved === undefined) delete process.env.SENTINEL_EVIDENCE_DIR;
+    else process.env.SENTINEL_EVIDENCE_DIR = saved;
+
+    const c = g.claims[0];
+    ok('four filings over three quarters counts four FILINGS', c.folded === 4,
+      String(c.folded));
+    ok('and reports three periods, not four', c.periodCount === 3,
+      String(c.periodCount));
+    ok('the restated period is named as such', c.amended === 1, String(c.amended));
+  }
+
   // ══ 6. THE SEARCH STRING IS NOT PART OF THE CLAIM ═════════════════════
   // Putting it in the text split ONE relationship into several claims,
   // differing only by which search surfaced it:

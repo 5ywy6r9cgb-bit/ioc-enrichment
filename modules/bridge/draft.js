@@ -244,7 +244,18 @@ function gather(opts) {
   }
   const unique = [...byText.values()].map((c) => {
     const p = [...new Set(c.periods)].sort();
+    // MORE FILINGS THAN PERIODS MEANS AMENDMENTS.
+    //
+    // Q2 and Q2A are one quarter filed twice: an amendment RESTATES a period,
+    // it does not add one. `connect lobby` already dedupes these; this path
+    // cannot, because an amendment carries its own filing_uuid and is a
+    // genuinely separate record. So the count stays honest ("8 filings") and
+    // the shortfall is named, rather than letting a reader infer eight
+    // quarters of activity from eight filings.
+    const amended = c.periods.length ? c.folded - p.length : 0;
     return { ...c, span: p.length ? (p.length === 1 ? p[0] : `${p[0]} – ${p[p.length - 1]}`) : '',
+             periodCount: p.length,
+             amended: amended > 0 ? amended : 0,
              foundVia: [...c.subjects].sort() };
   });
   return { claims: unique, unparsed, captures: caps.length, raw: out.length };
@@ -332,6 +343,10 @@ function cmdDraft(slug, opts) {
       // questions" off a library holding 79 sworn filings.
       console.log(C.b(`       ${c.folded} separate records fold into this one question`)
         + (c.span ? C.d(`  ·  ${c.span}`) : ''));
+      if (c.amended) {
+        console.log(C.d(`       ${c.folded} filings across ${c.periodCount} period(s) — `
+          + `${c.amended} period(s) filed more than once (amendments restate, they do not add)`));
+      }
     }
     console.log(C.d(`       gate: ${c.gate}`));
   }

@@ -1204,6 +1204,21 @@ own identity (`filing_uuid` for LDA) before anything is counted. A count that
 is wrong and looks right is the failure the lobbying module was built around,
 and it must not come back in through this door.
 
+### More filings than periods means amendments
+
+`Q2` and `Q2A` are one quarter filed twice — an amendment **restates** a
+period, it does not add one. `connect lobby` dedupes these; this path cannot,
+because an amendment carries its own `filing_uuid` and is a genuinely
+separate record. So the count stays honest and the shortfall is named:
+
+```
+8 separate records fold into this one question  ·  2024 Q4 – 2026 Q2
+8 filings across 7 period(s) — 1 period(s) filed more than once
+```
+
+Eight filings is not eight quarters of activity, and a reader will infer
+that it is unless told.
+
 ### The fold, and why it is announced
 
 A registrant that filed seventeen quarterly reports for one client raises
