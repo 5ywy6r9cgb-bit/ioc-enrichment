@@ -114,6 +114,48 @@ module.exports = async function run() {
       !g.claims.some((c) => /not json/.test(c.text)));
   }
 
+  // ══ 5b. ONE ENTITY IS SEVERAL SEARCH STRINGS ══════════════════════════
+  // The subject on a capture is the string that was SEARCHED, not the entity
+  // that was found. On a real library "AWS" holds 113 rows while the same
+  // company also sits under "Amazon Web Services" (240), "Amazon Data
+  // Services" (210), "AWS Public Policy" (108) and "Vadata" (48). A dossier
+  // drawn from the literal spelling misses 606 of 719 rows and reads as
+  // though the record is thin.
+  {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'multi-'));
+    const capDir = path.join(dir, 'captures');
+    fs.mkdirSync(capDir, { recursive: true });
+    const mk = (subject, id, name) => fs.writeFileSync(
+      path.join(capDir, `live_capture_courtlistener_${subject}_2026-01-0${id}T00-00-00-000Z.json`),
+      JSON.stringify({ count: 1, results: [
+        { id, caseName: name, court: 'BTA', dateFiled: '2024-01-01',
+          absolute_url: `/opinion/${id}/x/` }] }));
+    mk('AWS', 1, 'Alpha v. One');
+    mk('Amazon_Web_Services', 2, 'Beta v. Two');
+    mk('Unrelated_Co', 3, 'Gamma v. Three');
+
+    const saved = process.env.SENTINEL_EVIDENCE_DIR;
+    process.env.SENTINEL_EVIDENCE_DIR = dir;
+    for (const m of ['../connectors/registry.js', '../connectors/crosslink.js', './draft.js']) {
+      delete require.cache[require.resolve(m)];
+    }
+    const D3 = require('./draft.js');
+    const one = D3.gather({ subjects: ['AWS'] });
+    const both = D3.gather({ subjects: ['AWS', 'Amazon Web Services'] });
+    const none = D3.gather({});
+    if (saved === undefined) delete process.env.SENTINEL_EVIDENCE_DIR;
+    else process.env.SENTINEL_EVIDENCE_DIR = saved;
+
+    ok('one --subject matches only that spelling', one.claims.length === 1,
+      String(one.claims.length));
+    ok('--subject may be repeated, and the results are unioned',
+      both.claims.length === 2, String(both.claims.length));
+    ok('an unrelated subject is still excluded',
+      !both.claims.some((c) => /Gamma/.test(c.text)));
+    ok('no --subject at all still means everything', none.claims.length === 3,
+      String(none.claims.length));
+  }
+
   // ══ 6. THE SUBJECT IS CARRIED INTO THE QUESTION ═══════════════════════
   // A question that does not say what it is a question ABOUT is unanswerable
   // three months later.

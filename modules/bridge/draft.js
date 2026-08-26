@@ -168,7 +168,12 @@ function gather(opts) {
   for (const cap of caps) {
     if (cap.unparsed) { unparsed++; continue; }
     if (opts.connector && cap.connector !== opts.connector) continue;
-    if (opts.subject && !cap.subject.toLowerCase().includes(opts.subject.toLowerCase())) continue;
+    const subjects = opts.subjects && opts.subjects.length ? opts.subjects
+      : (opts.subject ? [opts.subject] : []);
+    if (subjects.length) {
+      const hay = cap.subject.toLowerCase();
+      if (!subjects.some((s) => hay.includes(String(s).toLowerCase()))) continue;
+    }
     for (const row of cap.results) {
       const c = toClaim(cap.connector, cap.subject, row);
       if (c) out.push(c);
@@ -189,7 +194,7 @@ function cmdList() {
   const caps = X.readCaptures(path.join(R.EVIDENCE, 'captures'));
   if (!caps.length) {
     console.log(`\n  No captures in ${path.join(R.EVIDENCE, 'captures')}`);
-    console.log(C.d('  Run a search first:  bin/sentinel connect all "<subject>"\n'));
+    console.log(C.d('  Run a search first:  bin/sentinel connect all "Aligned Data Centers"\n'));
     return;
   }
   const bySubject = new Map();
@@ -215,14 +220,16 @@ function cmdList() {
     console.log(C.y(`\n  ${unparsed} capture(s) would not parse — they are on disk and hashed,`));
     console.log(C.y('  but nothing can be drafted from them.'));
   }
-  console.log(C.d('\n  Draft from one:  bin/sentinel draft <case-slug> --subject "<subject>"\n'));
+  console.log(C.d('\n  Draft from one, e.g.:'));
+  console.log(C.d('    bin/sentinel draft datacenters --subject "Aligned Data Centers"'));
+  console.log(C.d('  --subject may be repeated; one entity is often several spellings.\n'));
 }
 
 function cmdDraft(slug, opts) {
   const desk = existingClaimTexts(slug);
   if (desk.error === 'nocase') {
     console.error(`\n  No case "${slug}" on the desk.`);
-    console.error(C.d(`  Create it:  bin/sentinel sdesk case new ${slug} "<title>"\n`));
+    console.error(C.d(`  Create it:  bin/sentinel sdesk case new ${slug} "A title"\n`));
     process.exit(2);
   }
   if (desk.error) {
@@ -262,7 +269,7 @@ function cmdDraft(slug, opts) {
   console.log(C.d('  A capture is a search result, not a document. Nobody has read these.'));
   console.log(C.d('  To promote one: fetch it (doc get), ingest it, then cite it.'));
   console.log(C.d('  Each is recorded as machine-drafted and CANNOT be published until'));
-  console.log(C.d('  you have disposed of it:  bin/sentinel sdesk claim dispose <id> --by "<name>"'));
+  console.log(C.d('  you have disposed of it:  bin/sentinel sdesk claim dispose 12 --by "your name"'));
 
   if (!opts.apply) {
     console.log(`\n  ${C.d('Nothing was written.')} Add ${C.b('--apply')} to record `
@@ -296,16 +303,23 @@ function main() {
     const i = argv.indexOf(f);
     return i >= 0 && argv[i + 1] && !argv[i + 1].startsWith('--') ? argv[i + 1] : null;
   };
+  const vals = (f) => {
+    const out = [];
+    for (let i = 0; i < argv.length; i++) {
+      if (argv[i] === f && argv[i + 1] && !argv[i + 1].startsWith('--')) out.push(argv[++i]);
+    }
+    return out;
+  };
   const action = argv[0];
   if (!action || action === 'list') return cmdList();
   if (action.startsWith('--')) {
-    console.error('\n  usage: sentinel draft <case-slug> [--subject S] [--connector C] '
-      + '[--limit N] [--apply]\n         sentinel draft list\n');
+    console.error('\n  usage: sentinel draft CASE-SLUG [--subject S ...] [--connector C]'
+      + ' [--limit N] [--apply]\n         sentinel draft list\n');
     process.exit(2);
   }
   const n = Number(val('--limit'));
   return cmdDraft(action, {
-    subject: val('--subject'),
+    subjects: vals('--subject'),
     connector: val('--connector'),
     limit: Number.isFinite(n) && n > 0 ? n : 0,
     apply: argv.includes('--apply'),

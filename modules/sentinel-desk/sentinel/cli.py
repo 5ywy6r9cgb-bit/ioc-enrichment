@@ -2,18 +2,18 @@
 cli.py — one command, everything under it.
 
     sentinel init
-    sentinel case new <slug> "<title>" [--jurisdiction …]
+    sentinel case new SLUG "A title" [--jurisdiction …]
     sentinel case list
     sentinel ingest <case> <file> --title … --custodian … [--shelf PRIMARY]
-    sentinel claim add <case> "<text>" --tier GREEN [--formula …] [--outlet …]
+    sentinel claim add CASE "The claim" --tier GREEN [--formula …] [--outlet …]
                                         [--gate …] [--resolution …]
     sentinel cite <claim-id> <doc-id> --locator "p.3" [--quote "…"]
-    sentinel request add <ref> "<title>" --office … [--case …] [--due …]
+    sentinel request add REF "A title" --office … [--case …] [--due …]
     sentinel request set <ref> --status PRODUCED [--responded 2026-08-19]
-    sentinel correct <ref> "<headline>" [--retire 880000 --reason "…"]
+    sentinel correct REF "A headline" [--retire 880000 --reason "…"]
     sentinel gate run [--claim N | --case slug]
     sentinel export <case>
-    sentinel submit <case> "<title>"
+    sentinel submit CASE "A title"
     sentinel decide <submission-id> --approve|--reject --reason "…"
     sentinel serve [--port 8787]
     sentinel doctor

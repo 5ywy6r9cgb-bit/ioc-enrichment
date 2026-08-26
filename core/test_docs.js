@@ -96,6 +96,24 @@ for (const leak of ['set -euo pipefail', 'usage()', 'BASH_SOURCE', '${ROOT}']) {
     `sentinel help does not leak shell source ("${leak}")`);
 }
 
+// ══ ANGLE BRACKETS ARE INPUT REDIRECTION IN zsh ═══════════════════════════
+//
+// `sentinel claim dispose <id>` pasted into zsh produces
+//     zsh: no such file or directory: id
+// and no usage message. It happened four times on this branch before anyone
+// guarded it -- in the help screen, in the manual, and twice inside command
+// output -- because the placeholder LOOKS like a documentation convention
+// and is in fact a shell operator.
+//
+// Checked against rendered OUTPUT, never source. A `<...>` inside a comment
+// explaining this rule is harmless, and a guard that matches its own comment
+// is a mistake this repo has now made four separate times.
+{
+  const m = /<[a-z][a-z0-9 _-]*>/i.exec(helpOut);
+  ok(!m, `sentinel help has no angle-bracket placeholder (found ${m && m[0]})`);
+}
+
+
 // ---- pra subcommands -------------------------------------------------
 // The dispatcher prints its own list when you type a bad one. That line is
 // the authoritative set, so read it rather than the case arms — if the two

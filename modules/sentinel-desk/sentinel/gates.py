@@ -141,7 +141,7 @@ def evaluate(conn: sqlite3.Connection, claim_id: int) -> list[dict]:
          "This claim predates origin tracking, so the ledger cannot say "
          "whether a person entered it or a machine drafted it. ")
         + "Open the source, decide, then: "
-        + f"sentinel claim dispose {claim_id} --by \"<your name>\"")
+        + f"sentinel claim dispose {claim_id} --by \"your name\"")
 
     # ── UNCITED ───────────────────────────────────────────────────────────
     if tier in ("GREEN", "ARITH"):

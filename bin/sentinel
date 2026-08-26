@@ -10,48 +10,48 @@
 #   sentinel status                 what is set up, what is not
 #   sentinel test                   run every module's test suite
 #
-#   sentinel pra <args...>          public records atlas (brief, seed, backup...)
+#   sentinel pra ...                public records atlas (brief, seed, backup...)
 #   sentinel pra foia               records desk: what needs you, most urgent first
-#   sentinel pra foia draft <ID>    draft the follow-up for one request
-#   sentinel pra foia add <ID> "<Agency>"   record a new request
-#   sentinel pra foia sent <ID>     log that you sent it (stops the reminders)
-#   sentinel pra foia history <ID>  every letter and field change, in order
+#   sentinel pra foia draft ID      draft the follow-up for one request
+#   sentinel pra foia add ID "Agency"     record a new request
+#   sentinel pra foia sent ID       log that you sent it (stops the reminders)
+#   sentinel pra foia history ID    every letter and field change, in order
 #   sentinel pra mail review        letters awaiting your sign-off
-#   sentinel pra mail approve <ID>  sign off on ONE letter
+#   sentinel pra mail approve ID    sign off on ONE letter
 #   sentinel pra mail send          send only what you approved
 #   sentinel pra mail fetch         read replies, log them against requests
-#   sentinel montage <args...>      openmontage video engine
-#   sentinel vuln <args...>         atlas CVE prioritization
+#   sentinel montage ...            openmontage video engine
+#   sentinel vuln ...               atlas CVE prioritization
 #   sentinel desk                   open the research desk in a browser
-#   sentinel sdesk <args...>        the Python desk: claims, gates, dossiers
+#   sentinel sdesk ...              the Python desk: claims, gates, dossiers
 #
-#   sentinel case new <ID> "..."    start a case file
-#   sentinel case add <ID> <EX> <f> add an exhibit  (--kind financial --pages 44)
-#   sentinel case read <ID> <EX> N  record pages read
+#   sentinel case new ID "..."      start a case file
+#   sentinel case add ID EX FILE    add an exhibit  (--kind financial --pages 44)
+#   sentinel case read ID EX N      record pages read
 #   sentinel case ask/conflict ...  log an open question / a contradiction
-#   sentinel case status <ID>       can this be published, and what is blocking
+#   sentinel case status ID         can this be published, and what is blocking
 #   sentinel dash                   build + open the dashboard over all cases
 #                                   (sentinel dashboard works too)
 #   sentinel connect test           which connector API keys are set + reachable
-#   sentinel connect <c> "<query>"  search a connector -> evidence inbox
-#   sentinel connect all "<subject>"  search every source at once
+#   sentinel connect NAME "QUERY"   search a connector -> evidence inbox
+#   sentinel connect all "SUBJECT"  search every source at once
 #   sentinel connect crosslink      what appears under more than one subject
 #   sentinel connect lobby --chart  read the captured lobbying filings, charted
 #   sentinel connect expand         ask every registrant who else they file for
-#   sentinel connect sweep <set>    run a whole named subject list
-#   sentinel connect brief "<name>"  everything the library holds on one name
+#   sentinel connect sweep SET      run a whole named subject list
+#   sentinel connect brief "NAME"   everything the library holds on one name
 #
-#   sentinel doc get <url>          fetch a primary source, hashed + text-extracted
-#   sentinel corpus inventory <dir> what a folder of records ACTUALLY holds
-#   sentinel corpus ocr <dir> --out <dir>   read the bundles that only look like PDFs
+#   sentinel doc get URL            fetch a primary source, hashed + text-extracted
+#   sentinel corpus inventory DIR   what a folder of records ACTUALLY holds
+#   sentinel corpus ocr DIR --out DIR  read the bundles that only look like PDFs
 #
-#   sentinel shelf add <name> <path>  register an external drive by identity
+#   sentinel shelf add NAME PATH    register an external drive by identity
 #   sentinel shelf list             mounted volumes and registered shelves
 #   sentinel shelf check [name]     is the drive there, and is it usable
-#   sentinel shelf where <name>     print the resolved path (or refuse)
+#   sentinel shelf where NAME       print the resolved path (or refuse)
 #
 #   sentinel draft list             which captures could become claims
-#   sentinel draft <case> --apply   file them as open questions on the desk
+#   sentinel draft CASE --apply     file them as open questions on the desk
 #   sentinel connect graph          preview the Neo4j graph from your captures
 #   sentinel connect graph --push   write it into Neo4j
 #
@@ -61,8 +61,8 @@
 #   sentinel watch install          schedule the daily run (macOS launchd)
 #   sentinel watch uninstall        unschedule it
 #
-#   sentinel prov verify <ledger>   check a provenance ledger for tampering
-#   sentinel prov ingest <ledger>   flow a provenance ledger into PRA sources
+#   sentinel prov verify LEDGER     check a provenance ledger for tampering
+#   sentinel prov ingest LEDGER     flow a provenance ledger into PRA sources
 # =====================================================================
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -88,8 +88,8 @@ WHAT THIS IS NOT
 
 THE FIVE YOU WILL ACTUALLY USE
   sentinel pra foia                     what records requests need you today
-  sentinel connect all "<subject>"      search every source at once
-  sentinel case status <ID>             can this be published, and what blocks it
+  sentinel connect all "SUBJECT"        search every source at once
+  sentinel case status ID               can this be published, and what blocks it
   sentinel dash                         the dashboard over every case
   sentinel watch run --all              force the overnight run now
 
