@@ -236,6 +236,8 @@ bin/sentinel connect all "<subject>" --dry-run
 bin/sentinel connect crosslink               # what appears under more than one subject
 bin/sentinel connect lobby                   # read every captured lobbying filing
 bin/sentinel connect lobby --chart           # …and write the charts
+bin/sentinel connect senatelda --registrant "<firm>"   # every client a firm files for
+bin/sentinel connect senatelda --registrant "<firm>" --pages 20
 bin/sentinel connect graph                   # preview the Neo4j graph (writes nothing)
 bin/sentinel connect graph --push            # write it into Neo4j
 bin/sentinel connect <connector> "<query>"   # one source only
@@ -352,6 +354,41 @@ this desk's own captures, `ALPINE GROUP PARTNERS, LLC.` files for both
 `AWS PUBLIC POLICY, AMERICAS` and `NISOURCE INC.` — one firm, a hyperscaler
 and a gas utility. That is a thread worth pulling. It is still a lead: a firm
 with four hundred clients will appear there for reasons that mean nothing.
+
+### `connect senatelda --registrant` — turn the lobbying search around
+
+```bash
+bin/sentinel connect senatelda "Meta Platforms"                     # who lobbied FOR Meta
+bin/sentinel connect senatelda --registrant "Harbinger Strategies"  # who Harbinger lobbies FOR
+bin/sentinel connect senatelda --registrant "Harbinger Strategies" --pages 20
+```
+
+**These are different questions and they had different answers.** The ordinary
+search asks `client_name`; this asks `registrant_name`. Until this existed,
+every answer about a registrant was silently bounded by which *clients* had
+been searched — the library reported `HARBINGER STRATEGIES, LLC` with **2
+clients across 4 filings**, and the API returns **2,450 filings** for the same
+firm. The 2 was never a fact about Harbinger. It was a measurement of the
+search.
+
+So: whenever the graph shows a registrant worth caring about, ask this before
+concluding anything about how many clients it has.
+
+**It pages, and it stops.** 2,450 filings is 98 requests at the API's page
+size — a lot of traffic to a public service for one question. It fetches four
+pages by default and then says exactly what it did:
+
+```
+PARTIAL — fetched 100 of 2450 filings (4 of 98 pages).
+This client list is a FLOOR. There are almost certainly more.
+```
+
+`--pages N` goes deeper. Each page is saved as its **own** capture with its
+own hash; pages are never merged into one file, because the bytes on disk
+would then be something no server ever sent.
+
+Captures land in the evidence store like any other search, so
+`connect graph --push` folds them straight into Neo4j.
 
 ### `connect graph` — push the relationships into Neo4j
 

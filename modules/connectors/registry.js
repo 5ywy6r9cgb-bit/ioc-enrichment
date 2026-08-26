@@ -507,11 +507,31 @@ const CONNECTORS = {
       url: 'https://lda.gov/api/v1/filings/?page_size=1',
       headers: key ? { Authorization: `Token ${key}` } : {},
     }),
-    run: (q, key) => ({
-      method: 'GET',
-      url: `https://lda.gov/api/v1/filings/?client_name=${encodeURIComponent(q)}&page_size=25&ordering=-dt_posted`,
-      headers: key ? { Authorization: `Token ${key}` } : {},
-    }),
+    // TWO WAYS TO SEARCH, AND THEY ANSWER DIFFERENT QUESTIONS.
+    //
+    //   client_name      "who lobbied FOR this company"
+    //   registrant_name  "who does this firm lobby for"
+    //
+    // Only the first existed for a long time, and it silently bounded every
+    // answer: a registrant's other clients were visible ONLY where those
+    // clients had also been searched. On a real library that showed
+    // HARBINGER STRATEGIES with 2 clients and 4 filings; registrant_name
+    // returns 2,450 filings for the same firm. The 2 was never a fact about
+    // Harbinger, it was a measurement of the search.
+    //
+    // Verified against the live API on 2026-08-26: registrant_name filters
+    // (count 2450, every result HARBINGER STRATEGIES, LLC) and page_size is
+    // honoured.
+    run: (q, key, o = {}) => {
+      const field = o.mode === 'registrant' ? 'registrant_name' : 'client_name';
+      const page = o.page && o.page > 1 ? `&page=${o.page}` : '';
+      return {
+        method: 'GET',
+        url: `https://lda.gov/api/v1/filings/?${field}=${encodeURIComponent(q)}`
+           + `&page_size=25&ordering=-dt_posted${page}`,
+        headers: key ? { Authorization: `Token ${key}` } : {},
+      };
+    },
     parse: (json) => (json.results || []).map((r) => ({
       external_id: r.filing_uuid || r.filing_document_url || '',
       name: `${(r.client && r.client.name) || '(client?)'} — ${(r.registrant && r.registrant.name) || '(registrant?)'}`,
@@ -745,7 +765,7 @@ async function runConnector(name, query, opts = {}) {
     return { ok: false, error: `${names} is not set`, keyMissing: true, results: [] };
   }
 
-  const spec = c.run(query, key);
+  const spec = c.run(query, key, { mode: opts.mode, page: opts.page });
 
   if (opts.dryRun) {
     return { ok: true, dryRun: true, announced: c.describe(query), url: spec.url, results: [] };
@@ -795,6 +815,10 @@ async function runConnector(name, query, opts = {}) {
     extra: Object.assign({
       connector: name,
       subject: query,
+      // Which question was asked. A capture that does not say cannot be
+      // told apart later from one that asked the other question.
+      search_mode: opts.mode === 'registrant' ? 'registrant_name' : 'client_name',
+      page: opts.page || 1,
       http_status: res.status,
       live_calls: 1,
       result_count: results.length,

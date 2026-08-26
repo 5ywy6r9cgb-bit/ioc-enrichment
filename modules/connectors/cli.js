@@ -12,6 +12,7 @@
  * This file is presentation: announce, then report what happened.
  */
 
+const fs = require('fs');
 const path = require('path');
 const R = require('./registry.js');
 
@@ -803,6 +804,105 @@ function cmdLobby(opts) {
   console.log(C.dim('  lda.gov and cite that.\n'));
 }
 
+/**
+ * connect senatelda --registrant "<firm>" — every client a firm files for.
+ *
+ * WHY THIS IS A SEPARATE COMMAND
+ *   The ordinary search asks "who lobbied for this company". This asks "who
+ *   does this firm lobby for", and until it existed every answer about a
+ *   registrant was silently bounded by which CLIENTS had been searched. The
+ *   library said HARBINGER STRATEGIES had 2 clients across 4 filings; the API
+ *   says 2,450 filings. The 2 was a measurement of the search, not of
+ *   Harbinger.
+ *
+ * WHY IT PAGES, AND WHY IT STOPS
+ *   2,450 filings is 98 requests at the API's page size. That is a lot of
+ *   traffic to a public service for one question, so it stops at a page
+ *   budget and SAYS SO -- with the API's own total next to what it fetched.
+ *   A partial answer that announces itself is useful; a partial answer that
+ *   looks complete is how you end up publishing "2 clients".
+ *
+ *   Each page is saved as its own capture with its own hash. Pages are not
+ *   merged into one file, because then the bytes on disk would be something
+ *   no server ever sent.
+ */
+async function cmdRegistrant(query, opts) {
+  const name = 'senatelda';
+  const c = R.CONNECTORS[name];
+  const env = R.loadEnv();
+  const key = R.resolveKey(c, env);
+  const budget = Number.isFinite(opts.pages) && opts.pages > 0 ? opts.pages : 4;
+
+  console.log('\n' + C.b('Senate LDA — filings BY a registrant'));
+  console.log(`  registrant  ${query}`);
+  console.log(`  asking      registrant_name  ${C.dim('(not client_name — a different question)')}`);
+  console.log(`  key         ${key ? C.g('present') : C.y('none (anonymous)')}`);
+  console.log(`  page budget ${budget} × 25 filings`);
+  console.log('  boundary    every hit lands as a LEAD requiring a primary source');
+
+  if (opts.dryRun) {
+    console.log('\n  ' + C.y('DRY RUN — no network call made, nothing written.') + '\n');
+    return;
+  }
+
+  const clients = new Map();
+  let total = null;
+  let fetched = 0;
+  let pagesDone = 0;
+
+  for (let page = 1; page <= budget; page++) {
+    const out = await R.runConnector(name, query, { mode: 'registrant', page });
+    if (!out.ok) {
+      console.error(`\n  ${C.r(`page ${page} failed:`)} ${out.error}`);
+      break;
+    }
+    pagesDone++;
+    fetched += out.results.length;
+
+    // The API's own total, read from the capture we just wrote.
+    try {
+      const body = JSON.parse(fs.readFileSync(out.capturePath, 'utf8'));
+      if (Number.isFinite(body.count)) total = body.count;
+      for (const r of body.results || []) {
+        const cn = r.client && r.client.name;
+        if (!cn) continue;
+        if (!clients.has(cn)) clients.set(cn, 0);
+        clients.set(cn, clients.get(cn) + 1);
+      }
+      if (!body.next) { console.log(C.dim(`\n  page ${page}: last page`)); break; }
+    } catch (e) {
+      console.error(`  ${C.y(`page ${page} captured but would not parse:`)} ${e.message}`);
+    }
+    console.log(C.dim(`  page ${page}: ${out.results.length} filings`));
+  }
+
+  if (!pagesDone) { console.log(`\n  ${C.r('Nothing fetched.')}\n`); return; }
+
+  const pagesAvailable = total === null ? null : Math.ceil(total / 25);
+  console.log(`\n  ${C.b('CLIENTS FOUND')}  ${clients.size}`);
+  for (const [cn, n] of [...clients.entries()].sort((a, b) => b[1] - a[1])) {
+    console.log(`    ${String(n).padStart(4)}  ${cn}`);
+  }
+
+  console.log('');
+  if (total !== null && pagesAvailable > pagesDone) {
+    console.log(`  ${C.y('PARTIAL')} — fetched ${fetched} of ${total} filings `
+      + `(${pagesDone} of ${pagesAvailable} pages).`);
+    console.log(C.dim('  This client list is a FLOOR. There are almost certainly more.'));
+    console.log(C.dim(`  For all of them:  sentinel connect senatelda --registrant "${query}" --pages ${pagesAvailable}`));
+    console.log(C.dim(`  That is ${pagesAvailable} requests to a public API — it will take a while.`));
+  } else if (total !== null) {
+    console.log(`  ${C.g('COMPLETE')} — fetched ${fetched} of ${total} filings. `
+      + 'This is every client this firm filed for.');
+  } else {
+    console.log(`  ${C.y('The API did not report a total, so coverage is unknown.')}`);
+  }
+  console.log(C.dim('\n  A filing is a sworn statement that this firm lobbied for this'));
+  console.log(C.dim('  client. It is not evidence that the clients know each other.\n'));
+  console.log(C.dim('  Now in your captures — fold them into the graph with:'));
+  console.log(C.dim('    sentinel connect graph --push\n'));
+}
+
 async function cmdSearch(name, query, opts) {
   const c = R.CONNECTORS[name];
   if (!c) {
@@ -816,7 +916,9 @@ async function cmdSearch(name, query, opts) {
   }
 
   const env = R.loadEnv();
-  const key = c.keyVar ? (env[c.keyVar] || '') : '';
+  // Same resolver as the runner and the key check. This read env[keyVar]
+  // alone and would report a key MISSING that the search then used fine.
+  const key = R.resolveKey(c, env);
   const keyMissing = c.keyRequired && !key;
 
   // ---- announce (even without a key: rehearsing must not require one) ---
@@ -919,6 +1021,19 @@ async function main() {
     }
     return cmdAll(parsed.subject, parsed.opts);
   }
+  // --registrant turns the senatelda search around: "who does this firm file
+  // for" rather than "who filed for this company".
+  if (argv.includes('--registrant')) {
+    const i = argv.indexOf('--registrant');
+    const q = argv[i + 1] && !argv[i + 1].startsWith('--') ? argv[i + 1] : args.slice(1).join(' ');
+    const pi = argv.indexOf('--pages');
+    const pages = pi >= 0 && argv[pi + 1] ? parseInt(argv[pi + 1], 10) : undefined;
+    if (!q) {
+      console.error('usage: sentinel connect senatelda --registrant "<firm>" [--pages N]');
+      process.exit(2);
+    }
+    return cmdRegistrant(q, { pages, dryRun: opts.dryRun });
+  }
   if (action === 'search') return cmdSearch(args[1], args.slice(2).join(' '), opts);
   if (R.CONNECTORS[action]) return cmdSearch(action, args.slice(1).join(' '), opts);
 
@@ -933,4 +1048,4 @@ if (require.main === module) {
   main().catch((e) => { console.error(e); process.exit(1); });
 }
 
-module.exports = { verdictFor, cmdTest, wrap, parseAllArgs, cmdLobby, cmdGraph };
+module.exports = { verdictFor, cmdTest, wrap, parseAllArgs, cmdLobby, cmdGraph, cmdRegistrant };

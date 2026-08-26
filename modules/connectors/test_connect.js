@@ -29,6 +29,42 @@ const cliSrc = require('fs').readFileSync(require.resolve('./cli.js'), 'utf8');
 
 module.exports = function run() {
 
+  // ══ TWO QUESTIONS, TWO FIELDS ═════════════════════════════════════════
+  // client_name asks "who lobbied FOR this company". registrant_name asks
+  // "who does this firm lobby FOR". Only the first existed, and it bounded
+  // every answer about a registrant by which clients had been searched --
+  // reporting HARBINGER STRATEGIES with 2 clients where the API has 2,450
+  // filings. Verified against the live API 2026-08-26.
+  {
+    const c = R.CONNECTORS.senatelda;
+    const client = c.run('Harbinger Strategies', 'K').url;
+    const reg = c.run('Harbinger Strategies', 'K', { mode: 'registrant' }).url;
+
+    check('the default search still asks client_name',
+      client.includes('client_name=') && !client.includes('registrant_name='), client);
+    check('--registrant asks registrant_name',
+      reg.includes('registrant_name=') && !reg.includes('client_name='), reg);
+    check('the two modes produce different URLs', client !== reg);
+    check('the registrant name is URL-encoded, not interpolated raw',
+      reg.includes('Harbinger%20Strategies'), reg);
+
+    const p3 = c.run('X', 'K', { mode: 'registrant', page: 3 }).url;
+    check('a page beyond the first is requested explicitly', p3.includes('&page=3'), p3);
+    const p1 = c.run('X', 'K', { mode: 'registrant', page: 1 }).url;
+    check('page 1 sends no page parameter', !p1.includes('&page='), p1);
+
+    check('the key travels in the Authorization header, never the URL',
+      c.run('X', 'SECRETKEY', { mode: 'registrant' }).headers.Authorization === 'Token SECRETKEY'
+      && !reg.includes('SECRETKEY'));
+    check('no key means no Authorization header, not an empty one',
+      Object.keys(c.run('X', '', { mode: 'registrant' }).headers).length === 0);
+
+    // The host was observed 301-ing from lda.senate.gov; paying a redirect on
+    // every call to reach a known destination is waste.
+    check('both modes go straight to lda.gov, not the redirecting host',
+      reg.startsWith('https://lda.gov/') && client.startsWith('https://lda.gov/'));
+  }
+
   // ══ ONE KEY RESOLVER, USED BY BOTH ════════════════════════════════════
   // `connect test` resolved env[keyVar] alone while the runner resolved
   // env[keyVar] || env[keyVarAlt]. With only DATA_GOV_API_KEY set, the check
