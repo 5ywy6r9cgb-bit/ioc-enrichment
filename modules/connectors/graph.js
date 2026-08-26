@@ -38,6 +38,14 @@
  * ─────────────────────────────────────────────────────────────────────
  * WHAT THE COUNTS MEAN
  * ─────────────────────────────────────────────────────────────────────
+ * Counts are written through toInteger(). A JavaScript number is a double,
+ * and the driver maps it to a Neo4j Float -- so a count of 17 comes back out
+ * of a query as `17.0`, sorts as a float, and accumulates the usual float
+ * error the moment anything adds them up. A count is a whole number of
+ * things; storing it as one is not cosmetic. toInteger() does it in Cypher,
+ * so no driver-specific integer type is needed here and the module stays
+ * testable without the driver.
+ *
  * `filings` on FILED_FOR counts filings IN YOUR LIBRARY, not in the world.
  * The senatelda connector searches by client name, captures stop at 25
  * results, and the raw response's `count` tells you what you missed. Where a
@@ -220,7 +228,7 @@ function toCypher(graph) {
       q: `UNWIND $rows AS r
           MERGE (o:Org {key: r.key})
           SET o.name = r.name,
-              o.subject_count = r.subject_count,
+              o.subject_count = toInteger(r.subject_count),
               o.counts_are_floors = $floors`,
       params: { rows: graph.orgs, floors: graph.counts_are_floors },
       note: `${graph.orgs.length} organisations`,
@@ -242,7 +250,7 @@ function toCypher(graph) {
           MATCH (reg:Org {key: r.registrant})
           MATCH (cli:Org {key: r.client})
           MERGE (reg)-[f:FILED_FOR]->(cli)
-          SET f.filings = r.filings,
+          SET f.filings = toInteger(r.filings),
               f.subjects = r.subjects,
               f.urls = r.urls,
               f.basis = 'senate_lda_filing',
@@ -258,7 +266,7 @@ function toCypher(graph) {
           MATCH (o:Org {key: r.org})
           MATCH (s:Subject {name: r.subject})
           MERGE (o)-[a:APPEARS_UNDER]->(s)
-          SET a.hits = r.hits,
+          SET a.hits = toInteger(r.hits),
               a.connectors = r.connectors,
               a.basis = 'search_result'`,
       params: { rows: graph.appears },

@@ -117,6 +117,23 @@ module.exports = async function run() {
       G.toCypher(g).some((s) => /basis = 'search_result'/.test(s.q)));
   }
 
+  // ══ 2b. COUNTS ARE WHOLE NUMBERS ══════════════════════════════════════
+  // A JS number is a double and the driver maps it to a Neo4j Float, so a
+  // count of 17 returns as 17.0 and drags float arithmetic behind it.
+  {
+    const dir = fixture({
+      'live_capture_senatelda_AWS_2026-08-25T01-00-00-000Z.json':
+        lda([['AWS PUBLIC POLICY, AMERICAS', 'ALPINE GROUP PARTNERS, LLC.']]),
+    });
+    const g = G.build(X.readCaptures(dir));
+    const cypher = G.toCypher(g).map((s2) => s2.q).join('\n');
+    for (const prop of ['filings', 'hits', 'subject_count']) {
+      check(`${prop} is written through toInteger()`,
+        new RegExp(`${prop} = toInteger\\(`).test(cypher),
+        cypher.match(new RegExp(`.*${prop} = .*`)) || '');
+    }
+  }
+
   // ══ 3. THE COMPOSITE KEY MUST NOT COLLIDE ═════════════════════════════
   // registrant "ALPINE GROUP" + client "PARTNERS LLC" and registrant "ALPINE"
   // + client "GROUP PARTNERS LLC" glue to the same string on a separator.
