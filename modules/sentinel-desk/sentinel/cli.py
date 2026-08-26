@@ -150,6 +150,70 @@ def cmd_claim_add(a, conn, root):
     _print_gates(r)
 
 
+def cmd_claim_list(a, conn, root):
+    """Every claim, its id, and whether anything is standing in its way.
+
+    Without this there is no way to find a claim id, so `claim dispose` and
+    `cite` -- both of which take one -- are unreachable from the CLI. The
+    disposal workflow existed and could not be performed.
+    """
+    q = ("SELECT cl.*, cs.slug FROM claims cl JOIN cases cs ON cs.id = cl.case_id")
+    args: list = []
+    if a.case:
+        q += " WHERE cs.slug = ?"
+        args.append(a.case)
+    q += " ORDER BY cs.slug, cl.id"
+    rows = conn.execute(q, args).fetchall()
+
+    if a.case and not rows:
+        # A case with no claims and a case that does not exist are different
+        # facts, and only one of them means "nothing to do".
+        store.case_by_slug(conn, a.case)
+        print(f"\n  {a.case}: no claims yet.\n")
+        return
+    if not rows:
+        print("\n  No claims on the desk yet.\n")
+        return
+
+    shown = 0
+    for r in rows:
+        blocking = [g for g in gates.evaluate(conn, r["id"])
+                    if not g["passed"] and g["level"] == gates.BLOCK]
+        origin = (r["origin"] or "human")
+        needs = origin in ("machine", "unknown") and not r["disposed_by"]
+
+        if a.needs_disposition and not needs:
+            continue
+        if a.blocked and not blocking:
+            continue
+        if a.tier and r["tier"] != a.tier:
+            continue
+        shown += 1
+
+        mark = "!" if blocking else " "
+        tag = {"machine": " [machine-drafted]",
+               "unknown": " [origin unknown]"}.get(origin, "")
+        if r["disposed_by"]:
+            tag += f" [disposed by {r['disposed_by']}]"
+        text = (r["text"] or "")
+        if len(text) > 92:
+            text = text[:89] + "..."
+        print(f" {mark} {str(r['id']).rjust(4)}  [{r['tier']:<8}] {r['slug']:<14} {text}")
+        if tag.strip():
+            print(f"        {tag.strip()}")
+        for g in blocking:
+            print(f"        · {g['gate']}")
+
+    print(f"\n  {shown} claim(s) shown.")
+    undisposed = sum(1 for r in rows
+                     if (r["origin"] or "human") in ("machine", "unknown")
+                     and not r["disposed_by"])
+    if undisposed and not a.needs_disposition:
+        print(f"  {undisposed} need a person to dispose of them — "
+              f"sentinel claim list --needs-disposition")
+    print()
+
+
 def cmd_claim_dispose(a, conn, root):
     """A person takes responsibility for a machine-drafted claim.
 
@@ -423,6 +487,15 @@ def build_parser() -> argparse.ArgumentParser:
                     help="what drafted it, when origin is machine")
     ca.add_argument("--by", default=None, help="who entered it")
     ca.set_defaults(fn=cmd_claim_add)
+
+    cll = cls.add_parser("list", help="every claim, its id, and what blocks it")
+    cll.add_argument("case", nargs="?", default=None)
+    cll.add_argument("--needs-disposition", dest="needs_disposition",
+                     action="store_true", help="only claims awaiting a person")
+    cll.add_argument("--blocked", action="store_true",
+                     help="only claims failing a blocking gate")
+    cll.add_argument("--tier", default=None, choices=store.TIERS)
+    cll.set_defaults(fn=cmd_claim_list)
 
     cd = cls.add_parser("dispose",
                         help="take responsibility for a machine-drafted claim")

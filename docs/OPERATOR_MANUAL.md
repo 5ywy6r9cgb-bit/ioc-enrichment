@@ -1133,8 +1133,19 @@ opened it and this sentence is mine now." Those are different acts and only
 the second one is a person taking responsibility.
 
 ```bash
+bin/sentinel sdesk claim list --needs-disposition   # find the ids
 bin/sentinel sdesk claim dispose 12 --by "Mark Rosenburg" --note "read p.12 image"
 ```
+
+`claim list` exists because `dispose` and `cite` both take a claim id and
+there was previously no way to obtain one — both commands were documented and
+unreachable. It takes an optional case slug, plus `--needs-disposition`,
+`--blocked` and `--tier`.
+
+**A note on placeholders in this manual.** Where a command needs a value you
+supply, it is written as a bare word (`12`, `pataskala`). It is never written
+in angle brackets: in zsh `<slug>` is input redirection, and pasting it gets
+you `zsh: no such file or directory: slug` rather than a usage message.
 
 The name goes in the audit chain.
 

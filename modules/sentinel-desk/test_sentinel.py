@@ -413,5 +413,69 @@ test_origin_and_disposition()
 test_migration_is_additive_and_idempotent()
 test_stale_gate_survives_a_naive_timestamp()
 
+
+
+def test_claim_list_is_reachable_and_honest():
+    """`claim dispose` and `cite` both take a claim id.
+
+    Until this existed there was no way to obtain one, so both commands were
+    documented and unreachable.
+    """
+    import io as _io
+    import contextlib
+    import tempfile
+    from pathlib import Path
+    from types import SimpleNamespace
+    from sentinel import store
+    from sentinel.cli import cmd_claim_list
+
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        conn = store.open_db(root)
+        now = "2026-08-26T00:00:00+00:00"
+        conn.execute("INSERT INTO cases (slug,title,status,opened) "
+                     "VALUES ('c','C','OPEN',?)", (now,))
+        conn.execute("INSERT INTO claims (case_id,text,tier,closing_gate,created,"
+                     "updated,origin) VALUES (1,'A drafted question?','RED','g',?,?,"
+                     "'machine')", (now, now))
+        conn.execute("INSERT INTO claims (case_id,text,tier,closing_gate,created,"
+                     "updated,origin,disposed_by) VALUES (1,'A typed question?','RED',"
+                     "'g',?,?,'human','Mark')", (now, now))
+
+        def run(**kw):
+            base = dict(case=None, needs_disposition=False, blocked=False, tier=None)
+            base.update(kw)
+            a = SimpleNamespace(**base)
+            buf = _io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                cmd_claim_list(a, conn, root)
+            return buf.getvalue()
+
+        out = run()
+        check("claim list shows claim ids", " 1 " in out and " 2 " in out, out)
+        check("a machine-drafted claim is labelled as one",
+              "[machine-drafted]" in out, out)
+        check("and the count of what needs a person is surfaced",
+              "need a person to dispose" in out, out)
+
+        only = run(needs_disposition=True)
+        check("--needs-disposition shows only the undisposed",
+              "A drafted question?" in only and "A typed question?" not in only, only)
+
+        # An empty case and a case that does not exist are different facts.
+        a = SimpleNamespace(case="nope", needs_disposition=False, blocked=False,
+                            tier=None)
+        raised = False
+        try:
+            with contextlib.redirect_stdout(_io.StringIO()):
+                cmd_claim_list(a, conn, root)
+        except KeyError:
+            raised = True
+        check("listing a case that does not exist raises rather than printing 'none'",
+              raised)
+
+
+test_claim_list_is_reachable_and_honest()
+
 print(f"\n{PASS} passed, {FAIL} failed\n")
 sys.exit(1 if FAIL else 0)
