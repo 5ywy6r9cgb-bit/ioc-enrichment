@@ -217,14 +217,72 @@ module.exports = async function run() {
       /lobbying filing/.test(D.describe('senatelda', { name: 'SOLO FIRM' })));
   }
 
-  // ══ 6. THE SUBJECT IS CARRIED INTO THE QUESTION ═══════════════════════
-  // A question that does not say what it is a question ABOUT is unanswerable
-  // three months later.
+  // ══ 6. THE SEARCH STRING IS NOT PART OF THE CLAIM ═════════════════════
+  // Putting it in the text split ONE relationship into several claims,
+  // differing only by which search surfaced it:
+  //
+  //   ...establish anything about AWS?                 -- 8 records
+  //   ...establish anything about AWS Public Policy?   -- 16 records
+  //
+  // Same registrant, same client, same period span. The subject is the
+  // search string, not a property of the record.
   {
-    const c = D.toClaim('courtlistener', 'Cologix Columbus expansion',
-      { name: 'A v. B', external_id: '8', url: 'https://x/8' });
-    ok('the subject searched for appears in the question',
-      c.text.includes('Cologix Columbus expansion'), c.text);
+    const row = { name: 'AWS PUBLIC POLICY — ALPINE GROUP PARTNERS',
+      external_id: 'bc30', url: 'https://lda.gov/x', period: '2025 Q2' };
+    const a = D.toClaim('senatelda', 'AWS', row);
+    const b = D.toClaim('senatelda', 'AWS Public Policy', row);
+    ok('two different searches for one record produce ONE claim text',
+      a.text === b.text, `${a.text}\n          ${b.text}`);
+    ok('and the text names both parties',
+      /ALPINE GROUP PARTNERS/.test(a.text) && /AWS PUBLIC POLICY/.test(a.text), a.text);
+
+    const court = D.toClaim('courtlistener', 'anything',
+      { name: 'A v. B', court: 'BTA', date: '2024-01-01',
+        external_id: '8', url: 'https://x/8' });
+    ok('a court record is still identified by caption, court and date',
+      /A v\. B/.test(court.text) && /BTA/.test(court.text), court.text);
+  }
+
+  // ══ 6b. A FILING SEEN BY TWO SEARCHES IS ONE FILING ═══════════════════
+  // Counting appearances rather than records reports a relationship as twice
+  // as well evidenced as it is. A count that is wrong and looks right is the
+  // exact failure the lobbying module was built around.
+  {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dedupe-'));
+    const capDir = path.join(dir, 'captures');
+    fs.mkdirSync(capDir, { recursive: true });
+    const filings = [0, 1, 2].map((i) => ({
+      filing_uuid: `same-${i}`,
+      client: { name: 'AWS PUBLIC POLICY' },
+      registrant: { name: 'ALPINE GROUP PARTNERS' },
+      filing_year: 2025, filing_period_display: `Q${i + 1}`,
+      filing_document_url: `https://lda.gov/f/${i}/`,
+    }));
+    // The SAME three filings, returned by two different searches.
+    for (const subj of ['AWS', 'AWS_Public_Policy']) {
+      fs.writeFileSync(path.join(capDir,
+        `live_capture_senatelda_${subj}_2026-01-01T00-00-00-000Z.json`),
+        JSON.stringify({ count: 3, results: filings }));
+    }
+
+    const saved = process.env.SENTINEL_EVIDENCE_DIR;
+    process.env.SENTINEL_EVIDENCE_DIR = dir;
+    for (const m of ['../connectors/registry.js', '../connectors/crosslink.js', './draft.js']) {
+      delete require.cache[require.resolve(m)];
+    }
+    const D5 = require('./draft.js');
+    const g = D5.gather({});
+    if (saved === undefined) delete process.env.SENTINEL_EVIDENCE_DIR;
+    else process.env.SENTINEL_EVIDENCE_DIR = saved;
+
+    ok('two searches over the same relationship make ONE question',
+      g.claims.length === 1, `${g.claims.length} claims`);
+    ok('and the count is 3 filings, not 6 appearances',
+      g.claims[0].folded === 3, `folded=${g.claims[0].folded}`);
+    ok('both searches are recorded as how it was found',
+      g.claims[0].foundVia.length === 2, JSON.stringify(g.claims[0].foundVia));
+    ok('the raw appearance count is still reported, so the fold is checkable',
+      g.raw === 6, String(g.raw));
   }
 
   // ══ 7. RED IS THE ONLY TIER THIS TOOL CAN WRITE ═══════════════════════

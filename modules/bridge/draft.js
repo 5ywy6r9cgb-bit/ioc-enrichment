@@ -108,7 +108,24 @@ function toClaim(connector, subject, row) {
   const what = describe(connector, row);
   if (!what) return null;
 
-  const text = `Does ${what} establish anything about ${subject}?`;
+  // THE SUBJECT IS THE SEARCH STRING, NOT A PROPERTY OF THE RECORD.
+  //
+  // Putting it in the text split one relationship into several claims:
+  //
+  //   Does ALPINE GROUP PARTNERS' lobbying for AWS PUBLIC POLICY establish
+  //   anything about AWS?                                     -- 8 records
+  //   Does ALPINE GROUP PARTNERS' lobbying for AWS PUBLIC POLICY establish
+  //   anything about AWS Public Policy?                       -- 16 records
+  //
+  // One relationship, two claims, differing only by which search surfaced it
+  // -- the same "one entity is several search strings" problem this tool
+  // exists to work around, recreated inside the desk. The subject is kept as
+  // provenance on the claim instead, where it belongs.
+  const text = connector === 'senatelda'
+    // A lobbying filing states WHO lobbied for WHOM. What it does not state,
+    // and what is worth opening it to find, is what they lobbied FOR.
+    ? `What did ${what} cover?`
+    : `Does ${what} bear on this case?`;
   const url = row.url || '';
   const gate = url
     ? `The ${label} record itself, fetched and read — bin/sentinel doc get ${url}`
@@ -164,7 +181,10 @@ function addClaim(slug, claim) {
       '--gate', claim.gate,
       '--origin', 'machine',
       '--origin-note', `sentinel draft: ${claim.connector} capture`
-        + (claim.id ? ` ${claim.id}` : '')],
+        + (claim.id ? ` ${claim.id}` : '')
+        + (claim.foundVia && claim.foundVia.length
+          ? ` · found via subject: ${claim.foundVia.join(', ')}` : '')
+        + (claim.folded > 1 ? ` · ${claim.folded} records` : '')],
     { encoding: 'utf8', env: deskEnv(), cwd: DESK, stdio: 'pipe' });
 }
 
@@ -202,16 +222,30 @@ function gather(opts) {
   // the claim TEXT. Text must stay deterministic or a later run, with more
   // captures behind it, would generate a different sentence for the same
   // relationship and file it as a second claim.
+  // Deduplicate by RECORD IDENTITY before counting anything.
+  //
+  // The same filing is returned by several searches -- "AWS" and "AWS Public
+  // Policy" both surface it -- and counting appearances rather than records
+  // reports a relationship as twice as well evidenced as it is. A count that
+  // is wrong and looks right is the exact failure the lobbying module was
+  // built around; it must not come back in through this door.
   const byText = new Map();
   for (const c of out) {
-    if (!byText.has(c.text)) byText.set(c.text, { ...c, folded: 0, periods: [] });
+    if (!byText.has(c.text)) {
+      byText.set(c.text, { ...c, folded: 0, periods: [], ids: new Set(), subjects: new Set() });
+    }
     const e = byText.get(c.text);
+    e.subjects.add(c.subject);
+    const key = c.id || `${c.text}|${c.period}|${c.url}`;
+    if (e.ids.has(key)) continue;          // same filing, a second search
+    e.ids.add(key);
     e.folded += 1;
     if (c.period) e.periods.push(c.period);
   }
   const unique = [...byText.values()].map((c) => {
     const p = [...new Set(c.periods)].sort();
-    return { ...c, span: p.length ? (p.length === 1 ? p[0] : `${p[0]} – ${p[p.length - 1]}`) : '' };
+    return { ...c, span: p.length ? (p.length === 1 ? p[0] : `${p[0]} – ${p[p.length - 1]}`) : '',
+             foundVia: [...c.subjects].sort() };
   });
   return { claims: unique, unparsed, captures: caps.length, raw: out.length };
 }
@@ -290,6 +324,9 @@ function cmdDraft(slug, opts) {
   console.log('');
   for (const c of limited.slice(0, opts.apply ? 5 : 25)) {
     console.log(`  ${C.y('RED')}  ${c.text}`);
+    if (c.foundVia && c.foundVia.length > 1) {
+      console.log(C.d(`       found via: ${c.foundVia.join(' · ')}`));
+    }
     if (c.folded > 1) {
       // Said out loud, because the alternative is an operator reading "9
       // questions" off a library holding 79 sworn filings.

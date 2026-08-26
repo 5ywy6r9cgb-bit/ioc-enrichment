@@ -1159,6 +1159,51 @@ claims need disposing once, each.
 Nothing is written without `--apply`. Filing several hundred claims into your
 desk by accident is not something to find out about afterwards.
 
+### The claim is about the record, not about the search
+
+A first run against a real library produced these two, adjacent:
+
+```
+Does ALPINE GROUP PARTNERS' lobbying for AWS PUBLIC POLICY establish
+anything about AWS?                                       — 8 records
+Does ALPINE GROUP PARTNERS' lobbying for AWS PUBLIC POLICY establish
+anything about AWS Public Policy?                        — 16 records
+```
+
+Same registrant, same client, same period span. **One relationship, two
+claims**, differing only by which search string surfaced it — the same "one
+entity is several search strings" problem this tool exists to work around,
+recreated inside the desk.
+
+The subject is now kept as provenance on the claim (`origin_note`) instead of
+inside its text:
+
+```
+origin: machine
+sentinel draft: senatelda capture u0 · found via subject: AWS,
+  AWS Public Policy · 8 records
+```
+
+Lobbying questions ask what the filing **covered**, because a filing already
+states who lobbied for whom — what it does not state, and what is worth
+opening it to find, is what they lobbied *for*.
+
+### Counts are of records, not of appearances
+
+The same filing comes back from several searches. Counting appearances
+reports a relationship as twice as well evidenced as it is:
+
+```
+2 capture file(s) → 16 row(s) → 1 distinct question(s)
+    8 separate records fold into this one question
+    found via: AWS · AWS Public Policy
+```
+
+Sixteen appearances, **eight** filings. Rows are deduplicated on the record's
+own identity (`filing_uuid` for LDA) before anything is counted. A count that
+is wrong and looks right is the failure the lobbying module was built around,
+and it must not come back in through this door.
+
 ### The fold, and why it is announced
 
 A registrant that filed seventeen quarterly reports for one client raises
