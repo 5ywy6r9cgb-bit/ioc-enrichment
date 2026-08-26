@@ -246,6 +246,8 @@ bin/sentinel connect senatelda --registrant "<firm>"   # every client a firm fil
 bin/sentinel connect senatelda --registrant "<firm>" --pages 20
 bin/sentinel connect graph                   # preview the Neo4j graph (writes nothing)
 bin/sentinel connect graph --push            # write it into Neo4j
+bin/sentinel connect graph --dashboard       # → evidence/graph-dashboard.html
+bin/sentinel connect graph --dashboard --side-a "ENERGY|POWER|GAS" --side-b "AWS|META|MICROSOFT"
 bin/sentinel connect <connector> "<query>"   # one source only
 ```
 
@@ -542,6 +544,36 @@ MATCH (r:Org)-[:FILED_FOR]->(c:Org) RETURN r,c LIMIT 50
 MATCH (a:Org)-[:APPEARS_UNDER]->(s:Subject)<-[:APPEARS_UNDER]-(b:Org)
 WHERE a <> b RETURN a,s,b LIMIT 50
 ```
+
+**The dashboard.** `--dashboard` writes one self-contained HTML page — no
+script, no CDN, no font host, no request of any kind — from the same `build()`
+the push uses, so the page and the database cannot disagree. It works with or
+without `--push`.
+
+```bash
+bin/sentinel connect graph --dashboard
+bin/sentinel connect graph --dashboard ~/Desktop/graph.html
+bin/sentinel connect graph --push --dashboard \
+  --side-a "ENERGY|POWER|ELECTRIC|GAS|UTILIT|NISOURCE|AEP|RWE" \
+  --side-b "AWS|AMAZON|META|MICROSOFT|GOOGLE|DATA CENTER|COLOGIX"
+```
+
+It deliberately does **not** draw the network. With 1,500 organisations a
+force-directed picture is a hairball that invites you to see structure which
+is an artifact of the layout. It charts the three things the graph can
+actually answer: firms carrying more than one client, which of those carry
+clients matching **both** patterns you supply, and how much each search
+contributed — that last one labelled as a fact about your searching rather
+than about the world.
+
+`--side-a` and `--side-b` are regular expressions and they come from you.
+What counts as "both sides" is a judgement about the investigation, not a
+property of lobbying data; a tool that decided it for you would smuggle an
+editorial call in as arithmetic.
+
+Where captures were truncated the page says **every number here is a floor**
+at the top, in the same size as the totals. A bar chart looks complete, which
+is exactly why that cannot be a footnote.
 
 **Queries worth running.** Paste these into Neo4j Browser
 (<http://localhost:7474>), not the terminal — zsh will try to interpret

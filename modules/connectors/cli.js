@@ -582,6 +582,23 @@ async function cmdGraph(opts) {
   console.log(`  ${C.dim('subject. There is no edge saying they are related, because that is not')}`);
   console.log(`  ${C.dim('a thing your captures establish.')}`);
 
+  // --dashboard renders the same numbers the push writes, from the same
+  // build(), so the page and the database cannot disagree.
+  if (opts.dashboard) {
+    const D = require('./graph_dashboard.js');
+    const out = typeof opts.dashboard === 'string'
+      ? opts.dashboard : path.join(R.EVIDENCE, 'graph-dashboard.html');
+    const html = D.renderDashboard(g, {
+      sideA: opts.sideA ? new RegExp(opts.sideA, 'i') : null,
+      sideB: opts.sideB ? new RegExp(opts.sideB, 'i') : null,
+    });
+    fs.writeFileSync(out, html);
+    console.log(`\n  ${C.g('dashboard')}  ${out}`);
+    console.log(C.dim('  Self-contained: no script, no CDN, no font host, no request of any kind.'));
+    console.log(C.dim(`    open ${out}\n`));
+    if (!opts.push) return;
+  }
+
   if (!opts.push) {
     console.log(`\n  ${C.b('Nothing was written.')} ${C.dim('This is a preview.')}`);
     console.log(C.dim('  Statements that would run:'));
@@ -1388,9 +1405,19 @@ async function main() {
     return cmdLobby({ verbose: argv.includes('--verbose'), chart });
   }
   if (action === 'graph') {
+    const flagVal = (name) => {
+      const i = argv.findIndex((a) => a === name || a.startsWith(name + '='));
+      if (i < 0) return false;
+      if (argv[i].startsWith(name + '=')) return argv[i].slice(name.length + 1);
+      if (argv[i + 1] && !argv[i + 1].startsWith('--')) return argv[i + 1];
+      return true;
+    };
     return cmdGraph({
       push: argv.includes('--push'),
       allowRemote: argv.includes('--allow-remote'),
+      dashboard: flagVal('--dashboard'),
+      sideA: typeof flagVal('--side-a') === 'string' ? flagVal('--side-a') : null,
+      sideB: typeof flagVal('--side-b') === 'string' ? flagVal('--side-b') : null,
     });
   }
   if (action === 'all') {

@@ -340,6 +340,64 @@ module.exports = async function run() {
       w.nodes.Org === g.orgs.length, JSON.stringify(w.nodes));
   }
 
+  // ══ 9. THE DASHBOARD MUST NOT OUTRUN THE DATA ═════════════════════════
+  {
+    const D = require('./graph_dashboard.js');
+    const dir = fixture({
+      'live_capture_senatelda_AWS_2026-08-26T01-00-00-000Z.json':
+        lda([['AWS PUBLIC POLICY, AMERICAS', 'ALPINE GROUP PARTNERS, LLC.'],
+             ['NISOURCE INC.', 'ALPINE GROUP PARTNERS, LLC.'],
+             ['SOLO CLIENT CORP', 'ONE CLIENT FIRM LLC']], 900),
+    });
+    const g = G.build(X.readCaptures(dir));
+
+    const multi = D.multiClientRegistrants(g);
+    check('only firms with two or more clients are listed',
+      multi.length === 1 && multi[0].clientCount === 2,
+      JSON.stringify(multi.map((m) => [m.name, m.clientCount])));
+
+    const both = D.straddling(multi, /NISOURCE|ENERGY|GAS/, /AWS|AMAZON/);
+    check('a firm carrying both sides is found', both.length === 1);
+    check('the two patterns must BOTH match, not either',
+      D.straddling(multi, /NISOURCE/, /NOTHINGMATCHESTHIS/).length === 0);
+
+    const html = D.renderDashboard(g, { sideA: /NISOURCE/, sideB: /AWS/ });
+    check('the page says every number is a floor when captures were truncated',
+      /a floor/i.test(html));
+    check('APPEARS_UNDER is described as a fact about the searching',
+      /your searching/i.test(html));
+    check('the page says a filing is not evidence the clients know each other',
+      /know each other/i.test(html));
+
+    // Same rules as the lobbying chart: it has to survive with no network.
+    check('the dashboard runs no script', !/<script/i.test(html));
+    check('the dashboard pulls in no external resource', !/\ssrc\s*=/i.test(html));
+    check('the dashboard links no stylesheet or font host', !/<link\b/i.test(html));
+    check('the dashboard imports nothing', !/@import/i.test(html));
+    check('the dashboard makes no request of its own',
+      !/\b(fetch|XMLHttpRequest|cdn\.)/i.test(html));
+
+    // A name from a capture is untrusted text going into HTML.
+    // Both render paths have to escape: the bar labels carry REGISTRANT names,
+    // the straddle table carries CLIENT names, and only the table renders when
+    // patterns are supplied. Testing one and assuming the other is how an
+    // escaping bug survives a green suite.
+    const nasty = fixture({
+      'live_capture_senatelda_x_2026-08-26T01-00-00-000Z.json':
+        lda([['<img src=x onerror=alert(1)> CORP', '<svg onload=alert(2)> LLC'],
+             ['SECOND CLIENT LLC', '<svg onload=alert(2)> LLC']]),
+    });
+    const gh = D.renderDashboard(G.build(X.readCaptures(nasty)),
+      { sideA: /IMG|CORP/, sideB: /SECOND/ });
+    check('a client name in the table cannot inject markup',
+      !/<img src=x/.test(gh) && /&lt;img/.test(gh), gh.match(/.{0,40}img.{0,40}/) || '');
+    check('a registrant name in the bar labels cannot inject markup',
+      !/<svg onload/.test(gh), gh.match(/.{0,40}svg.{0,40}/) || '');
+
+    check('one client reads "1 client", not "1 clients"',
+      !/\b1 clients\b/.test(html) && !/\b1 names\b/.test(html));
+  }
+
   // ══ 8. push() RUNS THE STATEMENTS, IN ORDER ═══════════════════════════
   {
     const dir = fixture({
