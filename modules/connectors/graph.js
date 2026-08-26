@@ -321,9 +321,21 @@ function describeSecret(pass) {
   return `${raw.length} chars, starts with "${head}"${notes.length ? ' — ' + notes.join(', ') : ''}`;
 }
 
+// The distinctive ones from the docs. Nobody's real password contains these
+// as a substring, so a value merely CONTAINING one is still the placeholder,
+// half-edited -- "whatever-you-set" with a character appended is 17 chars
+// starting with "w", passes an exact-match check, and fails at the database
+// as a plain credentials error.
+const PLACEHOLDER_FRAGMENTS = [
+  'whatever-you-set', 'the-password-you-set', 'your-password',
+  'password-you-set', 'yourpassword', 'change-me', 'changeme',
+];
+
 function isPlaceholderPassword(pass) {
   if (!pass) return false;
-  return PLACEHOLDER_PASSWORDS.has(String(pass).trim().toLowerCase());
+  const v = String(pass).trim().toLowerCase();
+  if (PLACEHOLDER_PASSWORDS.has(v)) return true;
+  return PLACEHOLDER_FRAGMENTS.some((frag) => v.includes(frag));
 }
 
 /**
@@ -376,6 +388,6 @@ function reconcile(graph, actual) {
 
 module.exports = {
   build, toCypher, push, isLocal, readEnv, LOCAL_HOSTS,
-  isPlaceholderPassword, PLACEHOLDER_PASSWORDS, describeSecret,
+  isPlaceholderPassword, PLACEHOLDER_PASSWORDS, PLACEHOLDER_FRAGMENTS, describeSecret,
   verify, reconcile,
 };

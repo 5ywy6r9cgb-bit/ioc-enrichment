@@ -208,8 +208,14 @@ module.exports = async function run() {
       G.isPlaceholderPassword('neo4j'));
     check('case and surrounding space do not hide a placeholder',
       G.isPlaceholderPassword('  ChangeMe  '));
+    check('a HALF-EDITED placeholder is caught too',
+      G.isPlaceholderPassword('whatever-you-set1')
+      && G.isPlaceholderPassword('Xwhatever-you-set')
+      && G.isPlaceholderPassword('the-password-you-set!'));
     check('a real password is not flagged',
-      !G.isPlaceholderPassword('correct-horse-battery-staple'));
+      !G.isPlaceholderPassword('correct-horse-battery-staple')
+      && !G.isPlaceholderPassword('wG7-tunnel-vault-91')
+      && !G.isPlaceholderPassword('Sentinel!2026#graph'));
     check('an empty password is handled separately, not as a placeholder',
       !G.isPlaceholderPassword('') && !G.isPlaceholderPassword(undefined));
   }
