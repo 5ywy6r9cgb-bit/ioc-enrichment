@@ -1072,6 +1072,35 @@ bin/sentinel sdesk serve [--port 8787]
 
 ---
 
+## 8a. There are two case systems, and they do not know about each other
+
+This is the most confusing thing in the repo. Both are called "case". Both
+have a gate. Neither can see the other's data.
+
+| | `bin/sentinel case` | `bin/sentinel sdesk case` |
+|---|---|---|
+| Module | `modules/research-desk` | `modules/sentinel-desk` |
+| Storage | JSON, `evidence/sentinel_cases/*.json` | SQLite, `$SENTINEL_ROOT` (default `~/SentinelDesk`) |
+| Unit of work | **exhibits** — documents, with pages read | **claims** — sentences, with tiers |
+| The gate asks | have you *read* the evidence? | is this claim *supported*? |
+| Rules | R-01 financial exhibits read to the last page · R-02 no broken exhibit · R-03 no open questions · R-04 no open contradictions | GREEN needs a citation · ARITH needs its formula · REPORTED needs its outlet · RED must be a question naming what would close it · DEAD needs its resolution |
+| Also has | dashboard over all cases | audit hash chain, document vault, dossier export, web UI |
+| Tests | 42 | 53 |
+
+**Neither is wrong and they are not duplicates.** They gate different things.
+The research desk asks whether you did the reading; the Sentinel Desk asks
+whether the sentence you wrote can stand up. A claim can pass one and fail
+the other, and both failures are real.
+
+What you must not do is keep half a case in each. Pick the one a given
+investigation lives in and put everything there — the failure mode is a
+contradiction logged in one system and a dossier exported from the other
+that has never heard of it.
+
+`bin/sentinel status` reports both, so neither can go quiet.
+
+---
+
 ## 9. What the connectors cannot answer
 
 This is the single most useful page in the manual, because the failure it

@@ -128,6 +128,41 @@ case "$cmd" in
       n=$(find "$ROOT/evidence" -type f ! -name '.gitkeep' ! -name 'README.md' 2>/dev/null | wc -l | tr -d ' ')
       echo "    ✓ evidence/ ($n file(s), gitignored — never pushed)"
     fi
+    echo ""
+    # Both case systems, always. They are separate stores with the same name,
+    # and a case sitting in the one you were not thinking about is invisible
+    # for exactly as long as nothing reports it.
+    echo "  case work (TWO separate systems — see manual §8a):"
+    cdir="${SENTINEL_CASES:-$ROOT/evidence/sentinel_cases}"
+    if [ -d "$cdir" ]; then
+      cn=$(find "$cdir" -maxdepth 1 -name '*.json' 2>/dev/null | wc -l | tr -d ' ')
+      echo "    sentinel case   $cn case file(s)   $cdir"
+    else
+      echo "    sentinel case   none yet          $cdir"
+    fi
+    python3 - "$ROOT" <<'PYSTATUS'
+import os, sqlite3, sys
+from pathlib import Path
+root = Path(os.environ.get("SENTINEL_ROOT", Path.home() / "SentinelDesk"))
+db = root / "sentinel.db"
+if not db.is_file():
+    print(f"    sentinel sdesk  not initialised    {root}")
+    print("                    start it with:  bin/sentinel sdesk init")
+else:
+    try:
+        c = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+        cases = c.execute("select count(*) from cases").fetchone()[0]
+        claims = c.execute("select count(*) from claims").fetchone()[0]
+        print(f"    sentinel sdesk  {cases} case(s), {claims} claim(s)   {root}")
+    except Exception as e:
+        # A desk that cannot be read is not a desk with nothing in it.
+        print(f"    sentinel sdesk  UNREADABLE ({e})   {db}")
+PYSTATUS
+    echo ""
+    echo "  shelves (external drives):"
+    python3 "$ROOT/modules/corpus/shelf_cli.py" list 2>/dev/null \
+      | sed -n '/Registered shelves/,$p' | tail -n +2 | sed 's/^/  /' \
+      | grep -v '^\s*$' || echo "    none registered"
     ;;
 
   test)
