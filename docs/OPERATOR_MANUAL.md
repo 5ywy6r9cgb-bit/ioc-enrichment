@@ -534,6 +534,26 @@ RETURN o.name AS org, subjects, which
 ORDER BY subjects DESC LIMIT 25
 ```
 
+*The one that matters for a data-center story.* Not "who shares a lobbyist"
+but who shares one **across the energy/compute line** — a firm carrying both a
+utility and a hyperscaler. Widen the patterns to your own subjects.
+
+```cypher
+MATCH (r:Org)-[:FILED_FOR]->(c:Org)
+WITH r, collect(DISTINCT c.name) AS clients
+WHERE size(clients) > 1
+  AND any(x IN clients WHERE toUpper(x) =~ '.*(ENERGY|POWER|ELECTRIC|GAS|UTILIT|NISOURCE|AEP|FIRSTENERGY|DUKE).*')
+  AND any(x IN clients WHERE toUpper(x) =~ '.*(AWS|AMAZON|META|MICROSOFT|GOOGLE|DATA CENTER|COLOGIX|VADATA|DIGITAL).*')
+RETURN r.name AS registrant, clients
+```
+
+A match is a **lead**, and the next step is not another query. Open the
+filings themselves — `filing_document_url` is on every FILED_FOR edge — and
+read which issues were lobbied, in which quarters, for both clients. Same bill
+in the same quarter for a utility and a hyperscaler is specific and checkable.
+Non-overlapping issues means a firm with two unrelated clients, which is most
+of them.
+
 *Everything two hops from one company.* Change the name to any company.
 `toUpper` because `CONTAINS` is case-sensitive and the sources disagree
 about capitalisation.
