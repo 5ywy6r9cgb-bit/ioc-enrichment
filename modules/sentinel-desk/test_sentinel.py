@@ -289,5 +289,129 @@ c2.close()
 shutil.rmtree(R2, ignore_errors=True)
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# ORIGIN AND HUMAN DISPOSITION
+#
+# A machine-drafted claim and a hand-entered one are indistinguishable in the
+# ledger about a week later. The ledger outlives anyone's memory of which was
+# which, so the row has to carry it and the gate has to enforce it.
+# ═══════════════════════════════════════════════════════════════════════════
+def test_origin_and_disposition():
+    import sqlite3
+    import tempfile
+    from pathlib import Path
+    from sentinel import store, gates
+
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        conn = store.open_db(root)
+        conn.execute("INSERT INTO cases (slug,title,status,opened) "
+                     "VALUES ('c','C','OPEN','2026-01-01T00:00:00+00:00')")
+
+        def mk(text, origin, disposed=None):
+            now = "2026-08-26T00:00:00+00:00"
+            cur = conn.execute(
+                "INSERT INTO claims (case_id,text,tier,closing_gate,created,updated,"
+                "origin,disposed_by) VALUES (1,?,'RED','a record',?,?,?,?)",
+                (text, now, now, origin, disposed))
+            return cur.lastrowid
+
+        def blocked(cid):
+            return [g["gate"] for g in gates.evaluate(conn, cid)
+                    if not g["passed"] and g["level"] == gates.BLOCK]
+
+        human = mk("A human question?", "human")
+        check("a human-entered claim is not blocked for disposition",
+           "MACHINE_UNDISPOSED" not in blocked(human))
+
+        machine = mk("A drafted question?", "machine")
+        check("a machine-drafted claim IS blocked until a person disposes of it",
+           "MACHINE_UNDISPOSED" in blocked(machine))
+
+        conn.execute("UPDATE claims SET disposed_by='Someone' WHERE id=?", (machine,))
+        check("and clears once disposed",
+           "MACHINE_UNDISPOSED" not in blocked(machine))
+
+        # A claim from before the column existed. Backfilling it as 'human'
+        # would assert something nobody can support -- and would launder
+        # exactly the drafted claims this exists to keep visible.
+        unknown = mk("An old question?", "unknown")
+        check("a pre-origin claim is treated as needing disposition, not as human",
+           "MACHINE_UNDISPOSED" in blocked(unknown))
+
+        # The gate ignores tier on purpose: attaching a citation is not the
+        # same act as reading the document and deciding.
+        conn.execute("UPDATE claims SET tier='GREEN' WHERE id=?", (machine,))
+        conn.execute("UPDATE claims SET disposed_by=NULL WHERE id=?", (machine,))
+        check("promoting a machine claim to GREEN does not bypass disposition",
+           "MACHINE_UNDISPOSED" in blocked(machine))
+
+
+def test_migration_is_additive_and_idempotent():
+    import sqlite3
+    import tempfile
+    from pathlib import Path
+    from sentinel import store
+
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        db = root / "sentinel.db"
+        c = sqlite3.connect(db, isolation_level=None)
+        c.executescript(store.SCHEMA)
+        # Rebuild claims the way it looked before origin tracking.
+        c.execute("DROP TABLE claims")
+        c.execute("""CREATE TABLE claims (
+          id INTEGER PRIMARY KEY, case_id INTEGER NOT NULL REFERENCES cases(id),
+          text TEXT NOT NULL, tier TEXT NOT NULL, formula TEXT, outlet TEXT,
+          closing_gate TEXT, resolution TEXT, created TEXT, updated TEXT)""")
+        c.execute("INSERT INTO cases (slug,title,status,opened) "
+                  "VALUES ('x','X','OPEN','2026-01-01T00:00:00+00:00')")
+        c.execute("INSERT INTO claims (case_id,text,tier,created,updated) "
+                  "VALUES (1,'old','RED','2026-01-01T00:00:00+00:00',"
+                  "'2026-01-01T00:00:00+00:00')")
+        c.close()
+
+        conn = store.open_db(root)
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(claims)")}
+        check("migrate adds the origin columns to an existing desk",
+           {"origin", "origin_note", "disposed_by", "disposed_at"} <= cols)
+        check("a pre-existing claim survives the migration",
+           conn.execute("SELECT COUNT(*) FROM claims").fetchone()[0] == 1)
+        check("and is recorded as 'unknown', never backfilled as 'human'",
+           conn.execute("SELECT origin FROM claims").fetchone()[0] == "unknown")
+
+        applied = store.migrate(conn)
+        check("running migrate again changes nothing", applied == [])
+
+
+def test_stale_gate_survives_a_naive_timestamp():
+    """A gate that CRASHES runs no other gate.
+
+    STALE_GATE caught ValueError but not TypeError, so a claim whose `created`
+    had no timezone killed the whole evaluation -- and sailed past UNCITED,
+    PRIMARY_ONLY and everything else by dying before they were reached.
+    """
+    import tempfile
+    from pathlib import Path
+    from sentinel import store, gates
+
+    with tempfile.TemporaryDirectory() as td:
+        conn = store.open_db(Path(td))
+        conn.execute("INSERT INTO cases (slug,title,status,opened) "
+                     "VALUES ('c','C','OPEN','2026-01-01T00:00:00+00:00')")
+        for stamp in ("2026-01-01", "not a date at all", ""):
+            cur = conn.execute(
+                "INSERT INTO claims (case_id,text,tier,closing_gate,created,updated,"
+                "origin,disposed_by) VALUES (1,'q?','RED','g',?,?, 'human','x')",
+                (stamp, stamp))
+            res = gates.evaluate(conn, cur.lastrowid)
+            check(f"a claim with created={stamp!r} still evaluates every gate",
+               len(res) >= 8, f"{len(res)} gates ran")
+
+
+test_origin_and_disposition()
+test_migration_is_additive_and_idempotent()
+test_stale_gate_survives_a_naive_timestamp()
+
 print(f"\n{PASS} passed, {FAIL} failed\n")
 sys.exit(1 if FAIL else 0)

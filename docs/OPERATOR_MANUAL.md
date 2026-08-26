@@ -1111,6 +1111,38 @@ takes a `doc_id` into `documents`, so **there is no way to cite a URL.**
 A test asserts against the source that no tier other than RED can be written,
 and it is drift-tested in both directions.
 
+### Every drafted claim is marked as machine-drafted, and cannot be published
+
+**A machine-drafted claim and a hand-entered one are indistinguishable in the
+ledger about a week later.** Six months on, nobody remembers whether claim 441
+came from a page somebody read or from a search result nobody opened. The
+ledger outlives the memory of how each row got there, so the row carries it:
+
+```
+claim 12 recorded [RED]  [machine-drafted — nobody has read the source]
+  gates: BLOCKED
+    · MACHINE_UNDISPOSED: This claim was drafted by a machine from a search
+      result and no person has disposed of it. Open the source, decide, then:
+      sentinel claim dispose 12 --by "<your name>"
+```
+
+`MACHINE_UNDISPOSED` is the only gate that **ignores the tier.** A drafted
+claim promoted to GREEN with a citation attached still fails it, because
+attaching a citation says "this document is related" and disposing says "I
+opened it and this sentence is mine now." Those are different acts and only
+the second one is a person taking responsibility.
+
+```bash
+bin/sentinel sdesk claim dispose 12 --by "Mark Rosenburg" --note "read p.12 image"
+```
+
+The name goes in the audit chain.
+
+**A claim from before origin tracking reads `unknown`, never `human`.**
+Backfilling it as human would assert something nobody can support, and would
+launder exactly the drafted claims the column exists to keep visible. Those
+claims need disposing once, each.
+
 ### Dry run by default
 
 Nothing is written without `--apply`. Filing several hundred claims into your

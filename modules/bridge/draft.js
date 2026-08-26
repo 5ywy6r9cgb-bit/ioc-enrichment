@@ -146,9 +146,17 @@ except Exception as e:
 }
 
 function addClaim(slug, claim) {
+  // --origin machine is not decoration. A drafted claim and a typed one are
+  // indistinguishable in the ledger about a week later, and the ledger
+  // outlives anyone's memory of which was which. The desk refuses to publish
+  // a machine-origin claim until a person has disposed of it, and that
+  // refusal only works if this flag is here.
   execFileSync('python3',
     ['-m', 'sentinel', 'claim', 'add', slug, claim.text, '--tier', 'RED',
-      '--gate', claim.gate],
+      '--gate', claim.gate,
+      '--origin', 'machine',
+      '--origin-note', `sentinel draft: ${claim.connector} capture`
+        + (claim.id ? ` ${claim.id}` : '')],
     { encoding: 'utf8', env: deskEnv(), cwd: DESK, stdio: 'pipe' });
 }
 
@@ -253,6 +261,8 @@ function cmdDraft(slug, opts) {
   console.log(`\n  ${C.b('Every one of these is RED — an open question.')}`);
   console.log(C.d('  A capture is a search result, not a document. Nobody has read these.'));
   console.log(C.d('  To promote one: fetch it (doc get), ingest it, then cite it.'));
+  console.log(C.d('  Each is recorded as machine-drafted and CANNOT be published until'));
+  console.log(C.d('  you have disposed of it:  bin/sentinel sdesk claim dispose <id> --by "<name>"'));
 
   if (!opts.apply) {
     console.log(`\n  ${C.d('Nothing was written.')} Add ${C.b('--apply')} to record `

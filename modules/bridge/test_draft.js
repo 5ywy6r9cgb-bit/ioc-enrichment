@@ -141,6 +141,11 @@ module.exports = async function run() {
     ok('the code cannot write any tier but RED',
       tiers.length === 0, `found: ${[...new Set(tiers)].join(', ')}`);
     ok("and it does pass --tier RED", /'--tier',\s*'RED'/.test(code));
+    ok('every write declares itself as machine-origin',
+      /'--origin',\s*'machine'/.test(code),
+      'without this the desk cannot tell a drafted claim from a typed one');
+    ok('and says what drafted it',
+      /'--origin-note'/.test(code));
 
     // Drift check: the guard must fail if the wrong thing appears in CODE.
     const tampered = code.replace(/'--tier',\s*'RED'/, "'--tier', 'GREEN'");

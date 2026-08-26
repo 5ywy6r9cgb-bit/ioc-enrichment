@@ -92,7 +92,21 @@ CREATE TABLE IF NOT EXISTS claims (
   closing_gate  TEXT,
   resolution    TEXT,
   created       TEXT,
-  updated       TEXT
+  updated       TEXT,
+  -- HOW THIS CLAIM ENTERED THE LEDGER.
+  --
+  -- A machine-drafted claim and a hand-entered one are indistinguishable
+  -- about a week later. The ledger outlives the memory of how each row got
+  -- there, so the row has to carry it. 'machine' does not mean wrong -- it
+  -- means nobody has read the document yet.
+  origin        TEXT NOT NULL DEFAULT 'human'
+                CHECK (origin IN ('human', 'machine', 'unknown')),
+  origin_note   TEXT,
+  -- WHO TOOK RESPONSIBILITY, AND WHEN. Empty on a machine-drafted claim
+  -- until a person opens the source and decides. The MACHINE_UNDISPOSED gate
+  -- refuses to publish anything that still has these empty.
+  disposed_by   TEXT,
+  disposed_at   TEXT
 );
 
 CREATE TABLE IF NOT EXISTS citations (
@@ -214,6 +228,50 @@ def audit_mirror(root: Path | str) -> Path:
     return Path(root) / "audit.jsonl"
 
 
+# Columns added after a desk may already exist on disk. CREATE TABLE IF NOT
+# EXISTS does nothing to a table that is already there, so a new column in
+# SCHEMA above reaches a fresh desk and silently misses every existing one --
+# and the failure surfaces later as "no such column" in the middle of a run.
+MIGRATIONS: list[tuple[str, str, str]] = [
+    # 'unknown', NOT 'human'.
+    #
+    # A claim that predates this column may have been typed by a person or
+    # drafted by `sentinel draft`. Backfilling it as 'human' would assert
+    # something nobody can support, and would launder exactly the
+    # machine-drafted claims this column exists to keep visible. The honest
+    # value for "the ledger cannot say" is 'unknown', and the gate treats it
+    # as undisposed until a person says otherwise -- a one-time cost paid
+    # once per pre-existing claim.
+    ("claims", "origin",      "TEXT NOT NULL DEFAULT 'unknown'"),
+    ("claims", "origin_note", "TEXT"),
+    ("claims", "disposed_by", "TEXT"),
+    ("claims", "disposed_at", "TEXT"),
+]
+
+
+def migrate(conn: sqlite3.Connection) -> list[str]:
+    """Add any column this version expects that the file on disk lacks.
+
+    Idempotent and additive only. Nothing here drops or rewrites a column:
+    this database holds unpublished investigative material and a migration
+    that can lose data is not worth the convenience.
+
+    The CHECK constraint on `origin` cannot be added by ALTER TABLE in SQLite,
+    so an upgraded desk enforces it in the CLI while a fresh one enforces it in
+    the schema too. Both reject the same values.
+    """
+    applied = []
+    for table, column, decl in MIGRATIONS:
+        cols = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+        if not cols:
+            continue                      # table not created yet
+        if column in cols:
+            continue
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
+        applied.append(f"{table}.{column}")
+    return applied
+
+
 def open_db(root: Path | str) -> sqlite3.Connection:
     """Open (creating if needed) the desk database under `root`."""
     root = Path(root).expanduser()
@@ -254,6 +312,7 @@ def open_db(root: Path | str) -> sqlite3.Connection:
     conn.execute("PRAGMA busy_timeout = 10000")
     try:
         conn.executescript(SCHEMA)
+        migrate(conn)
         conn.commit()
     finally:
         os.umask(prev_umask)

@@ -117,6 +117,32 @@ def evaluate(conn: sqlite3.Connection, claim_id: int) -> list[dict]:
     def add(gate: str, level: str, passed: bool, detail: str = "") -> None:
         res.append({"gate": gate, "level": level, "passed": passed, "detail": detail})
 
+    # ── MACHINE_UNDISPOSED ────────────────────────────────────────────────
+    #
+    # NO CLAIM REACHES A DOSSIER WITHOUT A HUMAN HAVING DISPOSED OF IT.
+    #
+    # A machine can find a passage. It cannot decide what the passage means,
+    # and it has not read the page. A drafted claim is a reading queue entry,
+    # not a finding -- but a week later the two are indistinguishable in the
+    # ledger unless the row itself carries the difference.
+    #
+    # This is the only gate that ignores the tier. A machine-drafted claim
+    # promoted to GREEN with a citation attached still fails here until a
+    # person has put their name against it, because attaching a citation is
+    # not the same act as reading the document and deciding.
+    origin = (c["origin"] if "origin" in c.keys() else "human") or "human"
+    disposed = (c["disposed_by"] if "disposed_by" in c.keys() else None)
+    needs_person = origin in ("machine", "unknown") and not disposed
+    add("MACHINE_UNDISPOSED", BLOCK, not needs_person,
+        "" if not needs_person else
+        ("This claim was drafted by a machine from a search result and no "
+         "person has disposed of it. "
+         if origin == "machine" else
+         "This claim predates origin tracking, so the ledger cannot say "
+         "whether a person entered it or a machine drafted it. ")
+        + "Open the source, decide, then: "
+        + f"sentinel claim dispose {claim_id} --by \"<your name>\"")
+
     # ── UNCITED ───────────────────────────────────────────────────────────
     if tier in ("GREEN", "ARITH"):
         add("UNCITED", BLOCK, len(cites) > 0,
@@ -197,9 +223,21 @@ def evaluate(conn: sqlite3.Connection, claim_id: int) -> list[dict]:
     # ── STALE_GATE (warn) ─────────────────────────────────────────────────
     if tier == "RED":
         try:
-            age = datetime.now(timezone.utc) - datetime.fromisoformat(c["created"])
-            stale = age > timedelta(days=STALE_DAYS)
-        except ValueError:
+            born = datetime.fromisoformat(c["created"])
+            # A timestamp with no timezone cannot be subtracted from an aware
+            # one -- it raises TypeError, which this used to let escape. The
+            # whole gate run then died on a bad date, so NO gate ran at all:
+            # a claim with a malformed timestamp sailed past UNCITED,
+            # PRIMARY_ONLY and the rest by crashing before they were reached.
+            # Assuming UTC is wrong by at most a day, against a 30-day
+            # threshold.
+            if born.tzinfo is None:
+                born = born.replace(tzinfo=timezone.utc)
+            stale = (datetime.now(timezone.utc) - born) > timedelta(days=STALE_DAYS)
+        except (ValueError, TypeError):
+            # An unparseable date is not evidence the claim is fresh, but it
+            # is not evidence it is stale either. Warn-level gate, so it stays
+            # visible without blocking.
             stale = False
         add("STALE_GATE", WARN, not stale,
             "" if not stale else

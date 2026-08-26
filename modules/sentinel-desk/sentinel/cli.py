@@ -125,17 +125,52 @@ def cmd_claim_add(a, conn, root):
     if cs is None:
         _die(f"No case '{a.case}'.")
     now = _now()
+    origin = getattr(a, "origin", None) or "human"
+    if origin not in ("human", "machine"):
+        _die("--origin must be 'human' or 'machine'.")
+    # A human-entered claim is disposed of by the act of entering it: somebody
+    # typed the sentence. A machine-drafted one is not, and stays undisposed
+    # until a person opens the source and says so.
+    disposed_by = getattr(a, "by", None) if origin == "human" else None
     cur = conn.execute(
         "INSERT INTO claims (case_id,text,tier,formula,outlet,closing_gate,resolution,"
-        "created,updated) VALUES (?,?,?,?,?,?,?,?,?)",
-        (cs["id"], a.text, a.tier, a.formula, a.outlet, a.gate, a.resolution, now, now))
+        "created,updated,origin,origin_note,disposed_by,disposed_at) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        (cs["id"], a.text, a.tier, a.formula, a.outlet, a.gate, a.resolution, now, now,
+         origin, getattr(a, "origin_note", None), disposed_by,
+         now if disposed_by else None))
     cid = cur.lastrowid
     audit.record(conn, "claim.add", "operator", str(cid),
-                 {"case": a.case, "tier": a.tier, "text": a.text},
+                 {"case": a.case, "tier": a.tier, "text": a.text,
+                  "origin": origin, "origin_note": getattr(a, "origin_note", None)},
                  mirror=store.audit_mirror(root))
     r = gates.run(conn, cid)
-    print(f"\n  claim {cid} recorded [{a.tier}]")
+    tag = "" if origin == "human" else "  [machine-drafted — nobody has read the source]"
+    print(f"\n  claim {cid} recorded [{a.tier}]{tag}")
     _print_gates(r)
+
+
+def cmd_claim_dispose(a, conn, root):
+    """A person takes responsibility for a machine-drafted claim.
+
+    This is the only way a machine-origin claim becomes publishable, and it is
+    deliberately a separate act from citing a document. Attaching a citation
+    says "this document is related". Disposing says "I opened it and this
+    sentence is mine now."
+    """
+    c = conn.execute("SELECT * FROM claims WHERE id=?", (a.claim,)).fetchone()
+    if c is None:
+        _die(f"No claim {a.claim}.")
+    if c["disposed_by"]:
+        _die(f"Claim {a.claim} was already disposed by {c['disposed_by']} "
+             f"on {c['disposed_at']}.")
+    now = _now()
+    conn.execute("UPDATE claims SET disposed_by=?, disposed_at=?, updated=? WHERE id=?",
+                 (a.by, now, now, a.claim))
+    audit.record(conn, "claim.dispose", a.by, str(a.claim),
+                 {"note": a.note}, mirror=store.audit_mirror(root))
+    print(f"\n  claim {a.claim} disposed by {a.by}")
+    _print_gates(gates.run(conn, a.claim))
 
 
 def cmd_cite(a, conn, root):
@@ -382,7 +417,19 @@ def build_parser() -> argparse.ArgumentParser:
     ca.add_argument("--outlet", default=None, help="required for REPORTED")
     ca.add_argument("--gate", default=None, help="required for RED: what would close it")
     ca.add_argument("--resolution", default=None, help="required for DEAD: what closed it")
+    ca.add_argument("--origin", default="human", choices=["human", "machine"],
+                    help="how this claim entered the ledger")
+    ca.add_argument("--origin-note", dest="origin_note", default=None,
+                    help="what drafted it, when origin is machine")
+    ca.add_argument("--by", default=None, help="who entered it")
     ca.set_defaults(fn=cmd_claim_add)
+
+    cd = cls.add_parser("dispose",
+                        help="take responsibility for a machine-drafted claim")
+    cd.add_argument("claim", type=int)
+    cd.add_argument("--by", required=True, help="your name — this goes in the ledger")
+    cd.add_argument("--note", default=None)
+    cd.set_defaults(fn=cmd_claim_dispose)
 
     ci = sub.add_parser("cite", help="attach a document to a claim")
     ci.add_argument("claim", type=int); ci.add_argument("doc", type=int)
