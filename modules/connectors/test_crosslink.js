@@ -51,6 +51,23 @@ module.exports = function run() {
     // "Group Partners Holdings" became a single entity wired to everything
     // either of them had ever been filed beside. Registrants really are named
     // this way.
+    // The surname rule was written for court captions and applied everywhere.
+    // It ate every single-word company without an Inc or LLC on it: RWE,
+    // VERIZON, LEIDOS, SPACEX, DOORDASH. They were silently absent from the
+    // index -- never a subject, and reported as "new" on every run.
+    for (const co of ['RWE', 'VERIZON', 'LEIDOS', 'SPACEX', 'DOORDASH', 'COVISTA']) {
+      check(`${co} survives when the name came from a structured org field`,
+        !X.tooGeneric(n(co), co, { assumeOrg: true }));
+    }
+    check('RWE is not dropped for being three letters',
+      !X.tooGeneric(n('RWE'), 'RWE', { assumeOrg: true }));
+    for (const person of ['Williams', 'Smith', 'Jones']) {
+      check(`${person} is still dropped where names came from a caption`,
+        X.tooGeneric(n(person), person));
+    }
+    check('an empty key is dropped in either context',
+      X.tooGeneric('', '', { assumeOrg: true }) && X.tooGeneric('', ''));
+
     check('a name that is ALL suffix words does not fold to nothing',
       n('PARTNERS HOLDINGS') !== '', `got ${JSON.stringify(n('PARTNERS HOLDINGS'))}`);
     check('two different all-suffix names stay different',

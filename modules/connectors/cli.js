@@ -963,7 +963,12 @@ async function cmdExpand(opts) {
   }
   console.log('');
 
+  // What is ALREADY in the library -- and that is not the same as the
+  // co-occurrence index. Names dropped from byName still exist as edge
+  // endpoints, so checking byName alone reported RWE and VERIZON as "new"
+  // on every single run, forever, over filings that were already captured.
   const known = new Set(byName.keys());
+  for (const e of edges) { known.add(e.client_key); known.add(e.registrant_key); }
   const found = [];
   let failed = 0;
 

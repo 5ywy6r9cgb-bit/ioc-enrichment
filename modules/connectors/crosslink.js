@@ -134,8 +134,26 @@ const ORG_MARKERS = /\b(inc|llc|l\.l\.c|ltd|limited|corp|corporation|co|company|
  * appears elsewhere WITH a suffix, and a false link costs more than a missed
  * one in a tool whose entire output is a shortlist to check by hand.
  */
-function tooGeneric(norm, raw) {
+function tooGeneric(norm, raw, opts = {}) {
+  if (!norm) return true;
   if (STOPWORDS.has(norm)) return true;
+
+  // WHERE THE NAME CAME FROM DECIDES HOW MUCH GUESSING IS ALLOWED.
+  //
+  // The surname rule below exists because splitting court captions produced
+  // plaintiffs' surnames, and "Williams" indexed as a company is noise. But
+  // it is a GUESS, and applied everywhere it ate real companies: RWE,
+  // VERIZON, LEIDOS, SPACEX, DOORDASH, COVISTA -- every single-word corporate
+  // name without an Inc or LLC on it. Those were silently absent from the
+  // index, so they never became subjects and were reported as "new" on every
+  // single run.
+  //
+  // A Senate LDA filing does not need guessing. `client.name` and
+  // `registrant.name` are structured fields that hold an organisation by
+  // definition of the form; there is no caption to split and no plaintiff to
+  // mistake. So a name taken from such a field skips the guess entirely.
+  if (opts.assumeOrg) return false;
+
   if (norm.length < 4) return true;
 
   // A corporate marker in the filed name settles it.
@@ -222,9 +240,12 @@ function index(captures) {
         }
       }
 
+      // A senatelda row's name is built from client.name and registrant.name --
+      // structured organisation fields, not a caption that had to be split.
+      const assumeOrg = cap.connector === 'senatelda';
       for (const piece of splitParties(raw)) {
         const key = normalise(piece);
-        if (tooGeneric(key, piece)) continue;
+        if (tooGeneric(key, piece, { assumeOrg })) continue;
         if (!byName.has(key)) byName.set(key, { key, display: piece.trim(), seen: [] });
         byName.get(key).seen.push({
           connector: cap.connector, subject: cap.subject,
