@@ -238,6 +238,8 @@ bin/sentinel connect lobby                   # read every captured lobbying fili
 bin/sentinel connect lobby --chart           # …and write the charts
 bin/sentinel connect brief "<name>"          # everything the library holds on one name
 bin/sentinel doc get "<url>"                 # fetch a primary source, hashed
+bin/sentinel corpus inventory <dir>          # what a records folder ACTUALLY holds
+bin/sentinel corpus ocr <dir> --out <dir>    # read the bundles that only look like PDFs
 bin/sentinel connect sweep                   # list the named subject sets
 bin/sentinel connect sweep datacenters       # the plan, no calls
 bin/sentinel connect sweep datacenters --go  # run it
@@ -675,6 +677,63 @@ investigative graph to a hosted instance takes `--allow-remote`, typed
 deliberately. Neo4j Aura is somebody else's server.
 
 ---
+
+---
+
+## 4a. What is actually in your records folder — `sentinel corpus`
+
+```bash
+bin/sentinel corpus inventory ~/sentinel/library --out ~/sentinel/inventory
+bin/sentinel corpus ocr ~/sentinel/library --out ~/sentinel/library_derived --dry-run
+bin/sentinel corpus ocr ~/sentinel/library --out ~/sentinel/library_derived
+```
+
+**A `.pdf` extension is a claim, not a fact.** An inventory of a real 349-file
+records library found this:
+
+| Verdict | Files |
+|---|---|
+| ZIP archive mislabelled as PDF | **78** |
+| Not actually a PDF | **14** |
+| Empty file | **3** |
+| Actually a readable PDF | **0** |
+
+All 95 files carrying a `.pdf` extension failed. Not one was a readable PDF.
+The portal serving them emits ZIP bundles of page images under a PDF name,
+**universally** — and `grep`, `pdftotext` and every keyword search ever run
+against those files returned nothing regardless of what was inside.
+
+**A null search result on a file in that table is not evidence of absence.**
+
+`corpus inventory` reads every file's magic bytes, not its extension, and
+writes `inventory.csv` — one row per file with real type, size, SHA-256, and
+for PDFs how much text can actually be extracted. Charts are written too if
+matplotlib is installed; without it you still get the CSV, which is the
+dataset.
+
+`corpus ocr` unpacks the ZIP bundles and produces searchable text. It needs
+`brew install tesseract`. It is resumable — interrupt it and re-run the same
+command; completed bundles are keyed on source SHA-256 and skipped.
+
+### The output is DERIVED, and the distinction is load-bearing
+
+Every page is tagged with where its text came from:
+
+| | |
+|---|---|
+| `native` | the bundle's own text layer. Reliable. |
+| `ocr` | machine-read off a page image. **Contains character errors.** |
+
+**Never quote from OCR text.** Open the page image in `pages/` and quote what
+you see. Shelve the derived output separately so a `PRIMARY_ONLY` gate does
+not mistake a machine transcript for a document.
+
+### One thing the verdict column will not say
+
+If `pdftotext` cannot run at all, readability was never tested — and that is
+not the same as a PDF with no text. Those files read
+`UNKNOWN — readability never tested`, never `ok`. The reassuring word is
+never the default for a check that did not happen.
 
 ---
 

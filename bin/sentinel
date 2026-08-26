@@ -42,6 +42,8 @@
 #   sentinel connect brief "<name>"  everything the library holds on one name
 #
 #   sentinel doc get <url>          fetch a primary source, hashed + text-extracted
+#   sentinel corpus inventory <dir> what a folder of records ACTUALLY holds
+#   sentinel corpus ocr <dir> --out <dir>   read the bundles that only look like PDFs
 #   sentinel connect graph          preview the Neo4j graph from your captures
 #   sentinel connect graph --push   write it into Neo4j
 #
@@ -318,6 +320,17 @@ case "$cmd" in
         fi
         ;;
       *) echo "watch subcommands: run [--all|--dry-run|--id=ID] | status | install [HOUR] | uninstall" ;;
+    esac
+    ;;
+
+  corpus)
+    # What is actually in a folder of records, and OCR for the bundles that
+    # only look like PDFs.
+    sub="${1:-}"; shift 2>/dev/null || true
+    case "$sub" in
+      inventory) python3 "$ROOT/modules/corpus/inventory.py" "$@" ;;
+      ocr)       python3 "$ROOT/modules/corpus/batch_ocr.py" "$@" ;;
+      *) echo "corpus subcommands: inventory ocr" >&2; exit 2 ;;
     esac
     ;;
 

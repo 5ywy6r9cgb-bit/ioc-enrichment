@@ -76,6 +76,43 @@ module.exports = async function run() {
     check('a 404 body is not saved as the document', !notFound.ok && notFound.status === 404);
   }
 
+  // ══ 2b. THE EXTENSION IS A CLAIM; THE MAGIC IS THE FILE ═══════════════
+  // On a real records corpus, 95 of 95 files with a .pdf extension were ZIP
+  // bundles of page images, non-PDFs, or empty. Not one was a readable PDF.
+  // Trusting the extension there means every search comes back empty and
+  // reads as "the record does not mention that".
+  {
+    check('a PDF is identified by its magic bytes',
+      D.sniff(Buffer.from('%PDF-1.7 etc')) === 'pdf');
+    check('a ZIP is identified even when everything else says PDF',
+      D.sniff(Buffer.from([0x50, 0x4B, 0x03, 0x04, 0, 0, 0, 0])) === 'zip');
+    check('an EMPTY zip is still a zip',
+      D.sniff(Buffer.from([0x50, 0x4B, 0x05, 0x06, 0, 0, 0, 0])) === 'zip');
+    check('a jpeg is not mistaken for a document',
+      D.sniff(Buffer.from([0xFF, 0xD8, 0xFF, 0xE0, 0, 0, 0, 0])) === 'jpeg');
+    check('a truncated buffer is unknown rather than guessed',
+      D.sniff(Buffer.from([0x50])) === 'unknown');
+
+    const dir = tmpdir();
+    const zipBody = Buffer.concat([Buffer.from([0x50, 0x4B, 0x03, 0x04]), Buffer.alloc(64)]);
+    const got = await D.fetchDocument('https://portal.gov/CouncilMinutes.pdf',
+      async () => ({ status: 200, headers: { 'content-type': 'application/pdf' }, body: zipBody }),
+      { dir });
+
+    check('a ZIP served as application/pdf is NOT treated as a PDF',
+      got.ok && got.isPdf === false, JSON.stringify({ isPdf: got.isPdf, magic: got.magic }));
+    check('and it is named as a mislabelled zip, not merely "not a pdf"',
+      got.zipMislabelled === true);
+    check('the real type is reported', got.magic === 'zip');
+
+    // A genuine PDF must not trip the mislabelled flag.
+    const real = await D.fetchDocument('https://x.gov/opinion.pdf',
+      async () => ({ status: 200, headers: { 'content-type': 'application/pdf' },
+                     body: Buffer.from('%PDF-1.7 real document here') }), { dir });
+    check('a real PDF is not flagged as mislabelled',
+      real.isPdf === true && real.zipMislabelled === false);
+  }
+
   // ══ 3. MISSING TOOL IS NOT AN EMPTY DOCUMENT ══════════════════════════
   // These are three different facts and only one of them is about the
   // document. Reporting the first as the third is how a readable filing gets

@@ -84,8 +84,16 @@ async function cmdGet(url, opts) {
         readable = true;
       }
     }
+  } else if (got.zipMislabelled) {
+    readable = false;
+    console.log(`\n  ${C.r('THIS IS A ZIP ARCHIVE WEARING A .pdf NAME.')}`);
+    console.log(C.dim('  Records portals serve bundles of page images this way. pdftotext,'));
+    console.log(C.dim('  grep and every keyword search return nothing regardless of content —'));
+    console.log(C.dim('  and a null result on a file like this is NOT evidence of absence.'));
+    console.log(C.dim('  Unpack and OCR it:'));
+    console.log(C.dim(`    bin/sentinel corpus ocr "${path.dirname(got.file)}" --out "${path.dirname(got.file)}_derived"`));
   } else {
-    console.log(C.dim('\n  Not a PDF — saved as fetched, no extraction attempted.'));
+    console.log(C.dim(`\n  Not a PDF (looks like: ${got.magic}) — saved as fetched, no extraction attempted.`));
   }
 
   // ---- provenance ----------------------------------------------------
@@ -106,8 +114,10 @@ async function cmdGet(url, opts) {
         content_type: got.contentType,
         bytes: got.bytes,
         pages,
+        magic: got.magic,
+        zip_mislabelled: got.zipMislabelled === true,
         text_extracted: readable === true,
-        likely_scanned: readable === false,
+        likely_scanned: readable === false && !got.zipMislabelled,
         result_disposition: 'primary_source_document',
       },
     }));

@@ -42,6 +42,30 @@ const { execFileSync } = require('child_process');
  */
 const SCAN_THRESHOLD_CHARS_PER_PAGE = 120;
 
+/**
+ * What a file ACTUALLY is, from its first bytes.
+ *
+ * An extension is a claim and a Content-Type is a claim; the magic number is
+ * the file. Records portals serve ZIP archives of page images under a .pdf
+ * name, and on a real corpus every single .pdf was one of those, a non-PDF,
+ * or empty. Trusting the extension there means every search returns nothing
+ * and reads as "the record does not mention that".
+ */
+function sniff(buf) {
+  if (!buf || buf.length < 4) return 'unknown';
+  const head = buf.slice(0, 8);
+  if (head.slice(0, 5).toString('latin1') === '%PDF-') return 'pdf';
+  // PK\x03\x04 archive; PK\x05\x06 empty archive; PK\x07\x08 spanned.
+  if (head[0] === 0x50 && head[1] === 0x4B
+      && [0x03, 0x05, 0x07].includes(head[2])) return 'zip';
+  if (head.slice(0, 4).toString('latin1') === '%!PS') return 'postscript';
+  if (head[0] === 0xFF && head[1] === 0xD8) return 'jpeg';
+  if (head.slice(0, 8).toString('latin1') === '\x89PNG\r\n\x1a\n') return 'png';
+  if (head.slice(0, 5).toString('latin1').toLowerCase() === '<html'
+      || buf.slice(0, 200).toString('latin1').toLowerCase().includes('<!doctype html')) return 'html';
+  return 'unknown';
+}
+
 function sha256(buf) {
   return crypto.createHash('sha256').update(buf).digest('hex');
 }
@@ -168,19 +192,29 @@ async function fetchDocument(url, request, opts = {}) {
   const file = path.join(dir, `${stamp}__${hash.slice(0, 12)}__${nameFor(url, contentType)}`);
   fs.writeFileSync(file, res.body);
 
+  const magic = sniff(res.body);
+
   return {
     ok: true,
     file,
     sha256: hash,
     bytes: res.body.length,
     contentType,
-    isPdf: /pdf/i.test(contentType) || res.body.slice(0, 5).toString('latin1') === '%PDF-',
+    magic,
+    // The MAGIC decides, not the extension and not the Content-Type. Both of
+    // those are claims made by whoever served the file.
+    isPdf: magic === 'pdf',
+    // A ZIP served as a PDF is not a curiosity. On a real records corpus,
+    // 95 of 95 files with a .pdf extension were ZIP bundles of page images,
+    // documents that were not PDFs at all, or empty -- and every keyword
+    // search ever run against them returned nothing regardless of content.
+    zipMislabelled: magic === 'zip' && (/pdf/i.test(contentType) || /\.pdf$/i.test(file)),
     url,
     fetchedAt: new Date().toISOString(),
   };
 }
 
 module.exports = {
-  fetchDocument, extractText, pageCount, nameFor, sha256, haveTool,
+  fetchDocument, extractText, pageCount, nameFor, sha256, haveTool, sniff,
   SCAN_THRESHOLD_CHARS_PER_PAGE,
 };
