@@ -900,6 +900,8 @@ DATABASE_URL            # Postgres, for `foia --db`
 | USAspending says *N of 25 match only inside a longer word* | A substring hit — `INTERWEST CONSTRUCTION` matching a search for `RWE`. They are kept and flagged rather than dropped, because dropping silently is worse. Short subjects produce more of them. |
 | `zsh: event not found: …` | zsh expands `!` as history even inside double quotes. Wrap the whole command in SINGLE quotes, or avoid `!` in it. Same family as the `#` pitfall. |
 | `connect brief "<name>"` finds nothing you know is there | Sources abbreviate, and court captions abbreviate hardest — the caption is `Licking Hts. Local School Dist. Bd. of Edn.`, so a search for "Licking Heights" matches nothing while the case sits in the capture. The brief now tries the longest distinctive word and tells you what it found. Search the distinctive token, not the full formal name. |
+| A single-connector search returns nonsense, e.g. Mississippi murder cases for an Ohio school district | A flag value was leaking into the subject. `--into new-albany` left `new-albany` in the query, because the flag was stripped and its value was not. Fixed; if a subject still looks wrong, read the `subject` line the run prints — it is the exact string that was sent. |
+| The run says `filing to evidence/investigations/<name>/` | Old output. It never wrote there. `--into` tags the ledger record; captures live in `evidence/captures/`. The line now says `tagging`. |
 
 
 ## 12. Re-deriving this page

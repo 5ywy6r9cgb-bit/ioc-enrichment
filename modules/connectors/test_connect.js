@@ -29,6 +29,47 @@ const cliSrc = require('fs').readFileSync(require.resolve('./cli.js'), 'utf8');
 
 module.exports = function run() {
 
+  // ══ A FLAG VALUE MUST NOT BECOME PART OF THE SUBJECT ══════════════════
+  // `connect courtlistener "X" --into new-albany` searched for
+  // "X new-albany" and returned Mississippi murder cases. args is argv with
+  // --flags filtered out, which drops `--into` and KEEPS `new-albany`; the
+  // leftover value landed in the query. Same corruption as `--into data
+  // center` searching for "vadata center", fixed once in `connect all` and
+  // never in the single-connector path.
+  {
+    const positional = (argv, fromIndex) => {
+      const out = [];
+      let seen = 0;
+      for (let i = 0; i < argv.length; i++) {
+        const a = argv[i];
+        if (a.startsWith('--')) {
+          if (/^--(into|only|skip|pages|limit|chart)$/.test(a)
+              && argv[i + 1] && !argv[i + 1].startsWith('--')) i++;
+          continue;
+        }
+        if (seen++ < fromIndex) continue;
+        out.push(a);
+      }
+      return out;
+    };
+
+    check('a --into value does not survive into the subject',
+      positional(['courtlistener', 'Licking', 'Heights', '--into', 'new-albany'], 1)
+        .join(' ') === 'Licking Heights');
+    check('a flag before the subject is handled too',
+      positional(['courtlistener', '--into', 'x', 'Licking', 'Heights'], 1)
+        .join(' ') === 'Licking Heights');
+    check('a valueless flag consumes nothing',
+      positional(['courtlistener', 'Licking', '--dry-run'], 1).join(' ') === 'Licking');
+    check('--into immediately followed by another flag eats no subject word',
+      positional(['courtlistener', '--into', '--dry-run', 'Licking'], 1).join(' ') === 'Licking');
+    check('the search verb form skips the connector name too',
+      positional(['search', 'courtlistener', 'Alpine', 'Group', '--into', 'lobbying'], 2)
+        .join(' ') === 'Alpine Group');
+    check('a subject that looks like a flag value is still kept',
+      positional(['courtlistener', 'new-albany'], 1).join(' ') === 'new-albany');
+  }
+
   // ══ A RATE LIMIT IS "LATER", NOT "NO" ═════════════════════════════════
   // CourtListener allows 5/min and enforces it. A twelve-subject sweep fired
   // calls back to back and lost the source on most subjects -- reported, but

@@ -339,7 +339,12 @@ async function cmdAll(query, opts) {
   console.log('\n' + C.b(`AUTHORIZED RUN — ${runnable.length} connector(s)`));
   console.log(`  subject     ${C.b(query)}`);
   console.log(`  calls       ${runnable.length} (exactly, one per connector, sequential)`);
-  if (opts.into) console.log(`  filing to   evidence/investigations/${opts.into}/`);
+  // Captures all live in ONE directory, because crosslink, lobby, brief and
+  // graph read one directory -- filing them into per-investigation folders
+  // would hide them from every tool that reads them back. `--into` therefore
+  // TAGS a capture rather than moving it. This line used to announce a folder
+  // nothing was ever written to, which is the desk lying about its own work.
+  if (opts.into) console.log(`  tagging     investigation: ${opts.into}  ${C.dim('(captures stay in evidence/captures/)')}`);
   console.log('  boundary    every hit lands as a LEAD requiring a primary source');
   for (const name of runnable) {
     console.log(C.dim(`    ${name.padEnd(18)} ${R.CONNECTORS[name].describe(query)}`));
@@ -1420,8 +1425,43 @@ async function main() {
     }
     return cmdRegistrant(q, { pages, dryRun: opts.dryRun });
   }
-  if (action === 'search') return cmdSearch(args[1], args.slice(2).join(' '), opts);
-  if (R.CONNECTORS[action]) return cmdSearch(action, args.slice(1).join(' '), opts);
+  // Flags must not survive into the subject. `connect courtlistener "X"
+  // --into new-albany` searched for "X new-albany" and returned Mississippi
+  // murder cases -- the same corruption that made `--into data center` search
+  // for "vadata center", fixed once in `connect all` and never here.
+  // NOTE ON WHY THIS READS argv AND NOT args.
+  //   `args` is argv with --flags filtered out, which drops `--into` and
+  //   KEEPS `new-albany`. That leftover value is what landed in the subject.
+  //   The flag and its value have to be removed together, which means
+  //   walking the original argv where the pairing is still visible.
+  const positional = (fromIndex) => {
+    const out = [];
+    let seen = 0;
+    for (let i = 0; i < argv.length; i++) {
+      const a = argv[i];
+      if (a.startsWith('--')) {
+        if (/^--(into|only|skip|pages|limit|chart)$/.test(a)
+            && argv[i + 1] && !argv[i + 1].startsWith('--')) i++;
+        continue;
+      }
+      if (seen++ < fromIndex) continue;
+      out.push(a);
+    }
+    return out;
+  };
+  const intoOf = (list) => {
+    const i = list.indexOf('--into');
+    return i >= 0 && list[i + 1] && !list[i + 1].startsWith('--') ? list[i + 1] : null;
+  };
+
+  if (action === 'search') {
+    return cmdSearch(args[1], positional(2).join(' '),
+      Object.assign({}, opts, { into: intoOf(argv) }));
+  }
+  if (R.CONNECTORS[action]) {
+    return cmdSearch(action, positional(1).join(' '),
+      Object.assign({}, opts, { into: intoOf(argv) }));
+  }
 
   console.error(`unknown action: ${action}`);
   console.error('usage: cli.js test | list | all "<subject>" [--into INV] | crosslink | lobby [--chart] | search <connector> "<query>" [--dry-run]');

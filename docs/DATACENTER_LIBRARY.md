@@ -48,8 +48,9 @@ One subject, every source that can answer:
 bin/sentinel connect all "Cologix" --into datacenters
 ```
 
-`--into` files every capture under `evidence/investigations/datacenters/`, so
-the library builds itself in one place instead of scattering.
+`--into` **tags** each capture with an investigation name in the provenance
+ledger. The files themselves stay in `evidence/captures/` — one directory,
+because that is the one `crosslink`, `brief` and `graph` read.
 
 Work the list. Each is one command:
 

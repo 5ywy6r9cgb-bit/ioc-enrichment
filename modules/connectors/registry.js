@@ -880,6 +880,10 @@ async function runConnector(name, query, opts = {}) {
     extra: Object.assign({
       connector: name,
       subject: query,
+      // What `--into` actually does: tag the record. It was passed in and
+      // dropped on the floor while the terminal announced a folder that was
+      // never written to.
+      investigation: opts.investigation || null,
       // Which question was asked. A capture that does not say cannot be
       // told apart later from one that asked the other question.
       search_mode: opts.mode === 'registrant' ? 'registrant_name' : 'client_name',
