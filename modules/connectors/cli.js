@@ -271,7 +271,7 @@ function parseAllArgs(args) {
     subject.push(a);
   }
 
-  if (!subject.length) return { error: 'no subject. usage: connect all "<subject>" [--into <name>]' };
+  if (!subject.length) return { error: 'no subject. usage: connect all "SUBJECT" [--into NAME]' };
 
   // The folder name has to survive being a path component.
   if (opts.into && !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(opts.into)) {
@@ -311,7 +311,7 @@ function parseAllArgs(args) {
  */
 async function cmdAll(query, opts) {
   if (!query) {
-    console.error('\n  usage: sentinel connect all "<subject>" [--into <investigation>]\n');
+    console.error('\n  usage: sentinel connect all "SUBJECT" [--into INVESTIGATION]\n');
     process.exit(2);
   }
 
@@ -446,7 +446,7 @@ function cmdCrosslink(opts) {
 
   if (!captures.length) {
     console.log(`\n  ${C.dim('No captures yet. Run some searches first:')}`);
-    console.log(C.dim('    sentinel connect all "<subject>" --into <name>\n'));
+    console.log(C.dim('    sentinel connect all "SUBJECT" --into NAME\n'));
     return;
   }
 
@@ -505,7 +505,7 @@ function cmdCrosslink(opts) {
   console.log(C.dim('  a court caption containing a word — all look identical here. This is'));
   console.log(C.dim('  a shortlist of places to look. Confirm same-entity, then pull the'));
   console.log(C.dim('  filing itself and cite that.'));
-  console.log(C.dim('\n  Open a case for what survives:  sentinel case new <ID> "..."\n'));
+  console.log(C.dim('\n  Open a case for what survives:  sentinel case new CASE-ID "..."\n'));
 }
 
 /**
@@ -827,7 +827,7 @@ function cmdLobby(opts) {
 }
 
 /**
- * connect senatelda --registrant "<firm>" — every client a firm files for.
+ * connect senatelda --registrant "FIRM NAME" — every client a firm files for.
  *
  * WHY THIS IS A SEPARATE COMMAND
  *   The ordinary search asks "who lobbied for this company". This asks "who
@@ -1028,7 +1028,7 @@ async function cmdExpand(opts) {
   if (!found.length) {
     console.log(`  ${C.dim('No clients on the first page that you did not already have.')}`);
     console.log(C.dim('  Page 1 is the 25 most recent filings — go deeper on one firm with:'));
-    console.log(C.dim('    sentinel connect senatelda --registrant "<firm>" --pages 20\n'));
+    console.log(C.dim('    sentinel connect senatelda --registrant "FIRM NAME" --pages 20\n'));
   } else {
     console.log(`  ${C.b('NEW NAMES')}  ${found.length}  ${C.dim('not previously in your library')}`);
     for (const f of found) {
@@ -1051,7 +1051,7 @@ async function cmdExpand(opts) {
 }
 
 /**
- * connect sweep <set> — run a named subject list across every connector.
+ * connect sweep SET — run a named subject list across every connector.
  *
  * The subject list lived in a document, which meant retyping twelve commands
  * and, in practice, running a slightly different list each time. A list you
@@ -1084,7 +1084,7 @@ async function cmdSweep(setName, opts) {
       console.log(`    ${C.b(n.padEnd(14))} ${String(st.subjects.length).padStart(3)} subjects  ${C.dim('→ ' + st.into)}`);
       console.log(`    ${' '.repeat(14)} ${C.dim(st.note)}`);
     }
-    console.log(`\n  ${C.dim('usage: sentinel connect sweep <set> [--go]')}\n`);
+    console.log(`\n  ${C.dim('usage: sentinel connect sweep SET [--go]')}\n`);
     if (setName) process.exit(2);
     return;
   }
@@ -1138,7 +1138,7 @@ async function cmdSweep(setName, opts) {
 }
 
 /**
- * connect brief "<name>" — everything the library holds about one entity.
+ * connect brief "NAME" — everything the library holds about one entity.
  *
  * 465 captures is not a library you can read. Nothing in this desk turned
  * captured bytes back into something a person could sit down with, so the
@@ -1163,7 +1163,7 @@ async function cmdSweep(setName, opts) {
 async function cmdBrief(name, opts) {
   const X = require('./crosslink.js');
   if (!name) {
-    console.error('\n  usage: sentinel connect brief "<name>"\n');
+    console.error('\n  usage: sentinel connect brief "NAME"\n');
     process.exit(2);
   }
   const captures = X.readCaptures(R.CAPTURES);
@@ -1297,7 +1297,7 @@ async function cmdBrief(name, opts) {
   console.log(`\n  ${C.dim('Every line here is a LEAD. A name match is not an identification, and')}`);
   console.log(`  ${C.dim('nothing above has been read. Pull the underlying document before any')}`);
   console.log(`  ${C.dim('of it is used, then put it in a case file:')}`);
-  console.log(C.dim(`    sentinel case new <id> "<what you are claiming>"\n`));
+  console.log(C.dim(`    sentinel case new CASE-ID "<what you are claiming>"\n`));
 }
 
 async function cmdSearch(name, query, opts) {
@@ -1308,7 +1308,7 @@ async function cmdSearch(name, query, opts) {
     process.exit(2);
   }
   if (!query) {
-    console.error(`usage: sentinel connect ${name} "<query>"`);
+    console.error(`usage: sentinel connect ${name} "QUERY"`);
     process.exit(2);
   }
 
@@ -1447,7 +1447,7 @@ async function main() {
     const pi = argv.indexOf('--pages');
     const pages = pi >= 0 && argv[pi + 1] ? parseInt(argv[pi + 1], 10) : undefined;
     if (!q) {
-      console.error('usage: sentinel connect senatelda --registrant "<firm>" [--pages N]');
+      console.error('usage: sentinel connect senatelda --registrant "FIRM NAME" [--pages N]');
       process.exit(2);
     }
     return cmdRegistrant(q, { pages, dryRun: opts.dryRun });
@@ -1491,7 +1491,7 @@ async function main() {
   }
 
   console.error(`unknown action: ${action}`);
-  console.error('usage: cli.js test | list | all "<subject>" [--into INV] | crosslink | lobby [--chart] | search <connector> "<query>" [--dry-run]');
+  console.error('usage: cli.js test | list | all "SUBJECT" [--into INV] | crosslink | lobby [--chart] | search <connector> "QUERY" [--dry-run]');
   process.exit(2);
 }
 

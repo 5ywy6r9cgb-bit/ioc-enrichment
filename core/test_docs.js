@@ -121,6 +121,7 @@ for (const leak of ['set -euo pipefail', 'usage()', 'BASH_SOURCE', '${ROOT}']) {
   const clis = [
     ['modules/docs/cli.js', []],
     ['modules/bridge/draft.js', ['--help']],
+    ['modules/connectors/cli.js', ['senatelda', '--registrant']],
   ];
   for (const [rel, argv] of clis) {
     const file = require('path').join(__dirname, '..', rel);
