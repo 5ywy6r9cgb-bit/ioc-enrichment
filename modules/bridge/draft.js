@@ -79,10 +79,17 @@ function describe(connector, row) {
       return bits ? `${name} (${bits})` : name;
     }
     case 'senatelda': {
-      const client = row.client || row.client_name;
-      return client && client !== name
-        ? `${name}'s lobbying filing for ${client}`
-        : `${name}'s lobbying filing`;
+      // The parser bakes both parties into one field as "CLIENT — REGISTRANT".
+      // Reading it as a single name produced
+      //   "AWS PUBLIC POLICY, AMERICAS — ALPINE GROUP PARTNERS, LLC.'s
+      //    lobbying filing"
+      // which reads as one party and is two. The `row.client` branch this
+      // replaces was dead code: the connector never emits that field.
+      const [client, registrant] = name.split(' — ');
+      if (registrant && client) {
+        return `${registrant}'s lobbying for ${client}`;
+      }
+      return `${name}'s lobbying filing`;
     }
     default:
       return name;
@@ -107,7 +114,8 @@ function toClaim(connector, subject, row) {
     ? `The ${label} record itself, fetched and read — bin/sentinel doc get ${url}`
     : `The ${label} record itself (${row.external_id || 'no id'}), fetched and read`;
 
-  return { text, gate, connector, subject, url, id: row.external_id || '' };
+  return { text, gate, connector, subject, url, id: row.external_id || '',
+           period: row.period || row.date || '' };
 }
 
 // ── reading the desk ──────────────────────────────────────────────────────
@@ -179,13 +187,31 @@ function gather(opts) {
       if (c) out.push(c);
     }
   }
-  // One record can be returned by several searches. The same question twice is
-  // still one question.
-  const seen = new Set();
-  const unique = out.filter((c) => {
-    if (seen.has(c.text)) return false;
-    seen.add(c.text);
-    return true;
+  // ── THE FOLD ─────────────────────────────────────────────────────────
+  // One record returned by several searches is one question. But so is one
+  // RELATIONSHIP evidenced by many separate records: a registrant that filed
+  // seventeen quarterly reports for one client raises one question, not
+  // seventeen identical ones.
+  //
+  // That fold is right, and folding it SILENTLY is not. On this operator's
+  // library 79 sworn filings collapsed into 9 questions with nothing on
+  // screen to say that 70 further filings stood behind them -- which reads
+  // as a thin record when it is the opposite.
+  //
+  // So the count is carried on the claim and shown, but never written into
+  // the claim TEXT. Text must stay deterministic or a later run, with more
+  // captures behind it, would generate a different sentence for the same
+  // relationship and file it as a second claim.
+  const byText = new Map();
+  for (const c of out) {
+    if (!byText.has(c.text)) byText.set(c.text, { ...c, folded: 0, periods: [] });
+    const e = byText.get(c.text);
+    e.folded += 1;
+    if (c.period) e.periods.push(c.period);
+  }
+  const unique = [...byText.values()].map((c) => {
+    const p = [...new Set(c.periods)].sort();
+    return { ...c, span: p.length ? (p.length === 1 ? p[0] : `${p[0]} – ${p[p.length - 1]}`) : '' };
   });
   return { claims: unique, unparsed, captures: caps.length, raw: out.length };
 }
@@ -245,6 +271,11 @@ function cmdDraft(slug, opts) {
 
   console.log(`\n  ${C.b(`Draft into case "${slug}"`)}`);
   console.log(C.d(`  ${captures} capture file(s) → ${raw} row(s) → ${claims.length} distinct question(s)`));
+  const folded = claims.reduce((n, c) => n + Math.max(0, (c.folded || 1) - 1), 0);
+  if (folded) {
+    console.log(C.d(`  ${folded} further record(s) stand behind those questions — `
+      + `a relationship evidenced many times is still one question`));
+  }
   if (dupes) console.log(C.d(`  ${dupes} already on the desk, skipped`));
   if (unparsed) console.log(C.y(`  ${unparsed} capture(s) unparseable — nothing drafted from those`));
   if (opts.limit && fresh.length > opts.limit) {
@@ -259,6 +290,12 @@ function cmdDraft(slug, opts) {
   console.log('');
   for (const c of limited.slice(0, opts.apply ? 5 : 25)) {
     console.log(`  ${C.y('RED')}  ${c.text}`);
+    if (c.folded > 1) {
+      // Said out loud, because the alternative is an operator reading "9
+      // questions" off a library holding 79 sworn filings.
+      console.log(C.b(`       ${c.folded} separate records fold into this one question`)
+        + (c.span ? C.d(`  ·  ${c.span}`) : ''));
+    }
     console.log(C.d(`       gate: ${c.gate}`));
   }
   if (!opts.apply && limited.length > 25) {

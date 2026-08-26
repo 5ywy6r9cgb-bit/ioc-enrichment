@@ -1159,6 +1159,30 @@ claims need disposing once, each.
 Nothing is written without `--apply`. Filing several hundred claims into your
 desk by accident is not something to find out about afterwards.
 
+### The fold, and why it is announced
+
+A registrant that filed seventeen quarterly reports for one client raises
+**one** question, not seventeen identical ones. So drafting folds records into
+questions — and says how many folded:
+
+```
+  1 capture file(s) → 7 row(s) → 2 distinct question(s)
+  5 further record(s) stand behind those questions
+
+  RED  Does ALPINE GROUP PARTNERS, LLC.'s lobbying for AWS PUBLIC POLICY,
+       AMERICAS establish anything about AWS?
+       6 separate records fold into this one question  ·  2024 Q1 – 2025 Q2
+```
+
+Silence here would be the failure. On a real library **79 sworn filings
+collapsed into 9 questions** with nothing on screen saying 70 more stood
+behind them — which reads as a thin record when it is the opposite of one.
+
+The count is shown but **never written into the claim text.** Text must stay
+deterministic: a later run with more captures behind it would otherwise
+generate a different sentence for the same relationship and file it as a
+second claim. Counts are derived at render time, not frozen into a claim.
+
 ### Re-running is safe
 
 Claim text is deterministic — the same capture row always produces the same

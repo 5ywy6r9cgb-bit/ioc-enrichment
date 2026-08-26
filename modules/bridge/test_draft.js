@@ -156,6 +156,67 @@ module.exports = async function run() {
       String(none.claims.length));
   }
 
+  // ══ 5c. THE FOLD IS REAL, AND MUST NOT BE SILENT ══════════════════════
+  // A registrant that filed seventeen quarterly reports for one client raises
+  // ONE question, not seventeen identical ones -- so folding is right. But on
+  // a real library 79 sworn filings collapsed into 9 questions with nothing
+  // on screen saying 70 more stood behind them, which reads as a thin record
+  // when it is the opposite.
+  {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fold-'));
+    const capDir = path.join(dir, 'captures');
+    fs.mkdirSync(capDir, { recursive: true });
+    // Four quarterly filings, one registrant, one client.
+    const results = ['Q1', 'Q2', 'Q3', 'Q4'].map((q, i) => ({
+      filing_uuid: `uuid-${i}`,
+      client: { name: 'AWS PUBLIC POLICY' },
+      registrant: { name: 'ALPINE GROUP PARTNERS' },
+      filing_year: 2025, filing_period_display: q,
+      filing_document_url: `https://lda.gov/f/${i}/`,
+    }));
+    fs.writeFileSync(path.join(capDir,
+      'live_capture_senatelda_AWS_2026-01-01T00-00-00-000Z.json'),
+      JSON.stringify({ count: 4, results }));
+
+    const saved = process.env.SENTINEL_EVIDENCE_DIR;
+    process.env.SENTINEL_EVIDENCE_DIR = dir;
+    for (const m of ['../connectors/registry.js', '../connectors/crosslink.js', './draft.js']) {
+      delete require.cache[require.resolve(m)];
+    }
+    const D4 = require('./draft.js');
+    const g = D4.gather({});
+    if (saved === undefined) delete process.env.SENTINEL_EVIDENCE_DIR;
+    else process.env.SENTINEL_EVIDENCE_DIR = saved;
+
+    ok('four filings for one registrant/client pair make ONE question',
+      g.claims.length === 1, `${g.claims.length} claims`);
+    ok('and the question carries how many records stand behind it',
+      g.claims[0].folded === 4, String(g.claims[0].folded));
+    ok('the period span is reported so the relationship has a shape',
+      /2025 Q1/.test(g.claims[0].span) && /2025 Q4/.test(g.claims[0].span),
+      g.claims[0].span);
+    ok('the raw row count is still visible, so the fold is checkable',
+      g.raw === 4, String(g.raw));
+    ok('the stored TEXT carries no count, so a later run stays idempotent',
+      !/\b4\b/.test(g.claims[0].text), g.claims[0].text);
+  }
+
+  // ══ 5d. A LOBBYING QUESTION NAMES BOTH PARTIES ════════════════════════
+  // The connector bakes both into one field as "CLIENT — REGISTRANT".
+  // Reading that as a single name produced "AWS PUBLIC POLICY, AMERICAS —
+  // ALPINE GROUP PARTNERS, LLC.'s lobbying filing" -- which reads as one
+  // party and is two.
+  {
+    const d = D.describe('senatelda',
+      { name: 'AWS PUBLIC POLICY, AMERICAS — ALPINE GROUP PARTNERS, LLC.' });
+    ok('the registrant is named as the one doing the lobbying',
+      d.startsWith('ALPINE GROUP PARTNERS'), d);
+    ok('and the client as the one lobbied for',
+      /for AWS PUBLIC POLICY, AMERICAS$/.test(d), d);
+    ok('a name with no separator still produces something readable',
+      /lobbying filing/.test(D.describe('senatelda', { name: 'SOLO FIRM' })));
+  }
+
   // ══ 6. THE SUBJECT IS CARRIED INTO THE QUESTION ═══════════════════════
   // A question that does not say what it is a question ABOUT is unanswerable
   // three months later.
