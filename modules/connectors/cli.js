@@ -1028,6 +1028,93 @@ async function cmdExpand(opts) {
   console.log(C.dim('    sentinel connect graph --push\n'));
 }
 
+/**
+ * connect sweep <set> — run a named subject list across every connector.
+ *
+ * The subject list lived in a document, which meant retyping twelve commands
+ * and, in practice, running a slightly different list each time. A list you
+ * cannot re-run identically is not a library, it is a memory.
+ *
+ * NOTHING RUNS WITHOUT --go.
+ *   A sweep is connectors × subjects. Twelve subjects across nine connectors
+ *   is over a hundred live calls to public services, and that is not a thing
+ *   to set off by typing a word slightly wrong. The default prints the plan
+ *   and the exact call count; --go performs it.
+ *
+ * A SUBJECT IS A SEARCH STRING.
+ *   Putting a name in the list asserts nothing about it. It says only that
+ *   the name is worth asking about, which is what a library is for.
+ */
+async function cmdSweep(setName, opts) {
+  const file = path.join(__dirname, 'subjects.json');
+  let sets;
+  try { sets = JSON.parse(fs.readFileSync(file, 'utf8')); }
+  catch (e) {
+    console.error(`\n  ${C.r('Cannot read subjects.json:')} ${e.message}\n`);
+    process.exit(2);
+  }
+  const names = Object.keys(sets).filter((k) => k !== '//');
+
+  if (!setName || !sets[setName]) {
+    console.log(`\n  ${C.b('Subject sets')}  ${C.dim(file)}\n`);
+    for (const n of names) {
+      const st = sets[n];
+      console.log(`    ${C.b(n.padEnd(14))} ${String(st.subjects.length).padStart(3)} subjects  ${C.dim('→ ' + st.into)}`);
+      console.log(`    ${' '.repeat(14)} ${C.dim(st.note)}`);
+    }
+    console.log(`\n  ${C.dim('usage: sentinel connect sweep <set> [--go]')}\n`);
+    if (setName) process.exit(2);
+    return;
+  }
+
+  const set = sets[setName];
+  // Count what will ACTUALLY run, by the same rules cmdAll uses: a connector
+  // that takes an identifier rather than a name is skipped, and so is one
+  // whose key is not set. Announcing "108 calls" and making 63 is the same
+  // class of wrong as announcing 63 and making 108 -- the number is either
+  // the truth or it is decoration.
+  const env = R.loadEnv();
+  const runnable = [];
+  const skipped = [];
+  for (const [name, c] of Object.entries(R.CONNECTORS)) {
+    if (c.freeText === false) { skipped.push([name, 'takes an identifier, not a name']); continue; }
+    if (c.keyRequired && !R.resolveKey(c, env)) { skipped.push([name, `${c.keyVar} not set`]); continue; }
+    runnable.push(name);
+  }
+  const perSubject = runnable.length;
+  const totalCalls = perSubject * set.subjects.length;
+
+  console.log('\n' + C.b(`Sweep — ${setName}`));
+  console.log(`  ${C.dim(set.note)}`);
+  console.log(`  subjects    ${set.subjects.length}`);
+  console.log(`  filing to   evidence/investigations/${set.into}/`);
+  console.log(`  ${C.b('live calls')}  ${C.b(String(totalCalls))}  ${C.dim(`${set.subjects.length} subjects × ${perSubject} calls`)}`);
+  console.log('  boundary    every hit lands as a LEAD requiring a primary source\n');
+  for (const sub of set.subjects) console.log(`    ${sub}`);
+  if (skipped.length) {
+    console.log('');
+    for (const [name, why] of skipped) console.log(C.y(`    ${name.padEnd(18)} SKIPPED — ${why}`));
+  }
+
+  if (!opts.go) {
+    console.log(`\n  ${C.b('Nothing ran.')} ${C.dim('This is the plan.')}`);
+    console.log(`  ${C.dim('To run it:')}  sentinel connect sweep ${setName} --go`);
+    console.log(C.dim(`  That is ${totalCalls} requests to public services, made one at a time.\n`));
+    return;
+  }
+
+  console.log('');
+  let done = 0;
+  for (const sub of set.subjects) {
+    done++;
+    console.log(C.b(`\n  [${done}/${set.subjects.length}] ${sub}`));
+    await cmdAll(sub, { into: set.into });
+  }
+  console.log(`\n  ${C.g('Sweep complete.')} ${C.dim('Fold it in with:')}`);
+  console.log(C.dim('    sentinel connect crosslink'));
+  console.log(C.dim('    sentinel connect graph --push\n'));
+}
+
 async function cmdSearch(name, query, opts) {
   const c = R.CONNECTORS[name];
   if (!c) {
@@ -1148,6 +1235,9 @@ async function main() {
   }
   // --registrant turns the senatelda search around: "who does this firm file
   // for" rather than "who filed for this company".
+  if (action === 'sweep') {
+    return cmdSweep(args[1], { go: argv.includes('--go') });
+  }
   if (action === 'expand') {
     const li = argv.indexOf('--limit');
     return cmdExpand({
@@ -1180,4 +1270,4 @@ if (require.main === module) {
   main().catch((e) => { console.error(e); process.exit(1); });
 }
 
-module.exports = { verdictFor, cmdTest, wrap, parseAllArgs, cmdLobby, cmdGraph, cmdRegistrant, cmdExpand };
+module.exports = { verdictFor, cmdTest, wrap, parseAllArgs, cmdLobby, cmdGraph, cmdRegistrant, cmdExpand, cmdSweep };

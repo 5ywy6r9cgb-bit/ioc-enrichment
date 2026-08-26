@@ -236,6 +236,9 @@ bin/sentinel connect all "<subject>" --dry-run
 bin/sentinel connect crosslink               # what appears under more than one subject
 bin/sentinel connect lobby                   # read every captured lobbying filing
 bin/sentinel connect lobby --chart           # …and write the charts
+bin/sentinel connect sweep                   # list the named subject sets
+bin/sentinel connect sweep datacenters       # the plan, no calls
+bin/sentinel connect sweep datacenters --go  # run it
 bin/sentinel connect expand                  # ask every registrant you already have
 bin/sentinel connect expand --limit 25
 bin/sentinel connect senatelda --registrant "<firm>"   # every client a firm files for
@@ -356,6 +359,33 @@ this desk's own captures, `ALPINE GROUP PARTNERS, LLC.` files for both
 `AWS PUBLIC POLICY, AMERICAS` and `NISOURCE INC.` — one firm, a hyperscaler
 and a gas utility. That is a thread worth pulling. It is still a lead: a firm
 with four hundred clients will appear there for reasons that mean nothing.
+
+### `connect sweep` — run a whole named subject list
+
+```bash
+bin/sentinel connect sweep                    # what sets exist
+bin/sentinel connect sweep datacenters        # the plan and the exact call count
+bin/sentinel connect sweep datacenters --go   # actually run it
+```
+
+The sets live in `modules/connectors/subjects.json` — `datacenters`,
+`energy`, `newalbany`, `lobbying`. Edit that file as you learn names; every
+abatement agreement and utility filing names the actual contracting entity,
+and that name is the one worth searching. **Putting a name in the list
+asserts nothing about it.** It says the name is worth asking about.
+
+**Nothing runs without `--go`.** A sweep is subjects × connectors — a dozen
+subjects is easily a hundred live calls to public services, which is not
+something to set off by typing a word slightly wrong. The default prints the
+plan, the subjects, the connectors that will be skipped and why, and the
+exact number of calls.
+
+That count is computed by the same rules `connect all` uses, so it is the
+number of calls that will actually be made, not the number of connectors that
+exist. A connector taking an identifier rather than a name (BLS) is skipped,
+and so is one whose key is not set.
+
+Then `connect crosslink` and `connect graph --push`.
 
 ### `connect expand` — ask every registrant you already have
 

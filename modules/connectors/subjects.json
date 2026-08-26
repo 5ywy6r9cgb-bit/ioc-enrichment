@@ -1,0 +1,63 @@
+{
+  "//": "Named subject sets for `sentinel connect sweep <set>`. Edit this file as you learn names — every abatement agreement and utility filing names the actual contracting entity, and that name is the one worth searching. A subject here is a SEARCH STRING, not a claim that the entity is involved in anything.",
+
+  "datacenters": {
+    "into": "datacenters",
+    "note": "Operators and the single-purpose entities they file under.",
+    "subjects": [
+      "Cologix",
+      "Amazon Data Services",
+      "Amazon Web Services",
+      "Vadata",
+      "AWS Public Policy",
+      "Meta Platforms",
+      "Microsoft",
+      "QTS Data Centers",
+      "Vantage Data Centers",
+      "Aligned Data Centers",
+      "Digital Realty",
+      "DataBank"
+    ]
+  },
+
+  "energy": {
+    "into": "energy",
+    "note": "The supply side. AEP Ohio is the distribution utility for central Ohio; PJM runs the interconnection queue that decides whether a load can be served at all.",
+    "subjects": [
+      "AEP Ohio",
+      "American Electric Power",
+      "Ohio Power Company",
+      "PJM Interconnection",
+      "NiSource",
+      "Columbia Gas of Ohio",
+      "FirstEnergy",
+      "RWE",
+      "Duke Energy Ohio",
+      "Dominion Energy"
+    ]
+  },
+
+  "newalbany": {
+    "into": "new-albany",
+    "note": "Land assembly and the development vehicles.",
+    "subjects": [
+      "New Albany Company",
+      "New Albany International Business Park",
+      "Georgetown Company",
+      "Wexner"
+    ]
+  },
+
+  "lobbying": {
+    "into": "lobbying",
+    "note": "Firms already seen carrying more than one side of the question. Add any registrant the graph surfaces.",
+    "subjects": [
+      "Alpine Group Partners",
+      "Harbinger Strategies",
+      "Squire Patton Boggs",
+      "DCI Group",
+      "Elevate Government Affairs",
+      "VantageKnight"
+    ]
+  }
+}
