@@ -326,7 +326,56 @@ function isPlaceholderPassword(pass) {
   return PLACEHOLDER_PASSWORDS.has(String(pass).trim().toLowerCase());
 }
 
+/**
+ * Read back what is actually in the database.
+ *
+ * WHY A PUSH IS NOT DONE WHEN THE WRITES RETURN
+ *   Every statement can succeed and the graph still be somewhere you are not
+ *   looking. Neo4j serves several databases from one instance -- writes land
+ *   in the one the session names, Browser reads the one IT is pointed at, and
+ *   nothing warns you they differ. `Done.` printed over an empty database is
+ *   the calmest possible lie.
+ *
+ *   So the command counts what is there afterwards and compares it to what it
+ *   meant to write, and reports success only if they agree.
+ */
+async function verify(session) {
+  const nodes = await session.run(
+    'MATCH (n) RETURN labels(n)[0] AS label, count(*) AS n');
+  const rels = await session.run(
+    'MATCH ()-[r]->() RETURN type(r) AS rel, count(*) AS n');
+
+  // The driver returns Integer objects for counts; toNumber() where present.
+  const num = (v) => (v && typeof v.toNumber === 'function' ? v.toNumber() : Number(v));
+  const out = { nodes: {}, rels: {} };
+  for (const rec of nodes.records || []) out.nodes[rec.get('label')] = num(rec.get('n'));
+  for (const rec of rels.records || []) out.rels[rec.get('rel')] = num(rec.get('n'));
+  return out;
+}
+
+/**
+ * Compare what is in the database against what we set out to write.
+ * Returns the mismatches, empty when everything agrees.
+ */
+function reconcile(graph, actual) {
+  const expected = {
+    nodes: { Org: graph.orgs.length, Subject: graph.subjects.length },
+    rels: { FILED_FOR: graph.filed.length, APPEARS_UNDER: graph.appears.length },
+  };
+  const problems = [];
+  for (const kind of ['nodes', 'rels']) {
+    for (const [name, want] of Object.entries(expected[kind])) {
+      const got = actual[kind][name] || 0;
+      // Greater than expected is fine: the database may hold earlier pushes
+      // or other data. Fewer than expected means the write did not land.
+      if (got < want) problems.push({ kind, name, want, got });
+    }
+  }
+  return problems;
+}
+
 module.exports = {
   build, toCypher, push, isLocal, readEnv, LOCAL_HOSTS,
   isPlaceholderPassword, PLACEHOLDER_PASSWORDS, describeSecret,
+  verify, reconcile,
 };

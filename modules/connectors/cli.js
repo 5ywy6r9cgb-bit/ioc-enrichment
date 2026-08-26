@@ -591,6 +591,11 @@ async function cmdGraph(opts) {
   const uri = process.env.NEO4J_URI || env.NEO4J_URI || 'bolt://localhost:7687';
   const user = process.env.NEO4J_USER || env.NEO4J_USER || 'neo4j';
   const pass = process.env.NEO4J_PASSWORD || env.NEO4J_PASSWORD || '';
+  // Neo4j serves several databases from one instance. Writes land in the one
+  // the session names; Browser reads whichever it is pointed at. Naming it
+  // explicitly, and printing it, is the difference between "it worked" and
+  // "it worked somewhere you are not looking."
+  const database = process.env.NEO4J_DATABASE || env.NEO4J_DATABASE || 'neo4j';
 
   // A placeholder copied out of the docs is not a password. Without this the
   // failure surfaces much later as "Neo4j rejected the credentials", which
@@ -634,16 +639,36 @@ async function cmdGraph(opts) {
   }
 
   const driver = neo4j.driver(uri, neo4j.auth.basic(user, pass));
-  const session = driver.session();
+  const session = driver.session({ database });
   try {
-    console.log(`\n  writing to ${C.b(uri)} as ${user} …`);
+    console.log(`\n  writing to ${C.b(uri)}  database ${C.b(database)}  as ${user} …`);
     const done = await G.push(g, session);
     for (const note of done) console.log(`    ${C.g('ok')}  ${note}`);
-    console.log(`\n  ${C.g('Done.')} ${C.dim('Re-running updates in place — every write is a MERGE.')}`);
-    console.log(C.dim('  Try in Neo4j Browser:'));
-    console.log(C.dim('    MATCH (r:Org)-[:FILED_FOR]->(c:Org) RETURN r,c LIMIT 50'));
-    console.log(C.dim('    MATCH (a:Org)-[:APPEARS_UNDER]->(s:Subject)<-[:APPEARS_UNDER]-(b:Org)'));
-    console.log(C.dim('    WHERE a <> b RETURN a,s,b LIMIT 50   // co-occurrence, two hops\n'));
+
+    // Every statement returning without error does not mean the graph is
+    // there. Count it back before saying so.
+    const actual = await G.verify(session);
+    const problems = G.reconcile(g, actual);
+
+    console.log('');
+    console.log(`  ${C.dim('in the database now:')}`);
+    for (const [k, v] of Object.entries(actual.nodes)) console.log(`    ${String(v).padStart(6)}  ${k}`);
+    for (const [k, v] of Object.entries(actual.rels)) console.log(`    ${String(v).padStart(6)}  ${k}`);
+
+    if (problems.length) {
+      console.log(`\n  ${C.r('The write did not land as expected.')}`);
+      for (const p of problems) {
+        console.log(`    ${C.r('✗')} ${p.name}: wrote ${p.want}, found ${p.got}`);
+      }
+      console.log(C.dim(`\n  This is the database named "${database}". If you are looking at a`));
+      console.log(C.dim('  different one in Browser you will see nothing — run  :use ' + database));
+      process.exitCode = 1;
+    } else {
+      console.log(`\n  ${C.g('Done, and read back.')} ${C.dim('Re-running updates in place — every write is a MERGE.')}`);
+      console.log(C.dim(`\n  In Neo4j Browser, select database "${database}" (or run  :use ${database}),`));
+      console.log(C.dim('  clear the editor, and run ONE query at a time:'));
+      console.log(C.dim('    MATCH (r:Org)-[:FILED_FOR]->(c:Org) RETURN r,c LIMIT 50\n'));
+    }
   } catch (e) {
     // The driver's own messages are about its internals -- "Could not perform
     // discovery", "No routing servers available" -- which do not tell you the

@@ -230,6 +230,93 @@ module.exports = async function run() {
       G.describeSecret(undefined) === 'not set');
   }
 
+  // ══ 7d. "DONE" OVER AN EMPTY DATABASE IS THE CALMEST LIE ══════════════
+  // Every write can return without error and the graph still not be there --
+  // wrong database, a rolled-back transaction, a silently ignored statement.
+  // The command counts it back and compares.
+  {
+    const dir = fixture({
+      'live_capture_senatelda_AWS_2026-08-25T01-00-00-000Z.json':
+        lda([['AWS PUBLIC POLICY, AMERICAS', 'ALPINE GROUP PARTNERS, LLC.']]),
+    });
+    const g = G.build(X.readCaptures(dir));
+
+    // A session whose writes "succeed" and whose database is empty.
+    const empty = {
+      async run(q) {
+        if (/RETURN labels|RETURN type/.test(q)) return { records: [] };
+        return { records: [] };
+      },
+    };
+    const actual = await G.verify(empty);
+    const problems = G.reconcile(g, actual);
+    check('an empty database after a "successful" push is reported as a problem',
+      problems.length > 0, `${problems.length} problems`);
+    check('the problem names what was expected and what was found',
+      problems.every((p) => typeof p.want === 'number' && typeof p.got === 'number')
+      && problems.some((p) => p.name === 'Org' && p.got === 0));
+
+    // A session that reports back exactly what was written.
+    const full = {
+      async run(q) {
+        const rec = (o) => ({ get: (k) => o[k] });
+        if (/RETURN labels/.test(q)) {
+          return { records: [
+            rec({ label: 'Org', n: g.orgs.length }),
+            rec({ label: 'Subject', n: g.subjects.length }),
+          ] };
+        }
+        if (/RETURN type/.test(q)) {
+          return { records: [
+            rec({ rel: 'FILED_FOR', n: g.filed.length }),
+            rec({ rel: 'APPEARS_UNDER', n: g.appears.length }),
+          ] };
+        }
+        return { records: [] };
+      },
+    };
+    const good = G.reconcile(g, await G.verify(full));
+    check('a database holding what was written reports no problems',
+      good.length === 0, JSON.stringify(good));
+
+    // More than expected is fine -- earlier pushes, other data.
+    const more = {
+      async run(q) {
+        const rec = (o) => ({ get: (k) => o[k] });
+        if (/RETURN labels/.test(q)) {
+          return { records: [
+            rec({ label: 'Org', n: g.orgs.length + 500 }),
+            rec({ label: 'Subject', n: g.subjects.length + 3 }),
+          ] };
+        }
+        if (/RETURN type/.test(q)) {
+          return { records: [
+            rec({ rel: 'FILED_FOR', n: g.filed.length + 9 }),
+            rec({ rel: 'APPEARS_UNDER', n: g.appears.length + 9 }),
+          ] };
+        }
+        return { records: [] };
+      },
+    };
+    check('a database holding MORE than this push is not a failure',
+      G.reconcile(g, await G.verify(more)).length === 0);
+
+    // The driver hands back Integer objects, not numbers.
+    const wrapped = {
+      async run(q) {
+        const rec = (o) => ({ get: (k) => o[k] });
+        const int = (v) => ({ toNumber: () => v });
+        if (/RETURN labels/.test(q)) {
+          return { records: [rec({ label: 'Org', n: int(g.orgs.length) })] };
+        }
+        return { records: [] };
+      },
+    };
+    const w = await G.verify(wrapped);
+    check('driver Integer counts are unwrapped, not stringified',
+      w.nodes.Org === g.orgs.length, JSON.stringify(w.nodes));
+  }
+
   // ══ 8. push() RUNS THE STATEMENTS, IN ORDER ═══════════════════════════
   {
     const dir = fixture({
