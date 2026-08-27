@@ -477,5 +477,62 @@ def test_claim_list_is_reachable_and_honest():
 
 test_claim_list_is_reachable_and_honest()
 
+
+
+def test_ready_reports_distance_and_the_next_command():
+    """A blocker with no stated remedy is a complaint, not a step.
+
+    `gate run` says what is wrong; it does not say what to type. On a case
+    with eight blocked claims that gap is the whole distance between an
+    operator who publishes and one who has a very good library.
+    """
+    import io as _io, contextlib, tempfile
+    from pathlib import Path
+    from types import SimpleNamespace
+    from sentinel import store
+    from sentinel.cli import cmd_ready
+
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        conn = store.open_db(root)
+        now = "2026-08-26T00:00:00+00:00"
+        conn.execute("INSERT INTO cases (slug,title,status,opened) "
+                     "VALUES ('c','C','OPEN',?)", (now,))
+        for i in range(3):
+            conn.execute("INSERT INTO claims (case_id,text,tier,closing_gate,"
+                         "created,updated,origin) VALUES (1,?, 'RED','g',?,?,'machine')",
+                         (f"Q{i}?", now, now))
+
+        def run():
+            buf = _io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                cmd_ready(SimpleNamespace(case="c"), conn, root)
+            return buf.getvalue()
+
+        out = run()
+        check("ready counts the claims", "claims       3" in out, out)
+        check("and reports nothing publishable while all are undisposed",
+              "PUBLISHABLE NOW   0 of 3" in out, out)
+        check("it names the blocking gate", "MACHINE_UNDISPOSED" in out, out)
+        check("and prints the command that clears it",
+              "claim dispose 1" in out, out)
+        check("an empty vault is stated, not implied",
+              "documents    0 in the vault" in out, out)
+
+        conn.execute("UPDATE claims SET disposed_by='Mark' WHERE id=1")
+        out = run()
+        check("disposing one claim moves the publishable count",
+              "PUBLISHABLE NOW   1 of 3" in out, out)
+        check("and the blocker now names only the remaining claims",
+              "claims: 2, 3" in out, out)
+
+        conn.execute("UPDATE claims SET disposed_by='Mark'")
+        out = run()
+        check("with nothing blocking it says so and names the export command",
+              "Nothing is blocking" in out and "sdesk export c" in out, out)
+
+
+test_ready_reports_distance_and_the_next_command()
+
 print(f"\n{PASS} passed, {FAIL} failed\n")
 sys.exit(1 if FAIL else 0)

@@ -1384,6 +1384,59 @@ went from 3 entries to 9 across three drafted claims.
 
 ---
 
+## 7b. From a library to a story — `sentinel sdesk ready`
+
+```bash
+bin/sentinel sdesk ready datacenters
+```
+
+`gate run` says what is wrong. It does not say what to type. On a case with
+eight blocked claims that gap is the whole distance between an operator who
+publishes and one who has a very good library.
+
+```
+  claims       8   RED 8
+  cited        0 of 8
+  documents    0 in the vault
+  requests     0 records request(s)
+  --------------------------------------------------------------
+  PUBLISHABLE NOW   0 of 8
+  --------------------------------------------------------------
+
+  MACHINE_UNDISPOSED  — blocks 8 claim(s)
+    claims: 1, 2, 3, 4, 5, 6, 7, 8
+    next: bin/sentinel sdesk claim dispose 1 --by "your name"
+```
+
+It asserts nothing about the investigation. It reports the state of the desk
+and the command that changes it, grouped by blocker rather than repeated per
+claim.
+
+### The five steps between a draft and a dossier
+
+Verified end to end on a case that started at 0 of 8:
+
+```bash
+bin/sentinel sdesk ready datacenters                    # what is blocking
+bin/sentinel doc get URL                                # fetch the record
+bin/sentinel sdesk claim dispose 1 --by "Your Name"     # you read it, you own it
+bin/sentinel sdesk ingest datacenters PATH \
+    --title "..." --custodian "..." --shelf PRIMARY     # into the vault
+bin/sentinel sdesk cite 1 1 --locator "p. 4" --quote "..."
+bin/sentinel sdesk export datacenters                   # the packet
+```
+
+That sequence moved a case from **0 publishable** to **1 publishable, 7
+withheld with reasons**. The withheld ones are listed in `dossier.md` rather
+than dropped, so the omission is visible.
+
+**`dispose` and `cite` are separate acts on purpose.** Citing says "this
+document is related." Disposing says "I opened it and this sentence is mine
+now." Only the second one is a person taking responsibility, and only the
+second one is what a correction would be issued against.
+
+---
+
 ## 8a. There are two case systems, and they do not know about each other
 
 This is the most confusing thing in the repo. Both are called "case". Both

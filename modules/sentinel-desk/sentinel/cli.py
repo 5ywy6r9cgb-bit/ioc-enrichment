@@ -359,6 +359,104 @@ def cmd_gate_run(a, conn, root):
         print(f"\n  {total} claim(s) evaluated, {blocked} blocked.\n")
 
 
+def cmd_ready(a, conn, root):
+    """How far this case is from a publishable dossier, and the next command.
+
+    `gate run` says what is wrong. It does not say what to type. On a case
+    with eight blocked claims that difference is the whole distance between
+    an operator who publishes and one who has a very good library.
+
+    This asserts nothing about the investigation. It reports the state of the
+    desk and the commands that change it.
+    """
+    cs = store.case_by_slug(conn, a.case)
+    claims = conn.execute("SELECT * FROM claims WHERE case_id=? ORDER BY id",
+                          (cs["id"],)).fetchall()
+    docs = conn.execute("SELECT * FROM documents WHERE case_id=?", (cs["id"],)).fetchall()
+    reqs = conn.execute("SELECT * FROM requests WHERE case_id=?", (cs["id"],)).fetchall()
+
+    print(f"\n  {cs['title']}  [{cs['slug']}]")
+    print(f"  {'=' * 62}")
+
+    if not claims:
+        print("\n  No claims yet. Nothing to publish and nothing blocking.")
+        print(f"  Draft some:  bin/sentinel draft {a.slug if hasattr(a,'slug') else a.case} "
+              "--connector senatelda --subject NAME\n")
+        return
+
+    cited = {r[0] for r in conn.execute(
+        "SELECT DISTINCT claim_id FROM citations WHERE claim_id IN "
+        f"({','.join('?' * len(claims))})", [c["id"] for c in claims])}
+
+    # ---- the counts, plainly -------------------------------------------
+    by_tier: dict = {}
+    for c in claims:
+        by_tier[c["tier"]] = by_tier.get(c["tier"], 0) + 1
+    print(f"\n  claims       {len(claims)}   "
+          + "  ".join(f"{t} {n}" for t, n in sorted(by_tier.items())))
+    print(f"  cited        {len(cited)} of {len(claims)}")
+    print(f"  documents    {len(docs)} in the vault")
+    print(f"  requests     {len(reqs)} records request(s)")
+
+    # ---- what is blocking, grouped, with the command that clears it ----
+    blockers: dict = {}
+    for c in claims:
+        for g in gates.evaluate(conn, c["id"]):
+            if g["passed"] or g["level"] != gates.BLOCK:
+                continue
+            blockers.setdefault(g["gate"], []).append(c)
+
+    publishable = [c for c in claims
+                   if not any(not g["passed"] and g["level"] == gates.BLOCK
+                              for g in gates.evaluate(conn, c["id"]))]
+
+    print(f"\n  {'-' * 62}")
+    print(f"  PUBLISHABLE NOW   {len(publishable)} of {len(claims)}")
+    print(f"  {'-' * 62}")
+
+    if not blockers:
+        print("\n  Nothing is blocking. Build the packet:")
+        print(f"    bin/sentinel sdesk export {cs['slug']}\n")
+        return
+
+    # The next command per gate. A blocker with no stated remedy is a
+    # complaint, not a step.
+    REMEDY = {
+        "MACHINE_UNDISPOSED":
+            'bin/sentinel sdesk claim dispose {id} --by "your name"',
+        "UNCITED":
+            "bin/sentinel sdesk ingest {case} PATH --title \"...\" "
+            "--custodian \"...\" --shelf PRIMARY\n"
+            "         then: bin/sentinel sdesk cite {id} DOC-ID --locator \"p. 4\" "
+            "--quote \"...\"",
+        "PRIMARY_ONLY":
+            "the cited document is shelved DERIVED or SECONDARY — cite the "
+            "primary record instead",
+        "RED_AS_FACT":
+            "rewrite the claim as a question and give it --gate",
+        "ARITH_NO_FORMULA": "add --formula",
+        "REPORTED_NO_OUTLET": "add --outlet",
+        "DEAD_NO_RESOLUTION": "add --resolution",
+    }
+
+    for gate, cs_list in sorted(blockers.items(), key=lambda kv: -len(kv[1])):
+        print(f"\n  {gate}  — blocks {len(cs_list)} claim(s)")
+        ids = ", ".join(str(c["id"]) for c in cs_list[:12])
+        print(f"    claims: {ids}" + (" …" if len(cs_list) > 12 else ""))
+        remedy = REMEDY.get(gate)
+        if remedy:
+            first = cs_list[0]["id"]
+            print("    next: " + remedy.format(id=first, case=cs["slug"]))
+        else:
+            print("    next: see the gate detail on `sdesk gate run --claim "
+                  f"{cs_list[0]['id']}`")
+
+    print(f"\n  {'-' * 62}")
+    print("  A claim that no person has disposed of cannot reach a dossier,")
+    print("  and a GREEN claim with no citation cannot either. Those two")
+    print("  gates are the whole difference between a library and a story.\n")
+
+
 def cmd_export(a, conn, root):
     res = export.write(conn, root, a.case)
     print(f"""
@@ -503,6 +601,10 @@ def build_parser() -> argparse.ArgumentParser:
     cd.add_argument("--by", required=True, help="your name — this goes in the ledger")
     cd.add_argument("--note", default=None)
     cd.set_defaults(fn=cmd_claim_dispose)
+
+    rd = sub.add_parser("ready", help="how far this case is from publishable")
+    rd.add_argument("case")
+    rd.set_defaults(fn=cmd_ready)
 
     ci = sub.add_parser("cite", help="attach a document to a claim")
     ci.add_argument("claim", type=int); ci.add_argument("doc", type=int)
