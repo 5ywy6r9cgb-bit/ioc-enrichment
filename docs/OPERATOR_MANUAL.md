@@ -1412,6 +1412,55 @@ It asserts nothing about the investigation. It reports the state of the desk
 and the command that changes it, grouped by blocker rather than repeated per
 claim.
 
+### `sdesk trace` — everything behind one claim
+
+```bash
+bin/sentinel sdesk trace 1
+```
+
+This is the view you need the first time someone asks **"how do you know
+that"** — an editor, a lawyer, a subject's press office, or yourself in six
+months. A published claim you cannot trace is a published claim you cannot
+defend.
+
+```
+CLAIM 1   [RED]   case datacenters
+What did lobbying for AWS PUBLIC POLICY cover?
+
+HOW IT ENTERED
+  origin     machine  (drafted by a machine from a search result)
+  disposed   Mark Rosenburg on 2026-08-27T02:47:21+00:00
+
+WHAT IT RESTS ON   1 citation(s)
+  LDA filing: Alpine Group Partners for AWS Public Policy
+    shelf      PRIMARY
+    custodian  U.S. Senate LDA
+    quote      "Data center siting and interconnection. H.R. 9126."
+    sha256     5cc963dd84c2…
+    file       verified — bytes on disk still match
+
+WHAT THE GATE SAYS   10 check(s)
+  all clear — this claim is publishable
+
+AUDIT TRAIL   3 entry(ies)
+  chain      INTACT — 14 entries verified
+```
+
+**It re-reads the bytes.** A document that was ingested correctly and has
+since been edited, moved or replaced still looks perfect in the database —
+and the database is not the evidence. The registered hash records what *was*
+true; the question is what is true now:
+
+```
+    file       ** ALTERED SINCE INGEST **
+               registered 5cc963dd84c20216…
+               now        86f604077f83ba27…
+```
+
+Proved by editing a vaulted file and watching it fire, then restoring the
+bytes and watching it clear. A file that is gone reports `MISSING` — a
+different fact from one that changed.
+
 ### The five steps between a draft and a dossier
 
 Verified end to end on a case that started at 0 of 8:

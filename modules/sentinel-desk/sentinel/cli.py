@@ -457,6 +457,112 @@ def cmd_ready(a, conn, root):
     print("  gates are the whole difference between a library and a story.\n")
 
 
+def cmd_trace(a, conn, root):
+    """Everything behind one claim, end to end.
+
+    This is the view you need the first time someone asks "how do you know
+    that" -- an editor, a lawyer, a subject's press office, or yourself in
+    six months. A published claim you cannot trace is a published claim you
+    cannot defend.
+
+    It re-hashes the cited files rather than trusting the registered hash.
+    A document that was ingested correctly and has since been edited, moved
+    or replaced still looks perfect in the database; the only way to know is
+    to read the bytes again.
+    """
+    c = conn.execute(
+        "SELECT cl.*, cs.slug, cs.title AS case_title FROM claims cl "
+        "JOIN cases cs ON cs.id = cl.case_id WHERE cl.id = ?", (a.claim,)).fetchone()
+    if c is None:
+        _die(f"No claim {a.claim}.")
+
+    print(f"\n  CLAIM {c['id']}   [{c['tier']}]   case {c['slug']}")
+    print(f"  {'=' * 66}")
+    print(f"  {c['text']}")
+
+    # ---- how it entered ------------------------------------------------
+    origin = (c["origin"] if "origin" in c.keys() else "human") or "human"
+    print(f"\n  HOW IT ENTERED")
+    label = {"human": "typed by a person",
+             "machine": "drafted by a machine from a search result",
+             "unknown": "unknown — predates origin tracking"}.get(origin, origin)
+    print(f"    origin     {origin}  ({label})")
+    if "origin_note" in c.keys() and c["origin_note"]:
+        print(f"    note       {c['origin_note']}")
+    if "disposed_by" in c.keys() and c["disposed_by"]:
+        print(f"    disposed   {c['disposed_by']} on {c['disposed_at']}")
+    else:
+        print("    disposed   NOBODY — no person has taken responsibility")
+    for f in ("closing_gate", "formula", "outlet", "resolution"):
+        if c[f]:
+            print(f"    {f:<10} {c[f]}")
+
+    # ---- what it rests on ----------------------------------------------
+    cites = conn.execute(
+        "SELECT ci.*, d.title, d.custodian, d.shelf, d.sha256, d.bytes, d.path, "
+        "d.pages, d.received, d.container FROM citations ci "
+        "JOIN documents d ON d.id = ci.doc_id WHERE ci.claim_id = ? ORDER BY ci.id",
+        (a.claim,)).fetchall()
+
+    print(f"\n  WHAT IT RESTS ON   {len(cites)} citation(s)")
+    if not cites:
+        print("    nothing. This claim cites no document.")
+    for ci in cites:
+        print(f"\n    {ci['title']}")
+        print(f"      shelf      {ci['shelf']}"
+              + ("   (DERIVED is machine output — quote the primary)"
+                 if ci["shelf"] == "DERIVED" else ""))
+        print(f"      custodian  {ci['custodian'] or '—'}")
+        print(f"      locator    {ci['locator'] or '—'}")
+        if ci["quote"]:
+            q = ci["quote"]
+            print(f"      quote      \"{q[:160]}{'…' if len(q) > 160 else ''}\"")
+        print(f"      sha256     {ci['sha256']}")
+        # Re-read the bytes. A file that changed after ingest looks perfect
+        # in the database, and the database is not the evidence.
+        p = Path(ci["path"]) if ci["path"] else None
+        if p is None or not p.exists():
+            print(f"      file       ** MISSING **  {ci['path']}")
+        else:
+            actual, _ = ingest.sha256_file(p)
+            if actual == ci["sha256"]:
+                print(f"      file       verified — bytes on disk still match")
+            else:
+                print("      file       ** ALTERED SINCE INGEST **")
+                print(f"                 registered {ci['sha256'][:16]}…")
+                print(f"                 now        {actual[:16]}…")
+
+    # ---- what the gate says --------------------------------------------
+    res = gates.evaluate(conn, a.claim)
+    blocking = [g for g in res if not g["passed"] and g["level"] == gates.BLOCK]
+    warning = [g for g in res if not g["passed"] and g["level"] != gates.BLOCK]
+    print(f"\n  WHAT THE GATE SAYS   {len(res)} check(s)")
+    if not blocking and not warning:
+        print("    all clear — this claim is publishable")
+    for g in blocking:
+        print(f"    BLOCK  {g['gate']}: {g['detail']}")
+    for g in warning:
+        print(f"    warn   {g['gate']}: {g['detail']}")
+
+    # ---- the audit trail -----------------------------------------------
+    rows = conn.execute(
+        "SELECT seq, ts, action, actor, subject FROM audit "
+        "WHERE subject = ? OR subject LIKE ? ORDER BY seq",
+        (str(a.claim), f"{a.claim}->%")).fetchall()
+    print(f"\n  AUDIT TRAIL   {len(rows)} entry(ies)")
+    for r in rows:
+        print(f"    #{r['seq']:<4} {r['ts'][:19]}  {r['action']:<16} {r['actor']}")
+    ok, msg = audit.verify(conn)
+    print(f"    chain      {'INTACT' if ok else 'BROKEN'} — {msg}")
+
+    print(f"\n  {'=' * 66}")
+    if blocking:
+        print("  NOT PUBLISHABLE. The blocks above are the reason.\n")
+    else:
+        print("  Publishable. Every line above is what you would show someone")
+        print("  who asked how you know it.\n")
+
+
 def cmd_export(a, conn, root):
     res = export.write(conn, root, a.case)
     print(f"""
@@ -601,6 +707,10 @@ def build_parser() -> argparse.ArgumentParser:
     cd.add_argument("--by", required=True, help="your name — this goes in the ledger")
     cd.add_argument("--note", default=None)
     cd.set_defaults(fn=cmd_claim_dispose)
+
+    tr = sub.add_parser("trace", help="everything behind one claim, end to end")
+    tr.add_argument("claim", type=int)
+    tr.set_defaults(fn=cmd_trace)
 
     rd = sub.add_parser("ready", help="how far this case is from publishable")
     rd.add_argument("case")

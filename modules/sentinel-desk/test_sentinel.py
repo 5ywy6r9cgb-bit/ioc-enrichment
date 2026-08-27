@@ -534,5 +534,75 @@ def test_ready_reports_distance_and_the_next_command():
 
 test_ready_reports_distance_and_the_next_command()
 
+
+
+def test_trace_rereads_the_bytes():
+    """A document edited after ingest looks perfect in the database.
+
+    The database is not the evidence. `trace` re-hashes the cited file rather
+    than trusting the registered hash, because the registered hash is a record
+    of what WAS true and the question is what is true now.
+    """
+    import io as _io, contextlib, tempfile
+    from pathlib import Path
+    from types import SimpleNamespace
+    from sentinel import store, ingest
+    from sentinel.cli import cmd_trace
+
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td) / "desk"
+        conn = store.open_db(root)
+        now = "2026-08-26T00:00:00+00:00"
+        conn.execute("INSERT INTO cases (slug,title,status,opened) "
+                     "VALUES ('c','C','OPEN',?)", (now,))
+
+        src = Path(td) / "filing.txt"
+        src.write_text("Registrant ALPINE. Client AWS. Issues: H.R. 9126.\n")
+        ingest.ingest(conn, root, "c", src, title="LDA filing",
+                      custodian="Senate LDA", shelf="PRIMARY")
+
+        conn.execute("INSERT INTO claims (case_id,text,tier,created,updated,"
+                     "origin,disposed_by,disposed_at) "
+                     "VALUES (1,'Alpine lobbied for AWS.','GREEN',?,?,'human','Mark',?)",
+                     (now, now, now))
+        conn.execute("INSERT INTO citations (claim_id,doc_id,locator,quote) "
+                     "VALUES (1,1,'Issues','H.R. 9126')")
+
+        def run():
+            buf = _io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                cmd_trace(SimpleNamespace(claim=1), conn, root)
+            return buf.getvalue()
+
+        out = run()
+        check("trace verifies the bytes still match", "verified" in out, out[-400:])
+        check("it shows the citation's locator and quote",
+              "Issues" in out and "H.R. 9126" in out)
+        check("it says how the claim entered the ledger", "HOW IT ENTERED" in out)
+        check("and who disposed of it", "Mark" in out)
+        check("it reports the gate result", "WHAT THE GATE SAYS" in out)
+        check("and the audit chain state", "chain" in out and "INTACT" in out, out[-300:])
+
+        # The whole point: edit the vaulted file and the trace must notice.
+        path = conn.execute("SELECT path FROM documents WHERE id=1").fetchone()[0]
+        original = Path(path).read_bytes()
+        Path(path).write_bytes(original + b"TAMPERED")
+        out = run()
+        check("a vaulted file edited after ingest is reported as ALTERED",
+              "ALTERED SINCE INGEST" in out, out[-500:])
+        check("and the registered and current hashes are both shown",
+              "registered" in out and "now " in out)
+
+        Path(path).write_bytes(original)
+        check("restoring the bytes clears it", "verified" in run())
+
+        # A missing file is a different fact from an altered one.
+        Path(path).unlink()
+        check("a vaulted file that is gone is reported as MISSING",
+              "MISSING" in run())
+
+
+test_trace_rereads_the_bytes()
+
 print(f"\n{PASS} passed, {FAIL} failed\n")
 sys.exit(1 if FAIL else 0)
