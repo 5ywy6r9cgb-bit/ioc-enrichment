@@ -1077,6 +1077,24 @@ async function cmdSweep(setName, opts) {
   }
   const names = Object.keys(sets).filter((k) => k !== '//');
 
+  // A set is {into, note, subjects}. A bare array -- which is what a set added
+  // without reading the existing shape looks like -- used to reach
+  // `set.subjects.length` and die with
+  //   TypeError: Cannot read properties of undefined (reading 'length')
+  // which says nothing about subjects.json and sends you into a stack trace
+  // instead of to the one line that is wrong.
+  const malformed = names.filter((n) => !sets[n] || !Array.isArray(sets[n].subjects));
+  if (malformed.length) {
+    console.error(`\n  ${C.r('subjects.json is malformed')} — ${file}\n`);
+    for (const n of malformed) {
+      const got = Array.isArray(sets[n]) ? 'a bare array' : typeof sets[n];
+      console.error(`    "${n}" has no subjects array (found ${got})`);
+    }
+    console.error('\n  Each set must be an object:');
+    console.error('    "name": { "into": "folder", "note": "...", "subjects": ["A", "B"] }\n');
+    process.exit(2);
+  }
+
   if (!setName || !sets[setName]) {
     console.log(`\n  ${C.b('Subject sets')}  ${C.dim(file)}\n`);
     for (const n of names) {

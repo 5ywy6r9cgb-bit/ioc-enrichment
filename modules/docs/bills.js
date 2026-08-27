@@ -157,4 +157,19 @@ function correlate(docs) {
   return { byBill, shared, docs };
 }
 
-module.exports = { billsIn, partiesIn, readDocs, correlate, canon, BILL_RE };
+/**
+ * The passage a filing uses to describe what it lobbied on.
+ *
+ * Reported for documents that named NO bill, because "0 bills in 13,000
+ * characters" is an assertion the operator cannot check. Either the filing
+ * genuinely cites no legislation -- very common, many describe issues in
+ * prose -- or the matcher missed a format. Showing the actual text is the
+ * difference between those two, and only one of them is a bug.
+ */
+function issueTextIn(text) {
+  const m = /(specific\s+lobbying\s+issues?|lobbying\s+issues?|general\s+issue)/i.exec(text);
+  if (!m) return '';
+  return text.slice(m.index, m.index + 320).replace(/\s+/g, ' ').trim();
+}
+
+module.exports = { billsIn, partiesIn, readDocs, correlate, canon, issueTextIn, BILL_RE };

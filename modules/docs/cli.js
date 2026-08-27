@@ -188,9 +188,17 @@ function cmdBills(opts) {
   // extracted or is not a filing at all.
   const silent = seen.filter((d) => !d.bills.size);
   if (silent.length) {
-    console.log(C.dim(`  ${silent.length} document(s) name no bill at all:`));
-    for (const d of silent.slice(0, 6)) console.log(C.dim(`    ${d.file}`));
-    if (silent.length > 6) console.log(C.dim(`    … and ${silent.length - 6} more`));
+    console.log(C.dim(`  ${silent.length} document(s) name no bill at all. What they say instead:`));
+    for (const d of silent.slice(0, 4)) {
+      console.log(C.dim(`    ${d.file}`));
+      const issue = B.issueTextIn(d.text);
+      // "0 bills in 13,000 characters" is unfalsifiable on its own. Either
+      // the filing cites no legislation -- common, many describe issues in
+      // prose -- or the matcher missed a format, and only one of those is a
+      // bug. The text decides.
+      console.log(C.dim(`      ${issue ? issue.slice(0, 200) : '(no lobbying-issues section found)'}`));
+    }
+    if (silent.length > 4) console.log(C.dim(`    … and ${silent.length - 4} more`));
     console.log('');
   }
 

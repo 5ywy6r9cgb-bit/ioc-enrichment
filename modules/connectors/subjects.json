@@ -56,43 +56,54 @@
       "VantageKnight"
     ]
   },
-  "surveillance": [
-    "Flock Safety",
-    "Axon Enterprise",
-    "Motorola Solutions",
-    "SoundThinking",
-    "ShotSpotter",
-    "Cellebrite",
-    "Magnet Forensics",
-    "Clearview AI",
-    "Palantir Technologies",
-    "Dataminr",
-    "Babel Street",
-    "ShadowDragon",
-    "Skydio",
-    "BRINC Drones",
-    "Paladin Drones",
-    "Peregrine Technologies",
-    "Fusus",
-    "LexisNexis Risk Solutions",
-    "Thomson Reuters CLEAR"
-  ],
-  "surveillance_money": [
-    "Byrne Justice Assistance Grant",
-    "Urban Area Security Initiative",
-    "COPS Office",
-    "Homeland Security Grant Program",
-    "Ohio Department of Public Safety",
-    "Franklin County Sheriff",
-    "Columbus Division of Police",
-    "Dublin Ohio Police"
-  ],
-  "surveillance_platforms": [
-    "Meta Platforms law enforcement",
-    "TikTok law enforcement",
-    "Google LLC law enforcement",
-    "Snap Inc law enforcement",
-    "Ring LLC",
-    "Amazon Ring law enforcement"
-  ]
+  "surveillance": {
+    "into": "surveillance",
+    "note": "Vendors whose products are bought by police departments. A name here is a SEARCH STRING, not a claim that the vendor operates in Ohio.",
+    "subjects": [
+      "Flock Safety",
+      "Axon Enterprise",
+      "Motorola Solutions",
+      "SoundThinking",
+      "ShotSpotter",
+      "Cellebrite",
+      "Magnet Forensics",
+      "Clearview AI",
+      "Palantir Technologies",
+      "Dataminr",
+      "Babel Street",
+      "Venntel",
+      "ShadowDragon",
+      "Skydio",
+      "BRINC Drones",
+      "Paladin Drones",
+      "Peregrine Technologies",
+      "Fusus",
+      "LexisNexis Risk Solutions"
+    ]
+  },
+  "surveillance_money": {
+    "into": "surveillance-money",
+    "note": "The funding streams. Federal grant programmes and the Ohio agencies that receive or administer them.",
+    "subjects": [
+      "Byrne Justice Assistance Grant",
+      "Urban Area Security Initiative",
+      "COPS Office",
+      "Homeland Security Grant Program",
+      "Ohio Department of Public Safety",
+      "Franklin County Sheriff",
+      "Columbus Division of Police",
+      "Dublin Ohio Police"
+    ]
+  },
+  "surveillance_platforms": {
+    "into": "surveillance-platforms",
+    "note": "Platform law-enforcement programmes. A hit is a lead about the company, not evidence of any specific disclosure.",
+    "subjects": [
+      "Meta Platforms law enforcement",
+      "TikTok law enforcement",
+      "Google LLC law enforcement",
+      "Snap Inc law enforcement",
+      "Ring LLC"
+    ]
+  }
 }
