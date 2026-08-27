@@ -546,6 +546,17 @@ const CONNECTORS = {
   },
 
   senatelda: {
+    // PACED, because this is the connector that gets asked for 294 pages.
+    //
+    // `--registrant --pages N` walks a firm's entire filing history: Alpine
+    // Group Partners alone reports 7,346 filings, which is 294 sequential
+    // requests. Unpaced, those go out as fast as the socket allows, and the
+    // documented authenticated ceiling is a per-minute one. A revoked key
+    // costs far more than the four minutes this spends.
+    //
+    // 650ms is roughly 92 requests/minute -- comfortably under a 120/min
+    // ceiling with room for the server being slow.
+    minIntervalMs: 650,
     label: 'Senate LDA (lobbying)',
     keyVar: 'LDA_API_KEY',
     keyRequired: false,  // anonymous works; a free key raises the rate limit

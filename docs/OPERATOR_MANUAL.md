@@ -426,6 +426,35 @@ and so is one whose key is not set.
 
 Then `connect crosslink` and `connect graph --push`.
 
+### Getting the WHOLE filing history, not the first 25
+
+The single largest limit on this library is the page size. Your own run said
+so:
+
+```
+ALPINE GROUP PARTNERS LLC   kept 25 of 7346
+HARBINGER STRATEGIES LLC    kept 25 of 2450
+SQUIRE PATTON BOGGS         kept 25 of 23043
+```
+
+A 90-client roster drawn from 107 filings out of 7,346 is a **floor**, and
+not a high one. `--registrant --pages` walks the whole history:
+
+```bash
+bin/sentinel connect senatelda --registrant "ALPINE GROUP PARTNERS, LLC." --pages 294
+```
+
+It writes a capture per page, so everything downstream — `crosslink`,
+`lobby`, `draft`, `graph --push` — sees the new filings automatically. It
+reports coverage honestly at the end (`PARTIAL — fetched 100 of 7346`) and
+prints the exact command for full coverage rather than leaving you to work
+out the page count.
+
+**This connector is paced at 650ms.** Deep pagination is the one place a
+sequential run still looks like a flood: 294 requests as fast as the socket
+allows will trip a per-minute ceiling, and a revoked key costs far more than
+the three minutes the pacing spends.
+
 ### `connect expand` — ask every registrant you already have
 
 ```bash
