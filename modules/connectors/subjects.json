@@ -105,5 +105,40 @@
       "Snap Inc law enforcement",
       "Ring LLC"
     ]
+  },
+  "ratepayers": {
+    "into": "ratepayers",
+    "note": "Who pays for the power a data center needs. The tariff fights, the utilities, and the offices that represent customers rather than shareholders.",
+    "subjects": [
+      "AEP Ohio",
+      "Ohio Power Company",
+      "Public Utilities Commission of Ohio",
+      "Ohio Consumers Counsel",
+      "Ohio Energy Group",
+      "Industrial Energy Users-Ohio",
+      "PJM Interconnection",
+      "Duke Energy Ohio",
+      "Dayton Power and Light",
+      "AES Ohio",
+      "data center tariff",
+      "large load tariff"
+    ]
+  },
+  "hb6": {
+    "into": "hb6",
+    "note": "House Bill 6 and its aftermath. Adjudicated federal corruption, not allegation -- and the reason Ohio ratepayers are already paying for generation decisions made under it.",
+    "subjects": [
+      "Larry Householder",
+      "FirstEnergy",
+      "Generation Now",
+      "Energy Harbor",
+      "Sam Randazzo",
+      "Matt Borges",
+      "Ohio House Bill 6",
+      "FirstEnergy Solutions",
+      "Juan Cespedes",
+      "Neil Clark",
+      "Jeff Longstreth"
+    ]
   }
 }
