@@ -1,0 +1,434 @@
+#!/usr/bin/env bash
+# =====================================================================
+# sentinel — one entry point for the whole system.
+#
+# Sentinel OS is a monorepo of four modules that share one evidence store
+# and one provenance discipline. This dispatcher is the single command you
+# run; it delegates to the module that owns each job.
+#
+#   sentinel help                   this list (sentinel commands works too)
+#   sentinel status                 what is set up, what is not
+#   sentinel test                   run every module's test suite
+#
+#   sentinel pra ...                public records atlas (brief, seed, backup...)
+#   sentinel pra foia               records desk: what needs you, most urgent first
+#   sentinel pra foia draft ID      draft the follow-up for one request
+#   sentinel pra foia add ID "Agency"     record a new request
+#   sentinel pra foia sent ID       log that you sent it (stops the reminders)
+#   sentinel pra foia history ID    every letter and field change, in order
+#   sentinel pra mail review        letters awaiting your sign-off
+#   sentinel pra mail approve ID    sign off on ONE letter
+#   sentinel pra mail send          send only what you approved
+#   sentinel pra mail fetch         read replies, log them against requests
+#   sentinel montage ...            openmontage video engine
+#   sentinel vuln ...               atlas CVE prioritization
+#   sentinel desk                   open the research desk in a browser
+#   sentinel sdesk ...              the Python desk: claims, gates, dossiers
+#
+#   sentinel case new ID "..."      start a case file
+#   sentinel case add ID EX FILE    add an exhibit  (--kind financial --pages 44)
+#   sentinel case read ID EX N      record pages read
+#   sentinel case ask/conflict ...  log an open question / a contradiction
+#   sentinel case status ID         can this be published, and what is blocking
+#   sentinel dash                   build + open the dashboard over all cases
+#                                   (sentinel dashboard works too)
+#   sentinel connect test           which connector API keys are set + reachable
+#   sentinel connect NAME "QUERY"   search a connector -> evidence inbox
+#   sentinel connect all "SUBJECT"  search every source at once
+#   sentinel connect crosslink      what appears under more than one subject
+#   sentinel connect lobby --chart  read the captured lobbying filings, charted
+#   sentinel connect expand         ask every registrant who else they file for
+#   sentinel connect sweep SET      run a whole named subject list
+#   sentinel connect brief "NAME"   everything the library holds on one name
+#
+#   sentinel doc get URL            fetch a primary source, hashed + text-extracted
+#   sentinel doc bills              which bills appear in more than one filing
+#   sentinel corpus inventory DIR   what a folder of records ACTUALLY holds
+#   sentinel corpus ocr DIR --out DIR  read the bundles that only look like PDFs
+#
+#   sentinel shelf add NAME PATH    register an external drive by identity
+#   sentinel shelf list             mounted volumes and registered shelves
+#   sentinel shelf check [name]     is the drive there, and is it usable
+#   sentinel shelf where NAME       print the resolved path (or refuse)
+#
+#   sentinel draft list             which captures could become claims
+#   sentinel draft CASE --apply     file them as open questions on the desk
+#   sentinel connect graph          preview the Neo4j graph from your captures
+#   sentinel connect graph --push   write it into Neo4j
+#
+#   sentinel watch run              run every saved search that is due
+#   sentinel watch run --all        ignore cadence, run them all
+#   sentinel watch status           what is watched, and when it last ran
+#   sentinel watch install          schedule the daily run (macOS launchd)
+#   sentinel watch uninstall        unschedule it
+#
+#   sentinel prov verify LEDGER     check a provenance ledger for tampering
+#   sentinel prov ingest LEDGER     flow a provenance ledger into PRA sources
+# =====================================================================
+set -euo pipefail
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+bold() { printf '\033[1m%s\033[0m\n' "$1"; }
+
+usage() {
+  # Print the header block by finding where it ENDS, not by a line number.
+  # This was `sed -n '3,40p'`, and the header outgrew it: `sentinel help`
+  # silently stopped after `watch run` and omitted six real commands
+  # (watch run --all/status/install/uninstall, prov verify/ingest). Nothing
+  # failed. The help just quietly got shorter than the truth, which is the
+  # worst way for a help screen to be wrong -- you cannot tell by reading it.
+  awk 'NR>=3 { if (/^# =+$/) exit; print }' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  cat <<'EXTRA'
+
+WHAT THIS IS NOT
+  There is no natural-language query. "Who owns the land under the New Albany
+  data centers?" is a research question, not a command — and no connector here
+  can answer it, because parcel ownership is a county auditor record. The desk
+  runs SEARCHES against named sources and RUNS CLOCKS on records requests. The
+  thinking stays yours.
+
+THE FIVE YOU WILL ACTUALLY USE
+  sentinel pra foia                     what records requests need you today
+  sentinel connect all "SUBJECT"        search every source at once
+  sentinel case status ID               can this be published, and what blocks it
+  sentinel dash                         the dashboard over every case
+  sentinel watch run --all              force the overnight run now
+
+FULL GUIDES
+  docs/START_HERE.md            setup, in order, with checkpoints
+  docs/DATACENTER_LIBRARY.md    a worked research plan
+  docs/API_KEYS.md              where keys go and how to check them
+EXTRA
+}
+
+cmd="${1:-help}"; shift || true
+
+case "$cmd" in
+  help|-h|--help|commands|\?) usage ;;
+
+  status)
+    bold "Sentinel OS — status"
+    echo "  root: $ROOT"
+    echo ""
+    echo "  modules:"
+    for m in pra openmontage atlas-vuln research-desk; do
+      [ -d "$ROOT/modules/$m" ] && echo "    ✓ $m" || echo "    ✗ $m (missing)"
+    done
+    echo ""
+    echo "  postgres:"
+    if command -v psql >/dev/null 2>&1; then
+      echo "    ✓ psql $(psql --version | awk '{print $3}')"
+      if [ -f "$ROOT/modules/pra/.env" ]; then
+        echo "    ✓ modules/pra/.env present (database configured)"
+      else
+        echo "    ✗ modules/pra/.env missing — run: sentinel pra setup"
+      fi
+    else
+      echo "    ✗ psql not found on PATH"
+    fi
+    echo ""
+    echo "  evidence store:"
+    if [ -d "$ROOT/evidence" ]; then
+      n=$(find "$ROOT/evidence" -type f ! -name '.gitkeep' ! -name 'README.md' 2>/dev/null | wc -l | tr -d ' ')
+      echo "    ✓ evidence/ ($n file(s), gitignored — never pushed)"
+    fi
+    echo ""
+    # Both case systems, always. They are separate stores with the same name,
+    # and a case sitting in the one you were not thinking about is invisible
+    # for exactly as long as nothing reports it.
+    echo "  case work (TWO separate systems — see manual §8a):"
+    cdir="${SENTINEL_CASES:-$ROOT/evidence/sentinel_cases}"
+    if [ -d "$cdir" ]; then
+      cn=$(find "$cdir" -maxdepth 1 -name '*.json' 2>/dev/null | wc -l | tr -d ' ')
+      echo "    sentinel case   $cn case file(s)   $cdir"
+    else
+      echo "    sentinel case   none yet          $cdir"
+    fi
+    python3 - "$ROOT" <<'PYSTATUS'
+import os, sqlite3, sys
+from pathlib import Path
+root = Path(os.environ.get("SENTINEL_ROOT", Path.home() / "SentinelDesk"))
+db = root / "sentinel.db"
+if not db.is_file():
+    print(f"    sentinel sdesk  not initialised    {root}")
+    print("                    start it with:  bin/sentinel sdesk init")
+else:
+    try:
+        c = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+        cases = c.execute("select count(*) from cases").fetchone()[0]
+        claims = c.execute("select count(*) from claims").fetchone()[0]
+        print(f"    sentinel sdesk  {cases} case(s), {claims} claim(s)   {root}")
+    except Exception as e:
+        # A desk that cannot be read is not a desk with nothing in it.
+        print(f"    sentinel sdesk  UNREADABLE ({e})   {db}")
+PYSTATUS
+    echo ""
+    echo "  shelves (external drives):"
+    python3 "$ROOT/modules/corpus/shelf_cli.py" list 2>/dev/null \
+      | sed -n '/Registered shelves/,$p' | tail -n +2 | sed 's/^/  /' \
+      | grep -v '^\s*$' || echo "    none registered"
+    ;;
+
+  test)
+    bold "Running every module's tests"
+    FAILED=0
+    echo ""
+    echo "== provenance spine =="
+    python3 "$ROOT/core/provenance/test_provenance.py"
+    echo ""
+    echo "== operator manual vs. dispatcher =="
+    node "$ROOT/core/test_docs.js" || FAILED=1
+    echo ""
+    echo "== notification content guard =="
+    node "$ROOT/modules/watch/test_notify.js"
+    echo ""
+    echo "== connector verdicts =="
+    node "$ROOT/modules/connectors/test_connect.js" || FAILED=1
+    echo ""
+    echo "== crosslink =="
+    node "$ROOT/modules/connectors/test_crosslink.js" || FAILED=1
+    echo ""
+    echo "== lobbying filings =="
+    node "$ROOT/modules/connectors/test_lobby.js" || FAILED=1
+
+    echo "== graph =="
+    node "$ROOT/modules/connectors/test_graph.js" || FAILED=1
+
+    echo "== document fetch =="
+    node "$ROOT/modules/docs/test_docs_fetch.js" || FAILED=1
+
+    echo "== bill correlation =="
+    node "$ROOT/modules/docs/test_bills.js" || FAILED=1
+    echo ""
+    echo "== records desk (overnight stage) =="
+    node "$ROOT/modules/watch/test_records_desk.js" || FAILED=1
+    echo ""
+    echo "== case gate =="
+    python3 "$ROOT/modules/research-desk/test_case.py" || FAILED=1
+
+    echo "== shelves (external drives) =="
+    python3 "$ROOT/modules/corpus/test_shelf.py" || FAILED=1
+
+    echo "== inventory (drives that vanish mid-scan) =="
+    python3 "$ROOT/modules/corpus/test_inventory.py" || FAILED=1
+
+    echo "== captures -> claims bridge =="
+    node "$ROOT/modules/bridge/test_draft.js" || FAILED=1
+    echo ""
+    echo "== pra =="
+    # A missing suite must not abort the whole run: under `set -e` one absent
+    # module would hide every result after it, which is the opposite of what a
+    # test command is for. Report and carry on; track the exit code instead.
+    if [ -f "$ROOT/modules/pra/tests/run_all.js" ]; then
+      ( cd "$ROOT/modules/pra" && node tests/run_all.js ) || FAILED=1
+    else
+      echo "(not present yet — see docs/RECONSTRUCTION_STATUS.md, priority 4)"
+    fi
+    echo ""
+    echo "== sentinel desk =="
+    ( cd "$ROOT/modules/sentinel-desk" && python3 test_sentinel.py ) || FAILED=1
+    echo ""
+    echo "== desk -> video seam =="
+    ( cd "$ROOT/modules/sentinel-desk" && python3 test_video_seam.py ) || FAILED=1
+    echo ""
+    echo "== openmontage self-test =="
+    python3 "$ROOT/modules/openmontage/engine/openmontage.py" --self-test 2>/dev/null \
+      && echo "openmontage self-test ok" || echo "(openmontage self-test skipped — needs ffmpeg/Pillow)"
+    echo ""
+    [ "$FAILED" = "0" ] && bold "All present suites passed." || bold "One or more suites FAILED."
+    exit "$FAILED"
+    ;;
+
+  pra)
+    cd "$ROOT/modules/pra"
+    # pass-through to PRA's npm scripts / node scripts
+    sub="${1:-brief}"; shift || true
+    case "$sub" in
+      setup)   ./scripts/setup_macos.sh "$@" ;;
+      seed)    node scripts/load_seeds.js "$@" ;;
+      brief)   node scripts/daily_brief.js "$@" ;;
+      foia)    node scripts/foia.js "$@" ;;
+      mail)    node scripts/mail.js "$@" ;;
+      portals) node scripts/check_portals.js "$@" ;;
+      backup)  ./scripts/backup.sh "$@" ;;
+      verify)  ./scripts/verify_integrity.sh "$@" ;;
+      test)    node tests/run_all.js ;;
+      *)       echo "pra subcommands: setup seed brief foia mail portals backup verify test" ;;
+    esac
+    ;;
+
+  montage)
+    python3 "$ROOT/modules/openmontage/engine/openmontage.py" "$@"
+    ;;
+
+  vuln)
+    python3 "$ROOT/modules/atlas-vuln/atlas_vuln_integration.py" "$@"
+    ;;
+
+  desk)
+    open "$ROOT/modules/research-desk/app/desk.html" 2>/dev/null \
+      || echo "open modules/research-desk/app/desk.html in your browser"
+    ;;
+
+  case)
+    python3 "$ROOT/modules/research-desk/case.py" "$@"
+    ;;
+
+  sdesk)
+    # The Python research desk: cases, claims, gates, dossier export.
+    ( cd "$ROOT/modules/sentinel-desk" && python3 -m sentinel "$@" )
+    ;;
+
+  dash|dashboard)
+    out="$(python3 "$ROOT/modules/research-desk/dashboard.py" | sed 's/^wrote //; s/ (.*//')"
+    echo "$out"
+    open "$out" 2>/dev/null || echo "open it in your browser"
+    ;;
+
+  connect)
+    # Verbs pass straight through; anything else is a connector NAME and gets
+    # the implicit `search`. Keep this list in step with cli.js — `all` was
+    # added there and not here, so `sentinel connect all "X"` became
+    # `cli.js search all "X"` and reported "unknown connector: all". The
+    # dispatcher is the surface an operator actually types, so a command that
+    # works when the module is called directly is not yet a command that works.
+    action="${1:-test}"; shift || true
+    case "$action" in
+      test|list|all|crosslink|lobby|graph|expand|sweep|brief)
+        node "$ROOT/modules/connectors/cli.js" "$action" "$@"
+        ;;
+      *)
+        node "$ROOT/modules/connectors/cli.js" search "$action" "$@"
+        ;;
+    esac
+    ;;
+
+  watch)
+    action="${1:-run}"; shift || true
+    PLIST_LABEL="com.sentinel.watch"
+    PLIST_PATH="$HOME/Library/LaunchAgents/$PLIST_LABEL.plist"
+    case "$action" in
+      run|status)
+        node "$ROOT/modules/watch/run.js" "$action" "$@"
+        ;;
+      install)
+        # Schedule the daily run through launchd. Deliberately NOT cron:
+        # launchd catches up a missed run after the Mac wakes, and cron does
+        # not — a laptop that was asleep at 08:00 would simply skip the day.
+        if [ "$(uname)" != "Darwin" ]; then
+          echo "  'watch install' schedules via launchd, which is macOS-only."
+          echo "  On Linux, add this to your crontab or a systemd timer:"
+          echo "    0 8 * * *  cd $ROOT && bin/sentinel watch run"
+          exit 1
+        fi
+        HOUR="${1:-8}"
+        # Validate before writing a plist. An unvalidated value goes straight
+        # into <integer>__HOUR__</integer>, launchd refuses the malformed job,
+        # and the only symptom is that the overnight run never fires — which
+        # you discover by not getting a morning brief, weeks later.
+        #
+        # This is not hypothetical. On a real install the value was "#",
+        # because macOS runs zsh and zsh does NOT treat # as a comment in an
+        # interactive shell (interactive_comments is off by default). A pasted
+        # `bin/sentinel watch install      # then schedule it` handed "#" in
+        # as $1 and the command cheerfully reported "every day at #:00".
+        case "$HOUR" in
+          ''|*[!0-9]*)
+            echo ""
+            echo "  Not an hour: '$HOUR'"
+            echo ""
+            echo "  Usage:  sentinel watch install [HOUR]     # 0-23, default 8"
+            echo ""
+            echo "  If you pasted a command with a trailing comment, note that"
+            echo "  zsh (the macOS default) does not strip '#' in an interactive"
+            echo "  shell the way bash does — everything after it was passed in"
+            echo "  as arguments. Retype the command without the comment."
+            echo ""
+            exit 2
+            ;;
+        esac
+        if [ "$HOUR" -gt 23 ]; then
+          echo ""
+          echo "  Not an hour: $HOUR. Use 0-23."
+          echo ""
+          exit 2
+        fi
+        mkdir -p "$HOME/Library/LaunchAgents" "$ROOT/evidence/watch"
+        sed -e "s|__ROOT__|$ROOT|g" \
+            -e "s|__HOUR__|$HOUR|g" \
+            -e "s|__NODE__|$(command -v node)|g" \
+            "$ROOT/modules/watch/com.sentinel.watch.plist.template" > "$PLIST_PATH"
+        launchctl unload "$PLIST_PATH" 2>/dev/null || true
+        launchctl load "$PLIST_PATH"
+        echo "  scheduled: every day at ${HOUR}:00"
+        echo "  plist:     $PLIST_PATH"
+        echo "  log:       $ROOT/evidence/watch/launchd.log"
+        echo ""
+        echo "  Run it once now to confirm:  sentinel watch run --all"
+        ;;
+      uninstall)
+        if [ -f "$PLIST_PATH" ]; then
+          launchctl unload "$PLIST_PATH" 2>/dev/null || true
+          rm -f "$PLIST_PATH"
+          echo "  unscheduled; removed $PLIST_PATH"
+        else
+          echo "  not scheduled (no $PLIST_PATH)"
+        fi
+        ;;
+      *) echo "watch subcommands: run [--all|--dry-run|--id=ID] | status | install [HOUR] | uninstall" ;;
+    esac
+    ;;
+
+  corpus)
+    # What is actually in a folder of records, and OCR for the bundles that
+    # only look like PDFs.
+    sub="${1:-}"; shift 2>/dev/null || true
+    case "$sub" in
+      inventory) python3 "$ROOT/modules/corpus/inventory.py" "$@" ;;
+      ocr)       python3 "$ROOT/modules/corpus/batch_ocr.py" "$@" ;;
+      *) echo "corpus subcommands: inventory ocr" >&2; exit 2 ;;
+    esac
+    ;;
+
+  shelf)
+    # External drives, addressed by volume identity rather than by path.
+    python3 "$ROOT/modules/corpus/shelf_cli.py" "$@"
+    ;;
+
+  draft)
+    # Captures -> open questions on the desk. RED only, by design.
+    node "$ROOT/modules/bridge/draft.js" "$@"
+    ;;
+
+  doc)
+    # Fetch a primary source, hash it, and find out if it is readable.
+    node "$ROOT/modules/docs/cli.js" "$@"
+    ;;
+
+  prov)
+    action="${1:-help}"; shift || true
+    case "$action" in
+      verify)
+        python3 - "$@" <<PY
+import sys, os
+sys.path.insert(0, os.path.join("$ROOT", "core", "provenance"))
+import provenance as P
+led = P.Ledger(sys.argv[1])
+r = led.verify()
+print(f"records: {r['total']}   ok: {r['ok']}")
+[print("  TAMPERED line", t['line'], t['artifact_id']) for t in r['tampered']]
+sys.exit(0 if r['ok'] else 1)
+PY
+        ;;
+      ingest) node "$ROOT/core/provenance/ingest_to_pra.js" "$@" ;;
+      *) echo "prov subcommands: verify <ledger.jsonl> | ingest <ledger.jsonl> [--dry-run]" ;;
+    esac
+    ;;
+
+  *)
+    echo "unknown command: $cmd"
+    echo ""
+    usage
+    exit 1
+    ;;
+esac

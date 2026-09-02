@@ -1,0 +1,13 @@
+name,description,privacy_risk_level,default_date_range,template_language
+Utility deposit aggregate totals,Annual count and dollar totals of renter water-service deposits collected/refunded/held,low,2020-present,"annual number and total dollar amount of renter water-service deposits collected, refunded, applied to final bills, or held outstanding"
+Water/sewer rate ordinances,Council ordinances and chapters setting water/sewer rates and fees,low,All available,"copies of ordinances and code sections establishing current water, sewer, and stormwater rates and fees"
+Council meeting minutes,Public meeting minutes and agenda packets,low,Last 24 months,"agenda packets and approved meeting minutes"
+Service agreements / contracts,Wholesale or inter-municipal water/sewer service agreements,low,All available,"current and historical service agreements between [Agency A] and [Agency B] for water/sewer service"
+GIS / infrastructure maps,Publicly releasable GIS layers for water/storm/sanitary infrastructure,medium,Current,"publicly releasable GIS data layers for water, storm, and sanitary sewer infrastructure"
+Stormwater fee records,Stormwater utility fee schedules and billing policy,low,Current,"current stormwater fee schedule and billing policy documents"
+Property/parcel records,County auditor parcel and ownership data,low,Current,"parcel-level property records, including ownership and valuation, for the specified address or parcel ID"
+Property tax payment records,County treasurer tax billing and payment status,medium,Current,"tax bill and payment status records for the specified parcel"
+Public water system compliance records,Drinking water compliance and monitoring records,low,Last 5 years,"public water system compliance, monitoring, and consumer confidence reports"
+Budget / annual financial reports,City/county annual financial reports and budgets,low,Last 5 years,"annual financial reports and adopted budgets"
+Police/fire incident aggregate statistics,"Aggregate, non-personal incident statistics",medium,Last 3 years,"aggregate incident statistics with no personally identifying information"
+School board records,School board meeting minutes and policy records,low,Last 24 months,"school board meeting minutes and policy records"

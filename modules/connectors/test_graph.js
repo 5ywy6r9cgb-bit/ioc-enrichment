@@ -1,0 +1,430 @@
+'use strict';
+/**
+ * modules/connectors/test_graph.js
+ *
+ * The risk in a graph is not that an edge is missing. It is that an edge is
+ * PRESENT and means less than it looks like it means. A line between two
+ * companies is read as "these two are connected" by everyone who sees it,
+ * including the person who drew it, six months later.
+ *
+ * So the load-bearing test in this file is the one asserting that two
+ * companies which merely turned up in the same search are NOT joined to each
+ * other. Everything else is bookkeeping.
+ */
+
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const G = require('./graph.js');
+const X = require('./crosslink.js');
+
+let PASS = 0, FAIL = 0;
+function check(label, cond, detail) {
+  if (cond) { PASS++; console.log(`    PASS  ${label}`); }
+  else { FAIL++; console.log(`    FAIL  ${label}${detail ? `\n          ${detail}` : ''}`); }
+}
+
+function fixture(files) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'graph-'));
+  const cap = path.join(dir, 'captures');
+  fs.mkdirSync(cap);
+  for (const [name, body] of Object.entries(files)) {
+    fs.writeFileSync(path.join(cap, name), JSON.stringify(body));
+  }
+  return cap;
+}
+
+// A Senate LDA response. `count` is what the API says the FULL set is.
+const lda = (rows, count) => ({
+  count: count === undefined ? rows.length : count,
+  results: rows.map((r, i) => ({
+    filing_uuid: `f${i}`,
+    client: { name: r[0] },
+    registrant: { name: r[1] },
+    income: r[2] || '',
+    filing_year: 2025,
+    filing_period: '1st Quarter',
+  })),
+});
+
+const oc = (names) => ({ results: { companies: names.map((n, i) => ({
+  company: { name: n, company_number: String(i), jurisdiction_code: 'us_de',
+             incorporation_date: '2020-01-01', opencorporates_url: 'x' } })) } });
+
+/** A session that records what it was asked to run, and runs nothing. */
+function fakeSession() {
+  const calls = [];
+  return { calls, async run(q, params) { calls.push({ q, params }); return { records: [] }; } };
+}
+
+module.exports = async function run() {
+  console.log('\n  graph\n');
+
+  // ══ 1. CO-OCCURRENCE IS NOT AN EDGE ═══════════════════════════════════
+  // Two companies returned by the same search. Nothing connects them but the
+  // query. If the graph draws a line between them it has invented a fact.
+  {
+    const dir = fixture({
+      'live_capture_opencorporates_data_center_2026-08-25T01-00-00-000Z.json':
+        oc(['CORNFIELD HOLDINGS LLC', 'BUCKEYE POWER PARTNERS LLC']),
+      'live_capture_opencorporates_energy_2026-08-25T02-00-00-000Z.json':
+        oc(['CORNFIELD HOLDINGS LLC', 'BUCKEYE POWER PARTNERS LLC']),
+    });
+    const g = G.build(X.readCaptures(dir));
+
+    check('two co-occurring companies both become nodes',
+      g.orgs.length >= 2, `${g.orgs.length} orgs`);
+    check('CO-OCCURRENCE PRODUCES NO Org->Org EDGE',
+      g.filed.length === 0,
+      `${g.filed.length} FILED_FOR edges were written from pure co-occurrence`);
+    check('they are joined only through the Subject they were found under',
+      g.appears.length >= 4 && g.subjects.length === 2,
+      `${g.appears.length} appears, ${g.subjects.length} subjects`);
+
+    // The whole design rests on this: there is no relationship type in the
+    // generated Cypher that connects one Org directly to another except
+    // FILED_FOR. If somebody adds one, this fails.
+    const cypher = G.toCypher(g).map((s) => s.q).join('\n');
+    const orgToOrg = cypher.match(/\(\s*\w+\s*:Org[^)]*\)\s*-\[[^\]]*\]->\s*\(\s*\w+\s*:Org/g) || [];
+    check('the only Org->Org relationship in the schema is FILED_FOR',
+      orgToOrg.every((m) => /FILED_FOR/.test(m)),
+      orgToOrg.join(' | '));
+  }
+
+  // ══ 2. A SWORN FILING IS AN EDGE ══════════════════════════════════════
+  {
+    const dir = fixture({
+      'live_capture_senatelda_AWS_2026-08-25T01-00-00-000Z.json':
+        lda([['AWS PUBLIC POLICY, AMERICAS', 'ALPINE GROUP PARTNERS, LLC.', '80000']]),
+      'live_capture_senatelda_NiSource_2026-08-25T02-00-00-000Z.json':
+        lda([['NISOURCE INC.', 'ALPINE GROUP PARTNERS, LLC.', '90000']]),
+    });
+    const g = G.build(X.readCaptures(dir));
+
+    check('a registrant filing for two clients yields two FILED_FOR edges',
+      g.filed.length === 2, `${g.filed.length}`);
+
+    const regs = new Set(g.filed.map((f) => f.registrant));
+    check('both edges start at the same registrant node',
+      regs.size === 1, [...regs].join(', '));
+
+    const clients = new Set(g.filed.map((f) => f.client));
+    check('the two clients are distinct nodes', clients.size === 2);
+
+    check('FILED_FOR carries its evidentiary basis',
+      G.toCypher(g).some((s) => /basis = 'senate_lda_filing'/.test(s.q)));
+    check('APPEARS_UNDER is labelled a search result, not a relationship',
+      G.toCypher(g).some((s) => /basis = 'search_result'/.test(s.q)));
+  }
+
+  // ══ 2b. COUNTS ARE WHOLE NUMBERS ══════════════════════════════════════
+  // A JS number is a double and the driver maps it to a Neo4j Float, so a
+  // count of 17 returns as 17.0 and drags float arithmetic behind it.
+  {
+    const dir = fixture({
+      'live_capture_senatelda_AWS_2026-08-25T01-00-00-000Z.json':
+        lda([['AWS PUBLIC POLICY, AMERICAS', 'ALPINE GROUP PARTNERS, LLC.']]),
+    });
+    const g = G.build(X.readCaptures(dir));
+    const cypher = G.toCypher(g).map((s2) => s2.q).join('\n');
+    for (const prop of ['filings', 'hits', 'subject_count']) {
+      check(`${prop} is written through toInteger()`,
+        new RegExp(`${prop} = toInteger\\(`).test(cypher),
+        cypher.match(new RegExp(`.*${prop} = .*`)) || '');
+    }
+  }
+
+  // ══ 3. THE COMPOSITE KEY MUST NOT COLLIDE ═════════════════════════════
+  // registrant "ALPINE GROUP" + client "PARTNERS LLC" and registrant "ALPINE"
+  // + client "GROUP PARTNERS LLC" glue to the same string on a separator.
+  {
+    const dir = fixture({
+      'live_capture_senatelda_a_2026-08-25T01-00-00-000Z.json':
+        lda([['PARTNERS HOLDINGS', 'ALPINE GROUP']]),
+      'live_capture_senatelda_b_2026-08-25T02-00-00-000Z.json':
+        lda([['GROUP PARTNERS HOLDINGS', 'ALPINE']]),
+    });
+    const g = G.build(X.readCaptures(dir));
+    check('two differently-split name pairs stay two separate edges',
+      g.filed.length === 2, `${g.filed.length} edges — they collided`);
+  }
+
+  // ══ 4. TRUNCATION MAKES EVERY COUNT A FLOOR ═══════════════════════════
+  {
+    const dir = fixture({
+      // 60 filings exist; the capture holds 1.
+      'live_capture_senatelda_big_2026-08-25T01-00-00-000Z.json':
+        lda([['MEGA CLIENT CORP', 'SOME REGISTRANT LLC']], 60),
+    });
+    const g = G.build(X.readCaptures(dir));
+    check('a truncated capture is counted', g.truncated_captures === 1);
+    check('truncation marks the counts as floors', g.counts_are_floors === true);
+    check('the floor flag is written onto the nodes',
+      G.toCypher(g).some((s) => /counts_are_floors/.test(s.q) && s.params.floors === true));
+  }
+  {
+    const dir = fixture({
+      'live_capture_senatelda_small_2026-08-25T01-00-00-000Z.json':
+        lda([['A CLIENT CORP', 'A REGISTRANT LLC']]),
+    });
+    const g = G.build(X.readCaptures(dir));
+    check('a complete capture is not flagged as a floor',
+      g.counts_are_floors === false && g.truncated_captures === 0);
+  }
+
+  // ══ 5. RE-RUNNING MUST NOT DUPLICATE THE GRAPH ════════════════════════
+  {
+    const dir = fixture({
+      'live_capture_senatelda_AWS_2026-08-25T01-00-00-000Z.json':
+        lda([['AWS PUBLIC POLICY, AMERICAS', 'ALPINE GROUP PARTNERS, LLC.']]),
+    });
+    const g = G.build(X.readCaptures(dir));
+    const stmts = G.toCypher(g);
+    const writes = stmts.filter((s) => !/^CREATE CONSTRAINT/.test(s.q.trim()));
+    check('every write is a MERGE, never a CREATE',
+      writes.every((s) => /MERGE/.test(s.q) && !/\bCREATE\b/.test(s.q)),
+      writes.filter((s) => /\bCREATE\b/.test(s.q)).map((s) => s.note).join(', '));
+  }
+
+  // ══ 6. NAMES ARE PARAMETERS, NEVER QUERY TEXT ═════════════════════════
+  // A company name is untrusted input no matter how official its source.
+  // Building a query by string-concatenating one is how you get an injection
+  // into your own database, and company names really do contain quotes.
+  {
+    const dir = fixture({
+      'live_capture_senatelda_x_2026-08-25T01-00-00-000Z.json':
+        lda([["O'BRIEN & SONS \" DROP", 'HONEST REGISTRANT LLC']]),
+    });
+    const g = G.build(X.readCaptures(dir));
+    const cypher = G.toCypher(g).map((s) => s.q).join('\n');
+    check('no captured name is interpolated into the query text',
+      !/OBRIEN|O'BRIEN|HONEST/i.test(cypher));
+    check('the name travels as a parameter instead',
+      JSON.stringify(G.toCypher(g).map((s) => s.params)).toLowerCase().includes('brien'));
+  }
+
+  // ══ 7. THE GRAPH MUST NOT LEAVE THIS MACHINE BY ACCIDENT ══════════════
+  {
+    check('localhost is local', G.isLocal('neo4j://localhost:7687'));
+    check('127.0.0.1 is local', G.isLocal('bolt://127.0.0.1:7687'));
+    check('an Aura instance is NOT local',
+      !G.isLocal('neo4j+s://abcd1234.databases.neo4j.io'));
+    check('an arbitrary host is NOT local', !G.isLocal('bolt://someone-elses-box:7687'));
+    check('an unparseable URI is not treated as local', !G.isLocal('not a uri'));
+  }
+
+  // ══ 7b. A PLACEHOLDER PASSWORD IS NOT A PASSWORD ══════════════════════
+  // Copying the .env block out of the docs verbatim is the normal thing to
+  // do. Caught here, it says "your .env still has the placeholder"; caught by
+  // Neo4j, it says "credentials rejected" and you go looking at the database.
+  {
+    check('the docs placeholder is recognised',
+      G.isPlaceholderPassword('whatever-you-set')
+      && G.isPlaceholderPassword('the-password-you-set'));
+    check('the Neo4j factory default is recognised',
+      G.isPlaceholderPassword('neo4j'));
+    check('case and surrounding space do not hide a placeholder',
+      G.isPlaceholderPassword('  ChangeMe  '));
+    check('a HALF-EDITED placeholder is caught too',
+      G.isPlaceholderPassword('whatever-you-set1')
+      && G.isPlaceholderPassword('Xwhatever-you-set')
+      && G.isPlaceholderPassword('the-password-you-set!'));
+    check('a real password is not flagged',
+      !G.isPlaceholderPassword('correct-horse-battery-staple')
+      && !G.isPlaceholderPassword('wG7-tunnel-vault-91')
+      && !G.isPlaceholderPassword('Sentinel!2026#graph'));
+    check('an empty password is handled separately, not as a placeholder',
+      !G.isPlaceholderPassword('') && !G.isPlaceholderPassword(undefined));
+  }
+
+  // ══ 7c. AN AUTH FAILURE MUST SAY WHAT IT SENT ═════════════════════════
+  {
+    check('describeSecret never returns the secret',
+      !G.describeSecret('hunter2').includes('unter2'));
+    check('length is reported, because that is what diagnoses a typo',
+      G.describeSecret('hunter2').includes('7 chars'));
+    check('a quoted value is called out',
+      /quotes/.test(G.describeSecret('"hunter2"')));
+    check('trailing whitespace is called out',
+      /whitespace/.test(G.describeSecret('hunter2 ')));
+    check('an empty value says empty, not "0 chars"',
+      G.describeSecret('') === 'empty');
+    check('an unset value says not set',
+      G.describeSecret(undefined) === 'not set');
+  }
+
+  // ══ 7d. "DONE" OVER AN EMPTY DATABASE IS THE CALMEST LIE ══════════════
+  // Every write can return without error and the graph still not be there --
+  // wrong database, a rolled-back transaction, a silently ignored statement.
+  // The command counts it back and compares.
+  {
+    const dir = fixture({
+      'live_capture_senatelda_AWS_2026-08-25T01-00-00-000Z.json':
+        lda([['AWS PUBLIC POLICY, AMERICAS', 'ALPINE GROUP PARTNERS, LLC.']]),
+    });
+    const g = G.build(X.readCaptures(dir));
+
+    // A session whose writes "succeed" and whose database is empty.
+    const empty = {
+      async run(q) {
+        if (/RETURN labels|RETURN type/.test(q)) return { records: [] };
+        return { records: [] };
+      },
+    };
+    const actual = await G.verify(empty);
+    const problems = G.reconcile(g, actual);
+    check('an empty database after a "successful" push is reported as a problem',
+      problems.length > 0, `${problems.length} problems`);
+    check('the problem names what was expected and what was found',
+      problems.every((p) => typeof p.want === 'number' && typeof p.got === 'number')
+      && problems.some((p) => p.name === 'Org' && p.got === 0));
+
+    // A session that reports back exactly what was written.
+    const full = {
+      async run(q) {
+        const rec = (o) => ({ get: (k) => o[k] });
+        if (/RETURN labels/.test(q)) {
+          return { records: [
+            rec({ label: 'Org', n: g.orgs.length }),
+            rec({ label: 'Subject', n: g.subjects.length }),
+          ] };
+        }
+        if (/RETURN type/.test(q)) {
+          return { records: [
+            rec({ rel: 'FILED_FOR', n: g.filed.length }),
+            rec({ rel: 'APPEARS_UNDER', n: g.appears.length }),
+          ] };
+        }
+        return { records: [] };
+      },
+    };
+    const good = G.reconcile(g, await G.verify(full));
+    check('a database holding what was written reports no problems',
+      good.length === 0, JSON.stringify(good));
+
+    // More than expected is fine -- earlier pushes, other data.
+    const more = {
+      async run(q) {
+        const rec = (o) => ({ get: (k) => o[k] });
+        if (/RETURN labels/.test(q)) {
+          return { records: [
+            rec({ label: 'Org', n: g.orgs.length + 500 }),
+            rec({ label: 'Subject', n: g.subjects.length + 3 }),
+          ] };
+        }
+        if (/RETURN type/.test(q)) {
+          return { records: [
+            rec({ rel: 'FILED_FOR', n: g.filed.length + 9 }),
+            rec({ rel: 'APPEARS_UNDER', n: g.appears.length + 9 }),
+          ] };
+        }
+        return { records: [] };
+      },
+    };
+    check('a database holding MORE than this push is not a failure',
+      G.reconcile(g, await G.verify(more)).length === 0);
+
+    // The driver hands back Integer objects, not numbers.
+    const wrapped = {
+      async run(q) {
+        const rec = (o) => ({ get: (k) => o[k] });
+        const int = (v) => ({ toNumber: () => v });
+        if (/RETURN labels/.test(q)) {
+          return { records: [rec({ label: 'Org', n: int(g.orgs.length) })] };
+        }
+        return { records: [] };
+      },
+    };
+    const w = await G.verify(wrapped);
+    check('driver Integer counts are unwrapped, not stringified',
+      w.nodes.Org === g.orgs.length, JSON.stringify(w.nodes));
+  }
+
+  // ══ 9. THE DASHBOARD MUST NOT OUTRUN THE DATA ═════════════════════════
+  {
+    const D = require('./graph_dashboard.js');
+    const dir = fixture({
+      'live_capture_senatelda_AWS_2026-08-26T01-00-00-000Z.json':
+        lda([['AWS PUBLIC POLICY, AMERICAS', 'ALPINE GROUP PARTNERS, LLC.'],
+             ['NISOURCE INC.', 'ALPINE GROUP PARTNERS, LLC.'],
+             ['SOLO CLIENT CORP', 'ONE CLIENT FIRM LLC']], 900),
+    });
+    const g = G.build(X.readCaptures(dir));
+
+    const multi = D.multiClientRegistrants(g);
+    check('only firms with two or more clients are listed',
+      multi.length === 1 && multi[0].clientCount === 2,
+      JSON.stringify(multi.map((m) => [m.name, m.clientCount])));
+
+    const both = D.straddling(multi, /NISOURCE|ENERGY|GAS/, /AWS|AMAZON/);
+    check('a firm carrying both sides is found', both.length === 1);
+    check('the two patterns must BOTH match, not either',
+      D.straddling(multi, /NISOURCE/, /NOTHINGMATCHESTHIS/).length === 0);
+
+    const html = D.renderDashboard(g, { sideA: /NISOURCE/, sideB: /AWS/ });
+    check('the page says every number is a floor when captures were truncated',
+      /a floor/i.test(html));
+    check('APPEARS_UNDER is described as a fact about the searching',
+      /your searching/i.test(html));
+    check('the page says a filing is not evidence the clients know each other',
+      /know each other/i.test(html));
+
+    // Same rules as the lobbying chart: it has to survive with no network.
+    check('the dashboard runs no script', !/<script/i.test(html));
+    check('the dashboard pulls in no external resource', !/\ssrc\s*=/i.test(html));
+    check('the dashboard links no stylesheet or font host', !/<link\b/i.test(html));
+    check('the dashboard imports nothing', !/@import/i.test(html));
+    check('the dashboard makes no request of its own',
+      !/\b(fetch|XMLHttpRequest|cdn\.)/i.test(html));
+
+    // A name from a capture is untrusted text going into HTML.
+    // Both render paths have to escape: the bar labels carry REGISTRANT names,
+    // the straddle table carries CLIENT names, and only the table renders when
+    // patterns are supplied. Testing one and assuming the other is how an
+    // escaping bug survives a green suite.
+    const nasty = fixture({
+      'live_capture_senatelda_x_2026-08-26T01-00-00-000Z.json':
+        lda([['<img src=x onerror=alert(1)> CORP', '<svg onload=alert(2)> LLC'],
+             ['SECOND CLIENT LLC', '<svg onload=alert(2)> LLC']]),
+    });
+    const gh = D.renderDashboard(G.build(X.readCaptures(nasty)),
+      { sideA: /IMG|CORP/, sideB: /SECOND/ });
+    check('a client name in the table cannot inject markup',
+      !/<img src=x/.test(gh) && /&lt;img/.test(gh), gh.match(/.{0,40}img.{0,40}/) || '');
+    check('a registrant name in the bar labels cannot inject markup',
+      !/<svg onload/.test(gh), gh.match(/.{0,40}svg.{0,40}/) || '');
+
+    check('one client reads "1 client", not "1 clients"',
+      !/\b1 clients\b/.test(html) && !/\b1 names\b/.test(html));
+  }
+
+  // ══ 8. push() RUNS THE STATEMENTS, IN ORDER ═══════════════════════════
+  {
+    const dir = fixture({
+      'live_capture_senatelda_AWS_2026-08-25T01-00-00-000Z.json':
+        lda([['AWS PUBLIC POLICY, AMERICAS', 'ALPINE GROUP PARTNERS, LLC.']]),
+    });
+    const g = G.build(X.readCaptures(dir));
+    const s = fakeSession();
+    const notes = await G.push(g, s);
+
+    check('push ran every statement', s.calls.length === G.toCypher(g).length);
+    check('constraints are created before the nodes that need them',
+      /CREATE CONSTRAINT/.test(s.calls[0].q));
+    const orgIdx = s.calls.findIndex((c) => /MERGE \(o:Org/.test(c.q));
+    const relIdx = s.calls.findIndex((c) => /FILED_FOR/.test(c.q));
+    check('org nodes are merged before the relationships between them',
+      orgIdx >= 0 && relIdx > orgIdx, `org@${orgIdx} rel@${relIdx}`);
+    check('push reports what it did', Array.isArray(notes) && notes.length > 0);
+    check('push connected to nothing on its own',
+      s.calls.every((c) => typeof c.q === 'string'));
+  }
+
+  console.log(`\n  ${FAIL ? 'FAIL' : 'PASS'} — ${PASS}/${PASS + FAIL} checks\n`);
+  if (FAIL) process.exitCode = 1;
+  return { pass: PASS, fail: FAIL };
+};
+
+if (require.main === module) {
+  module.exports().then(() => { if (process.exitCode) process.exit(process.exitCode); });
+}

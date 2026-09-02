@@ -1,0 +1,206 @@
+{
+  "_README": [
+    "Copy this to watchlist.json in the repo root, then edit.",
+    "",
+    "  cp modules/watch/watchlist.example.json watchlist.json",
+    "",
+    "watchlist.json is gitignored — your subjects of interest are not something",
+    "to publish to a remote. This example file is the only one that ships.",
+    "",
+    "Each watch is one saved query against one connector. The runner keeps a",
+    "seen-set per watch and reports ONLY hits it has never seen, so a quiet",
+    "morning prints one line instead of yesterday's twelve results again."
+  ],
+
+  "notify": {
+    "_README": [
+      "backend: none | macos | file | ntfy | webpush",
+      "",
+      "  none     default. Nothing is sent anywhere.",
+      "  macos    a local desktop notification. ZERO outbound traffic.",
+      "  file     appended to evidence/watch/notifications.log.",
+      "  webpush  reaches your PHONE through YOUR OWN local_service — no",
+      "           third party ever holds your subscriber list or your VAPID",
+      "           keys. Requires local_service.js running (sentinel pra",
+      "           start, or however you keep it up) and at least one device",
+      "           subscribed via the mobile shell's 'enable notifications'",
+      "           button. This is the recommended phone backend.",
+      "  ntfy     reaches your PHONE via ntfy.sh, a THIRD PARTY that relays",
+      "           every message (see the ntfy section below). Only use this",
+      "           if you don't want to run local_service continuously.",
+      "",
+      "THE CONTENT RULE: a notification carries a COUNT and a WATCH ID.",
+      "Never a name, never a quote, never anything from a capture. The",
+      "notification is a doorbell, not a delivery — you open the desk to see",
+      "what arrived. notify.js enforces this and refuses a message that looks",
+      "like case content.",
+      "",
+      "To use ntfy on your phone:",
+      "  1. install the ntfy app (iOS App Store / Google Play / F-Droid)",
+      "  2. pick a LONG, RANDOM topic name — anyone who guesses the topic can",
+      "     read your notifications, so treat it like a password. Generate one:",
+      "       openssl rand -hex 16",
+      "  3. subscribe to that topic in the app",
+      "  4. set backend to ntfy and paste the topic below",
+      "",
+      "The ntfy.sh server sees every message you send through it. That is",
+      "survivable only because of the content rule above. Self-host with",
+      "\"server\" if you want even the counts to stay yours."
+    ],
+    "backend": "none",
+    "topic": "",
+    "server": "https://ntfy.sh",
+    "priority": "default",
+    "tags": "mag",
+    "serviceUrl": "http://127.0.0.1:4317/push/notify"
+  },
+
+  "watches": [
+    {
+      "id": "WATCH-HB6-01",
+      "label": "HB6 — principal screening",
+      "investigation": "hb6-firstenergy",
+      "connector": "opensanctions",
+      "query": "Larry Householder",
+      "cadence": "weekly",
+      "_note": "The subject of your first ratified OpenSanctions screen. Re-screening catches a listing added after the original run."
+    },
+    {
+      "id": "WATCH-FLOCK-01",
+      "label": "Flock / ALPR — federal litigation",
+      "investigation": "the-cameras",
+      "connector": "courtlistener",
+      "query": "Flock Safety automated license plate reader",
+      "cadence": "weekly",
+      "_note": "New opinions naming Flock or ALPR. A new case is often the first public sign of a contract dispute or a suppression ruling."
+    },
+    {
+      "id": "WATCH-WATER-01",
+      "label": "Reynoldsburg / Columbus water — litigation",
+      "investigation": "the-water",
+      "connector": "courtlistener",
+      "query": "Reynoldsburg Columbus water service agreement",
+      "cadence": "monthly"
+    },
+    {
+      "id": "WATCH-PUCO-01",
+      "label": "Ohio utility rulemaking",
+      "investigation": "the-water",
+      "connector": "federalregister",
+      "query": "Ohio electric utility rate",
+      "cadence": "weekly",
+      "_note": "Federal Register needs no API key, so this one works the moment you copy the file."
+    },
+    {
+      "id": "WATCH-PRA-01",
+      "label": "Public records law — new opinions",
+      "investigation": "unfiled",
+      "connector": "courtlistener",
+      "query": "Ohio public records act 149.43 mandamus",
+      "cadence": "monthly",
+      "_note": "Case law that changes what you can demand, and what a denial has to say."
+    },
+
+    {
+      "_SECTION": "THE MONEY LANE — federal filings, no key needed for two of three",
+      "id": "WATCH-MONEY-01",
+      "label": "FirstEnergy — federal lobbying",
+      "investigation": "hb6-firstenergy",
+      "connector": "senatelda",
+      "query": "FirstEnergy",
+      "cadence": "monthly",
+      "_note": "Quarterly filings. A new registrant or a jump in reported spend is the signal."
+    },
+    {
+      "id": "WATCH-MONEY-02",
+      "label": "FirstEnergy — federal awards",
+      "investigation": "hb6-firstenergy",
+      "connector": "usaspending",
+      "query": "FirstEnergy",
+      "cadence": "monthly",
+      "_note": "No API key at all. Federal contracts and grants to the entity."
+    },
+    {
+      "id": "WATCH-MONEY-03",
+      "label": "Flock Safety — federal awards",
+      "investigation": "the-cameras",
+      "connector": "usaspending",
+      "query": "Flock Safety",
+      "cadence": "monthly",
+      "_note": "Federal money into ALPR. Local purchases will NOT appear here — those are county and city records requests."
+    },
+    {
+      "id": "WATCH-MONEY-04",
+      "label": "Flock Safety — federal lobbying",
+      "investigation": "the-cameras",
+      "connector": "senatelda",
+      "query": "Flock Safety",
+      "cadence": "monthly"
+    },
+    {
+      "id": "WATCH-MONEY-05",
+      "label": "Ohio congressional delegation — new filings",
+      "investigation": "unfiled",
+      "connector": "fec",
+      "query": "Ohio",
+      "cadence": "monthly",
+      "_note": "Needs FEC_API_KEY (free at api.data.gov). Catches a new candidate committee registering."
+    },
+
+    {
+      "_SECTION": "PUBLIC DATA — the two keys added 2026-08-24",
+      "id": "WATCH-REG-01",
+      "label": "Federal rulemaking — data centers",
+      "investigation": "the-water",
+      "connector": "regulationsgov",
+      "query": "data center energy",
+      "cadence": "weekly",
+      "_note": "New federal proposed rules and comment periods touching data-center power. Needs DATA_GOV_API_KEY (free at api.data.gov/signup) — the SAME key also unlocks the fec connector."
+    },
+    {
+      "id": "WATCH-REG-02",
+      "label": "Federal rulemaking — ALPR / surveillance",
+      "investigation": "the-cameras",
+      "connector": "regulationsgov",
+      "query": "automated license plate reader",
+      "cadence": "weekly"
+    },
+    {
+      "id": "WATCH-BLS-01",
+      "label": "Franklin County unemployment rate",
+      "investigation": "unfiled",
+      "connector": "bls",
+      "query": "LAUCN390490000000003",
+      "cadence": "monthly",
+      "_note": "[VERIFY THE SERIES ID BEFORE TRUSTING A RESULT] This is the LAUS format for Franklin County OH unemployment rate, but confirm it on data.bls.gov before citing any number from it. BLS revises prior months, so each revision arrives as a new hit by design — that is a feature, not noise."
+    },
+
+    {
+      "_SECTION": "SURVEILLANCE VENDORS — investigate the industry, never operate its tools",
+      "_note": "Prompted by the leaked location-API client filed as LEAK-LOCATIONAPI-001. We research WHO these vendors are and who buys from them, through legitimate filings only. We do not touch their endpoints.",
+      "id": "WATCH-VENDOR-01",
+      "label": "Flock Safety — federal contracts (surveillance vendor)",
+      "investigation": "the-cameras",
+      "connector": "usaspending",
+      "query": "Flock",
+      "cadence": "monthly"
+    },
+    {
+      "id": "WATCH-VENDOR-02",
+      "label": "Location-data vendors — federal lobbying",
+      "investigation": "the-cameras",
+      "connector": "senatelda",
+      "query": "location data broker",
+      "cadence": "monthly",
+      "_note": "Adtech-location surveillance lobbying. Cross-reference registrants against the vendor names in LEAK-LOCATIONAPI-001."
+    },
+    {
+      "id": "WATCH-VENDOR-03",
+      "label": "Surveillance-vendor litigation",
+      "investigation": "the-cameras",
+      "connector": "courtlistener",
+      "query": "location data advertising identifier privacy",
+      "cadence": "monthly"
+    }
+  ]
+}

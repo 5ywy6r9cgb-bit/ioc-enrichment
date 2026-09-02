@@ -1,0 +1,144 @@
+{
+  "//": "Named subject sets for `sentinel connect sweep <set>`. Edit this file as you learn names — every abatement agreement and utility filing names the actual contracting entity, and that name is the one worth searching. A subject here is a SEARCH STRING, not a claim that the entity is involved in anything.",
+  "datacenters": {
+    "into": "datacenters",
+    "note": "Operators and the single-purpose entities they file under.",
+    "subjects": [
+      "Cologix",
+      "Amazon Data Services",
+      "Amazon Web Services",
+      "Vadata",
+      "AWS Public Policy",
+      "Meta Platforms",
+      "Microsoft",
+      "QTS Data Centers",
+      "Vantage Data Centers",
+      "Aligned Data Centers",
+      "Digital Realty",
+      "DataBank"
+    ]
+  },
+  "energy": {
+    "into": "energy",
+    "note": "The supply side. AEP Ohio is the distribution utility for central Ohio; PJM runs the interconnection queue that decides whether a load can be served at all.",
+    "subjects": [
+      "AEP Ohio",
+      "American Electric Power",
+      "Ohio Power Company",
+      "PJM Interconnection",
+      "NiSource",
+      "Columbia Gas of Ohio",
+      "FirstEnergy",
+      "RWE",
+      "Duke Energy Ohio",
+      "Dominion Energy"
+    ]
+  },
+  "newalbany": {
+    "into": "new-albany",
+    "note": "Land assembly and the development vehicles.",
+    "subjects": [
+      "New Albany Company",
+      "New Albany International Business Park",
+      "Georgetown Company",
+      "Wexner"
+    ]
+  },
+  "lobbying": {
+    "into": "lobbying",
+    "note": "Firms already seen carrying more than one side of the question. Add any registrant the graph surfaces.",
+    "subjects": [
+      "Alpine Group Partners",
+      "Harbinger Strategies",
+      "Squire Patton Boggs",
+      "DCI Group",
+      "Elevate Government Affairs",
+      "VantageKnight"
+    ]
+  },
+  "surveillance": {
+    "into": "surveillance",
+    "note": "Vendors whose products are bought by police departments. A name here is a SEARCH STRING, not a claim that the vendor operates in Ohio.",
+    "subjects": [
+      "Flock Safety",
+      "Axon Enterprise",
+      "Motorola Solutions",
+      "SoundThinking",
+      "ShotSpotter",
+      "Cellebrite",
+      "Magnet Forensics",
+      "Clearview AI",
+      "Palantir Technologies",
+      "Dataminr",
+      "Babel Street",
+      "Venntel",
+      "ShadowDragon",
+      "Skydio",
+      "BRINC Drones",
+      "Paladin Drones",
+      "Peregrine Technologies",
+      "Fusus",
+      "LexisNexis Risk Solutions"
+    ]
+  },
+  "surveillance_money": {
+    "into": "surveillance-money",
+    "note": "The funding streams. Federal grant programmes and the Ohio agencies that receive or administer them.",
+    "subjects": [
+      "Byrne Justice Assistance Grant",
+      "Urban Area Security Initiative",
+      "COPS Office",
+      "Homeland Security Grant Program",
+      "Ohio Department of Public Safety",
+      "Franklin County Sheriff",
+      "Columbus Division of Police",
+      "Dublin Ohio Police"
+    ]
+  },
+  "surveillance_platforms": {
+    "into": "surveillance-platforms",
+    "note": "Platform law-enforcement programmes. A hit is a lead about the company, not evidence of any specific disclosure.",
+    "subjects": [
+      "Meta Platforms law enforcement",
+      "TikTok law enforcement",
+      "Google LLC law enforcement",
+      "Snap Inc law enforcement",
+      "Ring LLC"
+    ]
+  },
+  "ratepayers": {
+    "into": "ratepayers",
+    "note": "Who pays for the power a data center needs. The tariff fights, the utilities, and the offices that represent customers rather than shareholders.",
+    "subjects": [
+      "AEP Ohio",
+      "Ohio Power Company",
+      "Public Utilities Commission of Ohio",
+      "Ohio Consumers Counsel",
+      "Ohio Energy Group",
+      "Industrial Energy Users-Ohio",
+      "PJM Interconnection",
+      "Duke Energy Ohio",
+      "Dayton Power and Light",
+      "AES Ohio",
+      "data center tariff",
+      "large load tariff"
+    ]
+  },
+  "hb6": {
+    "into": "hb6",
+    "note": "House Bill 6 and its aftermath. Adjudicated federal corruption, not allegation -- and the reason Ohio ratepayers are already paying for generation decisions made under it.",
+    "subjects": [
+      "Larry Householder",
+      "FirstEnergy",
+      "Generation Now",
+      "Energy Harbor",
+      "Sam Randazzo",
+      "Matt Borges",
+      "Ohio House Bill 6",
+      "FirstEnergy Solutions",
+      "Juan Cespedes",
+      "Neil Clark",
+      "Jeff Longstreth"
+    ]
+  }
+}

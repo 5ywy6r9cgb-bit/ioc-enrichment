@@ -1,0 +1,16 @@
+{
+  "name": "sentinel-connectors",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Sentinel OS connectors — searches named public sources into the local evidence store, and reads back what was captured",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "node test_connect.js && node test_crosslink.js && node test_lobby.js && node test_graph.js"
+  },
+  "//": "neo4j-driver is OPTIONAL. Every connector, crosslink, lobby and the graph PREVIEW run without it; it is required only by `sentinel connect graph --push`, which is the one command that writes to a database. It is listed under optionalDependencies so a plain `npm install` failing to fetch it does not break the desk, and so the test suite never depends on it — graph.js takes a session object, and the tests pass a fake one.",
+  "optionalDependencies": {
+    "neo4j-driver": "^6.2.0"
+  }
+}

@@ -1,0 +1,165 @@
+# =====================================================================
+# The tests run on every push. That is the whole point of this file.
+#
+# It matters more here than in most repositories. The suites in this repo
+# are not only checking that code works — foia_tracker.test.js is checking
+# that letters going out over the operator's name do not assert a statutory
+# deadline that does not exist, and that a damages figure is never reported
+# for a case nobody filed. Those guards only protect anything if something
+# runs them, and "I'll run the tests locally" is not something.
+#
+# No database, no network, no secrets. Every suite in this repo runs on a
+# clean checkout, which is what makes this workflow twelve lines of setup
+# rather than a service matrix.
+# =====================================================================
+name: tests
+
+on:
+  # `push` is limited to main on purpose. With `branches: ['**']`, a commit on
+  # a branch that has an open PR fires BOTH events and runs the whole suite
+  # twice — two identical runs, double the minutes, and two notifications for
+  # every result. (Measured, not assumed: one commit here produced runs 
+  # 32806322905 (push) and 32806325903 (pull_request), both green.)
+  #
+  # The tradeoff: a branch with no PR open gets no automatic run. That is the
+  # usual convention and it is the right side of the trade here, because the
+  # work on this repo goes through PRs. `workflow_dispatch` covers the case
+  # where you want a run without opening one.
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # A new push supersedes an in-flight run on the same PR. Nobody needs the
+  # results of a commit that has already been replaced.
+  #
+  # Keyed on the PR number where there is one: for a pull_request event
+  # github.ref is the merge ref, which differs from the branch ref a push
+  # event carries, so a bare github.ref would put the two in separate groups
+  # and neither would cancel the other.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # Deliberately no `npm ci`. modules/pra DOES declare runtime dependencies
+      # (pg, web-push, playwright) for the local service and the browser shell,
+      # but no test suite touches them — tests/run_all.js states that it runs on
+      # a clean checkout with nothing installed, and it does. Installing nothing
+      # is faster and keeps a whole supply chain out of CI.
+      #
+      # This step asserts the property that makes that true, so that if a suite
+      # ever grows a real dependency, CI says exactly that instead of failing
+      # somewhere confusing three steps later.
+      - name: The suites need nothing installed
+        run: |
+          if [ -d modules/pra/node_modules ]; then
+            echo "::error::node_modules is present in a fresh checkout — is it committed?"
+            exit 1
+          fi
+          echo "No node_modules. The suites below run against a bare checkout."
+
+      - name: Run every suite
+        run: bin/sentinel test
+
+      # These two guards match CODE, not prose. Both files explain at length
+      # why the thing being guarded against is wrong, so a naive grep for the
+      # phrase matches the explanation and fails on every clean run — a guard
+      # that cries wolf is one you delete in a week. Hence the quoted-literal
+      # and assignment shapes below.
+
+      # The gate is the reason this repo exists. Prove the escape hatch still
+      # does not exist, in CI, where nobody can quietly add one.
+      - name: The publish gate has no override
+        run: |
+          hits=$(grep -rnE \
+            -e '["'"'"']--force["'"'"']' \
+            -e '(def|function)[[:space:]]+(force_publish|publish_anyway|skip_gate)' \
+            -e '(force_publish|publish_anyway|skip_gate)[[:space:]]*=' \
+            modules/research-desk/case.py modules/research-desk/dashboard.py || true)
+          if [ -n "$hits" ]; then
+            echo "::error::An override appeared in the publish gate:"
+            echo "$hits"
+            exit 1
+          fi
+          echo "No override. Good."
+
+      # R.C. 149.43 sets no fixed day count. If a literal statutory deadline is
+      # ever hardcoded back into the tracker, fail here rather than mail it.
+      - name: No invented Ohio statutory deadline
+        run: |
+          # Drop comment lines before judging. foia_tracker.js documents the
+          # old constant by name in its header, and a guard that fires on the
+          # explanation of the bug is a guard nobody keeps.
+          hits=$(grep -rnE \
+            -e '(const|let|var)[[:space:]]+ORC_[A-Z_]*[[:space:]]*=' \
+            -e 'ORC_PROMPT_RESPONSE[A-Z_]*[[:space:]]*=[[:space:]]*[0-9]' \
+            modules/pra/server/ modules/pra/scripts/ \
+            | grep -vE '^[^:]+:[0-9]+:[[:space:]]*(\*|//|#)' || true)
+          if [ -n "$hits" ]; then
+            echo "::error::Something defines an Ohio statutory day count. R.C. 149.43 sets none:"
+            echo "$hits"
+            exit 1
+          fi
+          echo "No invented deadline. Good."
+
+  secrets:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      # A key in git history is a key you have to rotate, and you find out
+      # months later. This is cheap insurance, and it runs before review.
+      - name: No committed credentials or evidence
+        run: |
+          fail=0
+
+          if git ls-files | grep -E '(^|/)\.env$|\.env\.[^e]'; then
+            echo "::error::A .env file is tracked. Keys belong outside git."; fail=1
+          fi
+
+          # grep -E has no lookahead, so exclude the two allowed paths with -v
+          # rather than a negative assertion that silently matches everything.
+          if git ls-files evidence/ \
+               | grep -vE '^evidence/(README\.md|\.gitkeep)$' | grep .; then
+            echo "::error::Something under evidence/ is tracked. That is case material."; fail=1
+          fi
+
+          # Real key shapes, not the word "key". The variable names are all
+          # over the docs on purpose; the values must never be.
+          # xargs exits 123 when grep finds nothing, so capture output and test
+          # THAT — testing xargs' status here reports failure on a clean repo.
+          hits=$(git ls-files -z | xargs -0 grep -nEI \
+              -e '(sk|pk)-[A-Za-z0-9]{32,}' \
+              -e 'AIza[0-9A-Za-z_-]{35}' \
+              -e 'ghp_[A-Za-z0-9]{36}' \
+              -e 'AKIA[0-9A-Z]{16}' \
+              -e '-----BEGIN [A-Z ]*PRIVATE KEY-----' \
+              2>/dev/null || true)
+          if [ -n "$hits" ]; then
+            echo "::error::That looks like a real credential:"
+            echo "$hits" | cut -c1-120
+            fail=1
+          fi
+
+          [ "$fail" = "0" ] && echo "Nothing sensitive is tracked. Good."
+          exit $fail

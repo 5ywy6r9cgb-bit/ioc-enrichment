@@ -1,0 +1,47 @@
+# =====================================================================
+# Sentinel OS — what must never leave this machine.
+# =====================================================================
+
+# The evidence store. Raw received records, captures, and working files.
+# The database holds METADATA about these; the files themselves stay local
+# and are never pushed to a remote.
+/evidence/*
+!/evidence/.gitkeep
+!/evidence/README.md
+Received_Records/
+manifests/
+
+# Secrets. Never commit a real .env — config/local.example.env is the template.
+.env
+.env.*
+!.env.example
+*.local.env
+local.env
+
+# Provenance ledgers and run captures are operator evidence, not source.
+*.jsonl
+qa-evidence/
+builds/
+
+# Backups and database dumps.
+*.sql.gz
+*.dump
+pre_live_backup_*.sql
+*_backup_*.sql
+
+# Dependencies and build output.
+node_modules/
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+tsr_env/
+.next/
+dist/
+
+# OS noise.
+.DS_Store
+Thumbs.db
+
+# Your subjects of interest are not something to publish.
+watchlist.json

@@ -1,0 +1,2418 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Public Records Atlas — Columbus Region (Prototype v0.5)</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
+<style>
+  :root { --ink:#1f2933; --muted:#6c757d; --line:#e3e8ee; }
+  * { box-sizing: border-box; }
+  html, body { margin:0; padding:0; height:100%; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; color:var(--ink); }
+  #app { display:flex; flex-direction:column; min-height:100vh; }
+  header { padding:12px 16px; border-bottom:1px solid var(--line); background:#fafbfc; }
+  header h1 { margin:0 0 4px; font-size:18px; }
+  header p.sub { margin:0; font-size:12px; color:var(--muted); line-height:1.4; }
+  .notices { display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; }
+  .notice { font-size:11px; padding:6px 10px; border-radius:6px; line-height:1.35; }
+  .notice.privacy { background:#eef6ff; color:#1f4e79; border:1px solid #cfe2f7; }
+  .notice.proto { background:#fff6e6; color:#7a5400; border:1px solid #f3e0b5; }
+  .toolbar { display:flex; flex-wrap:wrap; gap:8px; padding:8px 16px; border-bottom:1px solid var(--line); background:#fff; }
+  .btn { font-size:12px; padding:6px 12px; border-radius:6px; border:1px solid #cfd6dd; background:#fff; color:var(--ink); cursor:pointer; text-decoration:none; }
+  .btn:hover { background:#f1f4f7; }
+  .btn.primary { background:#1f6feb; color:#fff; border-color:#1f6feb; }
+  #map { flex:1; min-height:420px; }
+  #fallback { display:none; padding:16px; }
+  #fallback.show { display:block; }
+  #fallback .warn { background:#fff6e6; border:1px solid #f3e0b5; color:#7a5400; padding:12px; border-radius:8px; font-size:13px; margin-bottom:14px; line-height:1.5; }
+  .office-card { border:1px solid var(--line); border-radius:8px; padding:12px; margin-bottom:10px; }
+  .office-card h3 { margin:0 0 6px; font-size:14px; }
+  .legend { background:#fff; padding:10px 12px; border-radius:8px; box-shadow:0 1px 6px rgba(0,0,0,.18); font-size:12px; max-height:42vh; overflow:auto; }
+  .legend h4 { margin:0 0 6px; font-size:12px; }
+  .legend .row, .office-card .row { display:flex; align-items:center; gap:6px; margin:3px 0; }
+  .swatch { width:14px; height:14px; border-radius:50%; flex:0 0 auto; border:2px solid #fff; box-shadow:0 0 0 1px rgba(0,0,0,.2); }
+  .popup-title { font-size:14px; font-weight:700; margin:0 0 4px; }
+  .popup-row { font-size:12px; margin:2px 0; line-height:1.4; }
+  .popup-label { color:var(--muted); }
+  .badge { display:inline-block; font-size:10px; padding:1px 7px; border-radius:10px; color:#fff; font-weight:600; }
+  .popup-foot { margin-top:6px; padding-top:6px; border-top:1px solid var(--line); font-size:11px; color:var(--muted); }
+  .popup-actions { margin-top:8px; display:flex; flex-wrap:wrap; gap:6px; }
+  .popup-actions button { font-size:11px; padding:4px 9px; border-radius:6px; border:1px solid #cfd6dd; background:#f7f9fb; cursor:pointer; }
+  .popup-actions button:hover { background:#eef2f6; }
+  .leaflet-popup-content { margin:10px 12px; max-width:260px; }
+  a { color:#1f6feb; }
+  .marker-glyph { display:flex; align-items:center; justify-content:center; width:100%; height:100%; font-size:13px; }
+  /* How-to panel */
+  .modal-backdrop { display:none; position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:9999; align-items:center; justify-content:center; padding:16px; }
+  .modal-backdrop.show { display:flex; }
+  .modal { background:#fff; border-radius:12px; max-width:560px; width:100%; max-height:85vh; overflow:auto; padding:20px; }
+  .modal h2 { margin:0 0 10px; font-size:18px; }
+  .modal h3 { font-size:14px; margin:14px 0 4px; }
+  .modal p, .modal li { font-size:13px; line-height:1.5; }
+  .modal .close { float:right; cursor:pointer; border:none; background:#eee; border-radius:6px; padding:4px 10px; font-size:14px; }
+  footer { padding:10px 16px; border-top:1px solid var(--line); font-size:11px; color:var(--muted); }
+  /* Request Builder modal */
+  .rb-backdrop { display:none; position:fixed; inset:0; background:rgba(0,0,0,.5); z-index:10000; align-items:flex-start; justify-content:center; padding:16px; overflow:auto; }
+  .rb-backdrop.show { display:flex; }
+  .rb-modal { background:#fff; border-radius:12px; max-width:600px; width:100%; margin:24px 0; padding:18px; box-shadow:0 8px 40px rgba(0,0,0,.3); }
+  .rb-h2 { margin:0 0 10px; font-size:18px; }
+  .rb-close { float:right; cursor:pointer; border:none; background:#eee; border-radius:6px; padding:4px 10px; font-size:13px; }
+  .rb-disclaimer { background:#fff6e6; border:1px solid #f3e0b5; color:#7a5400; padding:8px 10px; border-radius:6px; font-size:12px; margin:6px 0 10px; line-height:1.4; }
+  .rb-draftid { font-size:12px; color:var(--muted); margin-bottom:10px; }
+  .rb-label { display:block; font-size:12px; font-weight:600; margin:10px 0 3px; }
+  .rb-input { width:100%; padding:8px; font-size:13px; border:1px solid #cfd6dd; border-radius:6px; background:#fff; }
+  .rb-hint { font-size:11px; color:var(--muted); margin-top:3px; line-height:1.35; }
+  .rb-daterow { display:flex; gap:10px; }
+  .rb-daterow > div { flex:1; }
+  .rb-output { width:100%; min-height:200px; margin-top:6px; padding:10px; font-size:12px; font-family:ui-monospace,Menlo,Consolas,monospace; border:1px solid #cfd6dd; border-radius:6px; background:#fbfcfd; line-height:1.45; }
+  .rb-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
+  .rb-btn { font-size:12px; padding:7px 12px; border-radius:6px; border:1px solid #cfd6dd; background:#fff; cursor:pointer; }
+  .rb-btn:hover { background:#f1f4f7; }
+  .rb-btn.primary { background:#1f6feb; color:#fff; border-color:#1f6feb; }
+  .rb-status { font-size:12px; color:#2ca02c; margin-top:8px; min-height:16px; }
+  /* Request Tracker modal */
+  .trk-backdrop { display:none; position:fixed; inset:0; background:rgba(0,0,0,.5); z-index:10000; align-items:flex-start; justify-content:center; padding:16px; overflow:auto; }
+  .trk-backdrop.show { display:flex; }
+  .trk-modal { background:#fff; border-radius:12px; max-width:640px; width:100%; margin:24px 0; padding:18px; box-shadow:0 8px 40px rgba(0,0,0,.3); }
+  .trk-h2 { margin:0 0 8px; font-size:18px; }
+  .trk-close { float:right; cursor:pointer; border:none; background:#eee; border-radius:6px; padding:4px 10px; font-size:13px; }
+  .trk-note { background:#eef6ff; border:1px solid #cfe2f7; color:#1f4e79; padding:8px 10px; border-radius:6px; font-size:12px; margin:6px 0 10px; line-height:1.4; }
+  .trk-toolbar { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:8px; }
+  .trk-btn { font-size:12px; padding:7px 12px; border-radius:6px; border:1px solid #cfd6dd; background:#fff; cursor:pointer; }
+  .trk-btn:hover { background:#f1f4f7; }
+  .trk-btn.small { padding:4px 9px; font-size:11px; }
+  .trk-btn.danger { color:#b23b3b; border-color:#e2b8b8; }
+  .trk-status { font-size:12px; color:#1f4e79; margin:6px 0; min-height:16px; }
+  .trk-raw { width:100%; min-height:120px; font-size:11px; font-family:ui-monospace,Menlo,Consolas,monospace; border:1px solid #cfd6dd; border-radius:6px; padding:8px; margin-bottom:8px; }
+  .trk-empty { font-size:13px; color:var(--muted); padding:14px; border:1px dashed var(--line); border-radius:8px; }
+  .trk-card { border:1px solid var(--line); border-radius:8px; padding:12px; margin-bottom:10px; }
+  .trk-card-head { font-size:14px; margin-bottom:4px; }
+  .trk-meta { font-size:12px; color:var(--muted); margin:2px 0; }
+  .trk-row { margin:8px 0; }
+  .trk-select { font-size:12px; padding:5px 8px; border:1px solid #cfd6dd; border-radius:6px; }
+  .trk-badge { display:inline-block; font-size:10px; padding:1px 7px; border-radius:10px; color:#fff; font-weight:600; }
+  .trk-details { margin:6px 0; }
+  .trk-details summary { font-size:12px; cursor:pointer; color:#1f6feb; }
+  .trk-pre { white-space:pre-wrap; font-size:11px; background:#fbfcfd; border:1px solid var(--line); border-radius:6px; padding:8px; margin-top:6px; }
+  .trk-lbl { display:block; font-size:11px; font-weight:600; color:var(--muted); margin-bottom:3px; }
+  .trk-notes { width:100%; min-height:46px; font-size:12px; padding:7px; border:1px solid #cfd6dd; border-radius:6px; }
+  .trk-disclaimer { background:#fff6e6; border:1px solid #f3e0b5; color:#7a5400; padding:8px 10px; border-radius:6px; font-size:12px; margin:6px 0 8px; line-height:1.4; }
+  .trk-savebox { background:#f1f7ff; border:1px solid #cfe2f7; border-radius:8px; padding:10px 12px; margin:8px 0; }
+  .trk-savebox-h { font-size:12px; font-weight:700; color:#1f4e79; margin-bottom:6px; }
+  .trk-savebox-row { font-size:12px; margin:5px 0; display:flex; flex-wrap:wrap; align-items:center; gap:6px; }
+  .trk-savebox-lbl { color:var(--muted); font-weight:600; }
+  .trk-savebox code { background:#fff; border:1px solid #d6e2f0; border-radius:4px; padding:2px 6px; font-size:11px; word-break:break-all; }
+  .trk-savebox-note { font-size:11px; color:#1f4e79; margin-top:6px; line-height:1.4; }
+  .trk-hint { background:#eaf7ee; border:1px solid #bfe3c9; color:#1d6b34; padding:8px 10px; border-radius:6px; font-size:12px; margin:6px 0 8px; line-height:1.4; }
+  /* Uploads (v0.5) */
+  .up-wrap { margin:10px 0 4px; padding:10px; border:1px dashed var(--line); border-radius:8px; background:#fcfdff; }
+  .up-head { font-size:12px; font-weight:700; color:#1f4e79; margin-bottom:6px; }
+  .up-warn { font-size:11px; border-radius:6px; padding:7px 9px; margin:5px 0; line-height:1.4; }
+  .up-warn-red { background:#fdecec; border:1px solid #f3c0c0; color:#922; }
+  .up-warn-amber { background:#fff6e6; border:1px solid #f3e0b5; color:#7a5400; }
+  .up-warn-blue { background:#eef6ff; border:1px solid #cfe2f7; color:#1f4e79; }
+  .up-row { margin:7px 0; }
+  .up-card { border:1px solid var(--line); border-radius:7px; padding:9px; margin:8px 0; background:#fff; }
+  .up-card-rejected { border-color:#e0a6a6; background:#fff5f5; }
+  .up-card-head { font-size:12px; margin-bottom:4px; }
+  .up-id { color:var(--muted); font-size:11px; }
+  .up-meta { font-size:12px; color:#333; margin:4px 0; }
+  .up-orig code { background:#f6eaea; border:1px solid #e3cccc; border-radius:4px; padding:1px 5px; font-size:11px; word-break:break-all; }
+  .up-folder code { background:#eef3f8; border:1px solid #d6e2f0; border-radius:4px; padding:1px 5px; font-size:11px; word-break:break-all; }
+  .up-display, .up-recdate { font-size:12px; padding:4px 7px; border:1px solid #cfd6dd; border-radius:5px; min-width:60%; }
+  .up-notes { width:100%; min-height:40px; font-size:12px; padding:6px; border:1px solid #cfd6dd; border-radius:5px; }
+  .up-review { font-size:12px; padding:4px 7px; border:1px solid #cfd6dd; border-radius:5px; }
+  .up-badge { display:inline-block; font-size:10px; padding:1px 7px; border-radius:10px; color:#fff; font-weight:600; }
+  .up-flags { margin:5px 0; padding-left:16px; }
+  .up-flags li { font-size:11px; margin:2px 0; }
+  .up-flag-risk { color:#922; }
+  .up-flag-note { color:#7a5400; }
+  .up-scan { font-size:11px; margin:3px 0; padding:4px 7px; border-radius:5px; }
+  .up-scan-clean { background:#eaf7ee; border:1px solid #bfe3c9; color:#1d6b34; }
+  .up-scan-flag { background:#fdecec; border:1px solid #f3c0c0; color:#922; }
+  .up-overall { display:inline-block; font-size:10px; padding:1px 7px; border-radius:10px; font-weight:600; margin-left:4px; }
+  .up-overall-ok { background:#e6f3ea; color:#1d6b34; border:1px solid #bfe3c9; }
+  .up-overall-review { background:#fff1d6; color:#7a5400; border:1px solid #f0d49a; }
+  .up-orig-warn { color:#922; font-size:11px; background:#fff5f5; border:1px solid #e6c3c3; border-radius:5px; padding:4px 7px; }
+  .up-toggle-orig { margin-left:4px; }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1>Public Records Atlas — Columbus Region <span style="font-weight:400;color:#6c757d;">(Prototype v0.5)</span></h1>
+    <p class="sub">A civic education tool: find the right public office, see what records may exist, and learn how to file a public-records request. Educational and non-partisan — not an accusation tool.</p>
+    <div class="notices">
+      <div class="notice privacy"><strong>Privacy:</strong> Public offices and official records-access points only. No private individuals, renters, utility customers, account numbers, bills, or complaints are mapped.</div>
+      <div class="notice proto"><strong>Prototype data — not authoritative GIS.</strong> Coordinates are a first pass from official addresses and may be approximate. Verify before authoritative use.</div>
+    </div>
+  </header>
+  <div class="toolbar">
+    <button class="btn primary" onclick="openHowTo()">How to file a public-records request</button>
+    <a class="btn" id="correctionLink" href="#" onclick="reportCorrection(event)">Report a correction / feedback</a>
+  </div>
+  <div id="map"></div>
+  <div id="fallback"></div>
+  <footer>
+    Sentinel OS — Public Records Atlas · Prototype v0.5 · Data is first-pass and non-authoritative · No private data is published.
+  </footer>
+</div>
+
+<!-- How-to modal -->
+<div class="modal-backdrop" id="howtoModal">
+  <div class="modal">
+    <button class="close" onclick="closeHowTo()">Close</button>
+    <h2>How to file a public-records request (Ohio)</h2>
+    <p>Ohio's Public Records Act (O.R.C. &sect; 149.43) gives any person the right to inspect and copy public records. You do <strong>not</strong> have to say who you are or why you want the records.</p>
+    <h3>1. Find the right office</h3>
+    <p>Use the map to identify which office likely holds the record. Click a point to see its role, the records it may hold, and its public-records contact.</p>
+    <h3>2. Be specific</h3>
+    <p>Describe the records as precisely as you can &mdash; the agency, the type of record, and a date range. Specific requests get faster, cleaner responses.</p>
+    <h3>3. Ask for aggregate or redacted data when possible</h3>
+    <p>If you only need totals or policy-level information, say so. Ask the office to redact any exempt personal information and provide the rest.</p>
+    <h3>4. Keep it on record</h3>
+    <p>Email or the office's online portal creates a paper trail. Note the date you sent it and any tracking number you get back.</p>
+    <h3>5. Follow up</h3>
+    <p>Response time depends on the request's size and the office's backlog. A polite follow-up after a reasonable wait is normal and appropriate.</p>
+    <p style="margin-top:14px;color:#6c757d;"><em>This panel is general civic education, not legal advice.</em></p>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+<script>
+const AGENCIES = [
+  {
+    "name": "Reynoldsburg City Hall / Municipal Administration",
+    "agency_type": "city_government",
+    "jurisdiction": "Reynoldsburg",
+    "address": "7232 E Main St Reynoldsburg OH 43068",
+    "lat": "39.954889",
+    "lng": "-82.806099",
+    "phone": "614-322-6800",
+    "website_url": "https://reynoldsburg.gov",
+    "public_records_url": "https://reynoldsburg.gov/453/Public-Records-Request",
+    "public_records_email": "publicrecords@reynoldsburg.gov",
+    "system_role": "Central municipal administration and public records routing",
+    "source_url": "https://reynoldsburg.gov/directory.aspx",
+    "geocode_confidence": "high",
+    "geocode_notes": "Reynoldsburg Municipal Building, 7232 E Main St",
+    "privacy_level": "public",
+    "record_status": "planned",
+    "next_action": "Add exact coordinates"
+  },
+  {
+    "name": "Reynoldsburg Water/Wastewater Department",
+    "agency_type": "water_sewer_stormwater",
+    "jurisdiction": "Reynoldsburg",
+    "address": "7232 E Main St Reynoldsburg OH 43068",
+    "lat": "39.954889",
+    "lng": "-82.806099",
+    "phone": "614-322-6811",
+    "website_url": "https://reynoldsburg.gov/250/Water-Wastewater-Department",
+    "public_records_url": "https://reynoldsburg.gov/453/Public-Records-Request",
+    "public_records_email": "publicrecords@reynoldsburg.gov",
+    "system_role": "Water/sewer operations billing deposits shutoffs reconnection fees",
+    "source_url": "https://reynoldsburg.gov/250/Water-Wastewater-Department",
+    "geocode_confidence": "high",
+    "geocode_notes": "Co-located at Reynoldsburg Municipal Building, 7232 E Main St",
+    "privacy_level": "public",
+    "record_status": "planned",
+    "next_action": "Primary local water billing and records office"
+  },
+  {
+    "name": "Reynoldsburg Service Department",
+    "agency_type": "public_utilities",
+    "jurisdiction": "Reynoldsburg",
+    "address": "7232 E Main St Reynoldsburg OH 43068",
+    "lat": "39.954889",
+    "lng": "-82.806099",
+    "phone": "",
+    "website_url": "https://reynoldsburg.gov/226/Service-Department",
+    "public_records_url": "https://reynoldsburg.gov/453/Public-Records-Request",
+    "public_records_email": "publicrecords@reynoldsburg.gov",
+    "system_role": "Administrative umbrella for street stormwater water sewer refuse recycling",
+    "source_url": "https://reynoldsburg.gov/226/Service-Department",
+    "geocode_confidence": "medium",
+    "geocode_notes": "Listed at municipal building address; field operations may sit elsewhere - verify operational yard location",
+    "privacy_level": "public",
+    "record_status": "planned",
+    "next_action": "Connects infrastructure operations to city service delivery"
+  },
+  {
+    "name": "Reynoldsburg City Council",
+    "agency_type": "legislative_body",
+    "jurisdiction": "Reynoldsburg",
+    "address": "7232 E Main St Reynoldsburg OH 43068",
+    "lat": "39.954889",
+    "lng": "-82.806099",
+    "phone": "",
+    "website_url": "https://reynoldsburg.gov/directory.aspx",
+    "public_records_url": "https://reynoldsburg.gov/453/Public-Records-Request",
+    "public_records_email": "publicrecords@reynoldsburg.gov",
+    "system_role": "Legislative body for ordinances rates fees public meetings",
+    "source_url": "https://reynoldsburg.gov/directory.aspx",
+    "geocode_confidence": "high",
+    "geocode_notes": "Council chambers at Reynoldsburg Municipal Building, 7232 E Main St",
+    "privacy_level": "public",
+    "record_status": "planned",
+    "next_action": "Attach agenda minutes and ordinance records"
+  },
+  {
+    "name": "Reynoldsburg City Auditor / Finance",
+    "agency_type": "finance_auditor",
+    "jurisdiction": "Reynoldsburg",
+    "address": "7232 E Main St Reynoldsburg OH 43068",
+    "lat": "39.954889",
+    "lng": "-82.806099",
+    "phone": "",
+    "website_url": "https://reynoldsburg.gov/directory.aspx",
+    "public_records_url": "https://reynoldsburg.gov/453/Public-Records-Request",
+    "public_records_email": "publicrecords@reynoldsburg.gov",
+    "system_role": "Fiscal records utility funds deposit accounting and annual finance records",
+    "source_url": "https://reynoldsburg.gov/directory.aspx",
+    "geocode_confidence": "high",
+    "geocode_notes": "Within Reynoldsburg Municipal Building, 7232 E Main St",
+    "privacy_level": "public",
+    "record_status": "planned",
+    "next_action": "Needed to trace where deposit money is recorded"
+  },
+  {
+    "name": "Reynoldsburg Storm Water Utility",
+    "agency_type": "water_sewer_stormwater",
+    "jurisdiction": "Reynoldsburg",
+    "address": "7232 E Main St Reynoldsburg OH 43068",
+    "lat": "39.954889",
+    "lng": "-82.806099",
+    "phone": "",
+    "website_url": "https://reynoldsburg.gov",
+    "public_records_url": "https://reynoldsburg.gov/453/Public-Records-Request",
+    "public_records_email": "publicrecords@reynoldsburg.gov",
+    "system_role": "Stormwater fee and drainage-system records",
+    "source_url": "https://reynoldsburg.gov",
+    "geocode_confidence": "medium",
+    "geocode_notes": "Billed/administered at municipal building; infrastructure is jurisdiction-wide",
+    "privacy_level": "public",
+    "record_status": "planned",
+    "next_action": ""
+  },
+  {
+    "name": "Reynoldsburg City Schools District Office",
+    "agency_type": "school_district",
+    "jurisdiction": "Reynoldsburg",
+    "address": "7244 E Main St Reynoldsburg OH 43068",
+    "lat": "39.955900",
+    "lng": "-82.805400",
+    "phone": "",
+    "website_url": "https://www.reyn.org",
+    "public_records_url": "",
+    "public_records_email": "",
+    "system_role": "Student/family outreach and public education records context",
+    "source_url": "https://www.reyn.org",
+    "geocode_confidence": "high",
+    "geocode_notes": "Reynoldsburg City Schools district office, 7244 E Main St (adjacent to municipal building)",
+    "privacy_level": "public",
+    "record_status": "planned",
+    "next_action": ""
+  },
+  {
+    "name": "Columbus Metropolitan Library Reynoldsburg Branch",
+    "agency_type": "library_community_access",
+    "jurisdiction": "Reynoldsburg",
+    "address": "1402 Brice Rd Reynoldsburg OH 43068",
+    "lat": "39.949600",
+    "lng": "-82.787900",
+    "phone": "",
+    "website_url": "https://www.columbuslibrary.org",
+    "public_records_url": "",
+    "public_records_email": "",
+    "system_role": "Community education QR access public computers and resident learning",
+    "source_url": "https://www.columbuslibrary.org/library-locations/",
+    "geocode_confidence": "high",
+    "geocode_notes": "CML Reynoldsburg Branch, 1402 Brice Rd",
+    "privacy_level": "public",
+    "record_status": "planned",
+    "next_action": "Confirm permission for flyers/programming"
+  },
+  {
+    "name": "Reynoldsburg Parks & Recreation / Senior Center",
+    "agency_type": "library_community_access",
+    "jurisdiction": "Reynoldsburg",
+    "address": "1520 Davidson Dr Reynoldsburg OH 43068",
+    "lat": "39.962100",
+    "lng": "-82.806600",
+    "phone": "",
+    "website_url": "https://reynoldsburg.gov",
+    "public_records_url": "",
+    "public_records_email": "",
+    "system_role": "Senior outreach and community programming",
+    "source_url": "https://reynoldsburg.gov",
+    "geocode_confidence": "medium",
+    "geocode_notes": "Senior Center listed at 1520 Davidson Dr; confirm parks admin vs senior center coordinate",
+    "privacy_level": "public",
+    "record_status": "planned",
+    "next_action": ""
+  },
+  {
+    "name": "City of Columbus Water & Power / Department of Public Utilities",
+    "agency_type": "public_utilities",
+    "jurisdiction": "Columbus",
+    "address": "90 W Broad St Columbus OH 43215",
+    "lat": "39.961400",
+    "lng": "-83.003800",
+    "phone": "",
+    "website_url": "https://www.columbus.gov/Services/Columbus-Water-Power",
+    "public_records_url": "https://www.columbus.gov/Services/Columbus-Water-Power/About-Columbus-Water-Power/Utilities-Public-Records-Policy-and-Requests",
+    "public_records_email": "DPUpublicrecords@columbus.gov",
+    "system_role": "Regional water/sewer supplier and contract partner",
+    "source_url": "https://www.columbus.gov/Services/Columbus-Water-Power/Start-New-Utility-Service",
+    "geocode_confidence": "high",
+    "geocode_notes": "Columbus DPU, 90 W Broad St (Columbus City Hall complex area)",
+    "privacy_level": "public",
+    "record_status": "planned",
+    "next_action": "Columbus provides water/sewer to multiple contract communities"
+  },
+  {
+    "name": "Columbus Utilities Public Records Office",
+    "agency_type": "public_records_office",
+    "jurisdiction": "Columbus",
+    "address": "90 W Broad St Columbus OH 43215",
+    "lat": "39.961400",
+    "lng": "-83.003800",
+    "phone": "614-645-1313",
+    "website_url": "https://www.columbus.gov",
+    "public_records_url": "https://www.columbus.gov/Services/Columbus-Water-Power/About-Columbus-Water-Power/Utilities-Public-Records-Policy-and-Requests",
+    "public_records_email": "DPUpublicrecords@columbus.gov",
+    "system_role": "Public records routing for Columbus utilities records",
+    "source_url": "https://www.columbus.gov/Services/Columbus-Water-Power/About-Columbus-Water-Power/Utilities-Public-Records-Policy-and-Requests",
+    "geocode_confidence": "medium",
+    "geocode_notes": "Listed at DPU/90 W Broad St; records office is a function, not a separate public counter - verify walk-in location",
+    "privacy_level": "public",
+    "record_status": "planned",
+    "next_action": ""
+  },
+  {
+    "name": "City of Columbus GIS / Open Data",
+    "agency_type": "gis_open_data",
+    "jurisdiction": "Columbus",
+    "address": "90 W Broad St Columbus OH 43215",
+    "lat": "39.961400",
+    "lng": "-83.003800",
+    "phone": "",
+    "website_url": "https://www.columbus.gov",
+    "public_records_url": "",
+    "public_records_email": "",
+    "system_role": "Open data and map portal for GIS layers",
+    "source_url": "https://www.columbus.gov",
+    "geocode_confidence": "low",
+    "geocode_notes": "No dedicated public street address; placed at Columbus civic center. GIS/Open Data is primarily an online portal",
+    "privacy_level": "public",
+    "record_status": "planned",
+    "next_action": ""
+  },
+  {
+    "name": "City of Gahanna Public Records",
+    "agency_type": "city_government",
+    "jurisdiction": "Gahanna",
+    "address": "200 S Hamilton Rd Gahanna OH 43230",
+    "lat": "40.019500",
+    "lng": "-82.873400",
+    "phone": "",
+    "website_url": "https://www.gahanna.gov",
+    "public_records_url": "https://www.gahanna.gov",
+    "public_records_email": "",
+    "system_role": "Records requests submitted through online portal",
+    "source_url": "https://www.gahanna.gov",
+    "geocode_confidence": "high",
+    "geocode_notes": "Gahanna City Hall, 200 S Hamilton Rd",
+    "privacy_level": "public",
+    "record_status": "planned",
+    "next_action": ""
+  },
+  {
+    "name": "Franklin County Auditor",
+    "agency_type": "county_auditor",
+    "jurisdiction": "Franklin County",
+    "address": "373 S High St Columbus OH 43215",
+    "lat": "39.961700",
+    "lng": "-83.001900",
+    "phone": "",
+    "website_url": "https://auditor.franklincountyohio.gov/Home",
+    "public_records_url": "",
+    "public_records_email": "",
+    "system_role": "Property records parcel viewer valuation and GIS context",
+    "source_url": "https://auditor.franklincountyohio.gov/Home",
+    "geocode_confidence": "high",
+    "geocode_notes": "Franklin County complex, 373 S High St, Columbus",
+    "privacy_level": "public",
+    "record_status": "planned",
+    "next_action": ""
+  },
+  {
+    "name": "Franklin County Treasurer",
+    "agency_type": "county_treasurer",
+    "jurisdiction": "Franklin County",
+    "address": "373 S High St Columbus OH 43215",
+    "lat": "39.961700",
+    "lng": "-83.001900",
+    "phone": "",
+    "website_url": "https://treasurer.franklincountyohio.gov/",
+    "public_records_url": "",
+    "public_records_email": "",
+    "system_role": "Property tax collection and payment records",
+    "source_url": "https://treasurer.franklincountyohio.gov/",
+    "geocode_confidence": "high",
+    "geocode_notes": "Franklin County complex, 373 S High St, Columbus",
+    "privacy_level": "public",
+    "record_status": "planned",
+    "next_action": "Confirm exact office coordinates"
+  },
+  {
+    "name": "Franklin County Recorder",
+    "agency_type": "county_recorder",
+    "jurisdiction": "Franklin County",
+    "address": "373 S High St Columbus OH 43215",
+    "lat": "39.961700",
+    "lng": "-83.001900",
+    "phone": "",
+    "website_url": "https://recorder.franklincountyohio.gov",
+    "public_records_url": "",
+    "public_records_email": "",
+    "system_role": "Real-estate record search and recording",
+    "source_url": "https://recorder.franklincountyohio.gov",
+    "geocode_confidence": "high",
+    "geocode_notes": "Franklin County complex, 373 S High St, Columbus",
+    "privacy_level": "public",
+    "record_status": "planned",
+    "next_action": ""
+  },
+  {
+    "name": "Franklin County Clerk of Courts",
+    "agency_type": "clerk_of_courts",
+    "jurisdiction": "Franklin County",
+    "address": "373 S High St Columbus OH 43215",
+    "lat": "39.961700",
+    "lng": "-83.001900",
+    "phone": "",
+    "website_url": "https://www.franklincountyohio.gov/Clerk-of-Courts",
+    "public_records_url": "",
+    "public_records_email": "",
+    "system_role": "Public records page and request form for court records",
+    "source_url": "https://www.franklincountyohio.gov/Clerk-of-Courts",
+    "geocode_confidence": "high",
+    "geocode_notes": "Franklin County Courthouse complex, 373 S High St, Columbus",
+    "privacy_level": "public",
+    "record_status": "planned",
+    "next_action": ""
+  },
+  {
+    "name": "Licking County Auditor",
+    "agency_type": "county_auditor",
+    "jurisdiction": "Licking County",
+    "address": "20 S Second St Newark OH 43055",
+    "lat": "40.058200",
+    "lng": "-82.401900",
+    "phone": "",
+    "website_url": "https://lickingcounty.gov/depts/auditor/default.htm",
+    "public_records_url": "",
+    "public_records_email": "",
+    "system_role": "County fiscal officer property assessor transfers and GIS data",
+    "source_url": "https://lickingcounty.gov/depts/auditor/default.htm",
+    "geocode_confidence": "high",
+    "geocode_notes": "Licking County admin building, 20 S Second St, Newark",
+    "privacy_level": "public",
+    "record_status": "planned",
+    "next_action": ""
+  },
+  {
+    "name": "Licking County Treasurer",
+    "agency_type": "county_treasurer",
+    "jurisdiction": "Licking County",
+    "address": "20 S Second St Newark OH 43055",
+    "lat": "40.058200",
+    "lng": "-82.401900",
+    "phone": "",
+    "website_url": "https://lickingcounty.gov/depts/treasurer/default.htm",
+    "public_records_url": "",
+    "public_records_email": "",
+    "system_role": "Collector of local taxes and special assessments",
+    "source_url": "https://lickingcounty.gov/depts/treasurer/default.htm",
+    "geocode_confidence": "high",
+    "geocode_notes": "Licking County admin building, 20 S Second St, Newark",
+    "privacy_level": "public",
+    "record_status": "planned",
+    "next_action": ""
+  },
+  {
+    "name": "Fairfield County Auditor",
+    "agency_type": "county_auditor",
+    "jurisdiction": "Fairfield County",
+    "address": "108 N High St Lancaster OH 43130",
+    "lat": "39.714400",
+    "lng": "-82.599100",
+    "phone": "",
+    "website_url": "https://www.co.fairfield.oh.us/auditor/",
+    "public_records_url": "",
+    "public_records_email": "",
+    "system_role": "Property records GIS mapping valuation tax district context",
+    "source_url": "https://www.co.fairfield.oh.us/auditor/",
+    "geocode_confidence": "high",
+    "geocode_notes": "Fairfield County, 108 N High St, Lancaster",
+    "privacy_level": "public",
+    "record_status": "planned",
+    "next_action": ""
+  },
+  {
+    "name": "Ohio Attorney General Sunshine Laws",
+    "agency_type": "state_public_records_office",
+    "jurisdiction": "Ohio",
+    "address": "30 E Broad St Columbus OH 43215",
+    "lat": "39.962700",
+    "lng": "-82.999600",
+    "phone": "",
+    "website_url": "https://www.ohioattorneygeneral.gov/Legal/Sunshine-Laws",
+    "public_records_url": "https://www.ohioattorneygeneral.gov/Legal/Sunshine-Laws",
+    "public_records_email": "",
+    "system_role": "Public records and open meetings education",
+    "source_url": "https://www.ohioattorneygeneral.gov/Legal/Sunshine-Laws",
+    "geocode_confidence": "medium",
+    "geocode_notes": "Ohio AG offices, 30 E Broad St, Columbus (Rhodes Tower area); Sunshine Laws is a program/resource not a walk-in counter",
+    "privacy_level": "public",
+    "record_status": "planned",
+    "next_action": "Educational resource for residents"
+  },
+  {
+    "name": "Ohio Auditor of State Open Government Unit",
+    "agency_type": "state_public_records_office",
+    "jurisdiction": "Ohio",
+    "address": "65 E State St Columbus OH 43215",
+    "lat": "39.965300",
+    "lng": "-82.999000",
+    "phone": "",
+    "website_url": "https://ohioauditor.gov/open.html",
+    "public_records_url": "https://ohioauditor.gov/open.html",
+    "public_records_email": "",
+    "system_role": "Open government training and public records resources",
+    "source_url": "https://ohioauditor.gov/open.html",
+    "geocode_confidence": "medium",
+    "geocode_notes": "Ohio Auditor of State, 88 E Broad St area / 65 E State St, Columbus; Open Government Unit is a program",
+    "privacy_level": "public",
+    "record_status": "planned",
+    "next_action": ""
+  },
+  {
+    "name": "Ohio EPA Division of Drinking and Ground Waters",
+    "agency_type": "public_health",
+    "jurisdiction": "Ohio",
+    "address": "50 W Town St Columbus OH 43215",
+    "lat": "39.958900",
+    "lng": "-83.000700",
+    "phone": "",
+    "website_url": "https://epa.ohio.gov/divisions-and-offices/drinking-and-ground-waters/drinking-and-ground-waters",
+    "public_records_url": "",
+    "public_records_email": "",
+    "system_role": "Drinking water compliance and public water system records",
+    "source_url": "https://epa.ohio.gov/divisions-and-offices/drinking-and-ground-waters/drinking-and-ground-waters",
+    "geocode_confidence": "medium",
+    "geocode_notes": "Ohio EPA, 50 W Town St, Columbus; division is within building - verify suite/public access",
+    "privacy_level": "public",
+    "record_status": "planned",
+    "next_action": "Add Ohio EPA public water records links"
+  },
+  {
+    "name": "Public Utilities Commission of Ohio",
+    "agency_type": "state_public_records_office",
+    "jurisdiction": "Ohio",
+    "address": "180 E Broad St Columbus OH 43215",
+    "lat": "39.964700",
+    "lng": "-82.994300",
+    "phone": "800-686-7826",
+    "website_url": "https://puco.ohio.gov/wps/portal/gov/puco/home",
+    "public_records_url": "",
+    "public_records_email": "",
+    "system_role": "Utility consumer information complaint routing and documents",
+    "source_url": "https://puco.ohio.gov/wps/portal/gov/puco/home",
+    "geocode_confidence": "high",
+    "geocode_notes": "PUCO, 180 E Broad St, Columbus",
+    "privacy_level": "public",
+    "record_status": "planned",
+    "next_action": "Confirm jurisdiction before presenting as regulator"
+  }
+];
+const LEGEND = {
+  "$comment": "Sentinel OS Public Records Atlas \u2014 icon & color legend (v0.1). Maps agency_type to a marker icon key and color. Icon keys are descriptive; the demo renders them as colored circular markers with a glyph.",
+  "version": "0.1",
+  "legend": [
+    {
+      "agency_type": "water_sewer_stormwater",
+      "icon": "blue_droplet",
+      "glyph": "\ud83d\udca7",
+      "color": "#1f77b4",
+      "label": "Water / sewer / stormwater utility"
+    },
+    {
+      "agency_type": "public_utilities",
+      "icon": "green_drain",
+      "glyph": "\u267b\ufe0f",
+      "color": "#2ca02c",
+      "label": "Public utilities / service department"
+    },
+    {
+      "agency_type": "city_government",
+      "icon": "gray_building",
+      "glyph": "\ud83c\udfdb\ufe0f",
+      "color": "#6c757d",
+      "label": "City / municipal government"
+    },
+    {
+      "agency_type": "township_government",
+      "icon": "gray_building",
+      "glyph": "\ud83c\udfdb\ufe0f",
+      "color": "#6c757d",
+      "label": "Township government"
+    },
+    {
+      "agency_type": "legislative_body",
+      "icon": "gray_building",
+      "glyph": "\ud83c\udfdb\ufe0f",
+      "color": "#6c757d",
+      "label": "Legislative body / council"
+    },
+    {
+      "agency_type": "public_records_office",
+      "icon": "purple_document",
+      "glyph": "\ud83d\udcc4",
+      "color": "#7b2cbf",
+      "label": "Public-records office (municipal/department)"
+    },
+    {
+      "agency_type": "state_public_records_office",
+      "icon": "purple_document",
+      "glyph": "\ud83d\udcc4",
+      "color": "#7b2cbf",
+      "label": "State public-records / open-government office"
+    },
+    {
+      "agency_type": "county_auditor",
+      "icon": "gold_dollar",
+      "glyph": "\ud83d\udcb5",
+      "color": "#d4a017",
+      "label": "County auditor (property / fiscal)"
+    },
+    {
+      "agency_type": "county_treasurer",
+      "icon": "gold_dollar",
+      "glyph": "\ud83d\udcb5",
+      "color": "#d4a017",
+      "label": "County treasurer (tax collection)"
+    },
+    {
+      "agency_type": "finance_auditor",
+      "icon": "gold_dollar",
+      "glyph": "\ud83d\udcb5",
+      "color": "#d4a017",
+      "label": "Finance / auditor (city-level)"
+    },
+    {
+      "agency_type": "county_recorder",
+      "icon": "purple_document",
+      "glyph": "\ud83d\udcdc",
+      "color": "#8e44ad",
+      "label": "County recorder (deeds / land records)"
+    },
+    {
+      "agency_type": "clerk_of_courts",
+      "icon": "purple_document",
+      "glyph": "\u2696\ufe0f",
+      "color": "#5b3a91",
+      "label": "Clerk of courts / court records"
+    },
+    {
+      "agency_type": "municipal_court",
+      "icon": "purple_document",
+      "glyph": "\u2696\ufe0f",
+      "color": "#5b3a91",
+      "label": "Municipal court"
+    },
+    {
+      "agency_type": "common_pleas_court",
+      "icon": "purple_document",
+      "glyph": "\u2696\ufe0f",
+      "color": "#5b3a91",
+      "label": "Common pleas court"
+    },
+    {
+      "agency_type": "school_district",
+      "icon": "orange_school",
+      "glyph": "\ud83c\udfeb",
+      "color": "#e8731c",
+      "label": "School district office"
+    },
+    {
+      "agency_type": "library_community_access",
+      "icon": "teal_book",
+      "glyph": "\ud83d\udcda",
+      "color": "#17a2a2",
+      "label": "Library / community access point"
+    },
+    {
+      "agency_type": "police_fire_public_safety",
+      "icon": "lightblue_people",
+      "glyph": "\ud83d\udc6e",
+      "color": "#5bc0de",
+      "label": "Police / fire / public safety"
+    },
+    {
+      "agency_type": "public_health",
+      "icon": "lightblue_people",
+      "glyph": "\ud83c\udfe5",
+      "color": "#5bc0de",
+      "label": "Public health"
+    },
+    {
+      "agency_type": "gis_open_data",
+      "icon": "gray_building",
+      "glyph": "\ud83d\uddfa\ufe0f",
+      "color": "#495057",
+      "label": "GIS / open data (often online-only)"
+    },
+    {
+      "agency_type": "other",
+      "icon": "gray_building",
+      "glyph": "\ud83d\udccd",
+      "color": "#adb5bd",
+      "label": "Other public office"
+    }
+  ],
+  "status_badges": {
+    "planned": {
+      "color": "#6c757d",
+      "label": "Planned"
+    },
+    "requested": {
+      "color": "#d4a017",
+      "label": "Requested"
+    },
+    "received": {
+      "color": "#d4a017",
+      "label": "Received"
+    },
+    "reviewed": {
+      "color": "#1f77b4",
+      "label": "Reviewed"
+    },
+    "published": {
+      "color": "#2ca02c",
+      "label": "Published"
+    }
+  },
+  "confidence_badges": {
+    "high": {
+      "color": "#2ca02c",
+      "label": "High confidence"
+    },
+    "medium": {
+      "color": "#d4a017",
+      "label": "Medium \u2014 verify"
+    },
+    "low": {
+      "color": "#adb5bd",
+      "label": "Low / approximate"
+    }
+  }
+};
+const STYLE = {}; LEGEND.legend.forEach(function(l){ STYLE[l.agency_type] = l; });
+// Expose to the v0.3 request-builder module (separate script block)
+window.AGENCIES = AGENCIES; window.LEGEND = LEGEND;
+const STATUS = LEGEND.status_badges; const CONF = LEGEND.confidence_badges;
+
+function humanize(t){ return (t||"").replace(/_/g," ").replace(/\b\w/g,function(c){return c.toUpperCase();}); }
+function esc(s){ return (s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
+
+function recordsAccessHtml(a){
+  var isCommunity = (a.agency_type === "library_community_access" || a.agency_type === "school_district");
+  if (a.public_records_url) return '<a href="'+esc(a.public_records_url)+'" target="_blank" rel="noopener noreferrer">Public-records portal</a>';
+  if (a.public_records_email) return 'Records contact: <a href="mailto:'+esc(a.public_records_email)+'">'+esc(a.public_records_email)+'</a>';
+  if (a.phone) { var lead = isCommunity ? "Community access point — not a records custodian. " : "Phone / in-person public office contact only: "; return lead + esc(a.phone); }
+  return isCommunity ? "Community access point — not a records custodian" : "No direct portal identified yet";
+}
+
+// Request-builder placeholder actions (v0.2 — not wired yet)
+function genRequest(name){ alert("Generate request (coming in v0.3)\n\nThis will open the privacy-safe request builder pre-filled for:\n" + name); }
+function trackRequest(name){ alert("Track request (coming in v0.4)\n\nThis will open the request tracker for:\n" + name); }
+function uploadRecords(name){
+  // Uploads are attached to a tracked request (metadata only). Open the tracker;
+  // the user picks the request and uses its "Upload received records" control.
+  if (typeof window.openTracker === "function") {
+    window.openTracker();
+    if (typeof window.PRA_setTrackerHint === "function") {
+      window.PRA_setTrackerHint("To attach received records for " + name + ", open that request below and use its \u201CUpload received records\u201D button. Sentinel stores metadata only \u2014 raw files stay in your filing-cabinet folder.");
+    }
+  } else {
+    alert("Open the request tracker, then use a request's \u201CUpload received records\u201D button.");
+  }
+}
+window.genRequest = genRequest; window.trackRequest = trackRequest; window.uploadRecords = uploadRecords;
+
+function actionsHtml(a){
+  var n = esc(a.name).replace(/'/g,"\\'");
+  return '<div class="popup-actions">' +
+    '<button onclick="genRequest(\''+n+'\')">Generate request</button>' +
+    '<button onclick="trackRequest(\''+n+'\')">Track request</button>' +
+    '<button onclick="uploadRecords(\''+n+'\')">Upload received records</button>' +
+    '</div>';
+}
+
+function popupHtml(a){
+  var st = STYLE[a.agency_type] || STYLE["other"];
+  var status = STATUS[a.record_status] || STATUS["planned"];
+  var conf = CONF[a.geocode_confidence] || null;
+  var addr = a.address && a.address.trim() ? esc(a.address) : "Jurisdiction-wide / no single public address";
+  var h = '<div class="popup-title">'+esc(a.name)+'</div>';
+  h += '<div class="popup-row"><span class="badge" style="background:'+st.color+'">'+humanize(a.agency_type)+'</span>';
+  if (conf) h += ' <span class="badge" style="background:'+conf.color+'">'+conf.label+'</span>';
+  h += '</div>';
+  if (a.jurisdiction) h += '<div class="popup-row"><span class="popup-label">Jurisdiction:</span> '+esc(a.jurisdiction)+'</div>';
+  h += '<div class="popup-row"><span class="popup-label">Address:</span> '+addr+'</div>';
+  if (a.system_role) h += '<div class="popup-row"><span class="popup-label">Role:</span> '+esc(a.system_role)+'</div>';
+  h += '<div class="popup-row"><span class="popup-label">Records access:</span> '+recordsAccessHtml(a)+'</div>';
+  h += '<div class="popup-row"><span class="popup-label">Status:</span> <span class="badge" style="background:'+status.color+'">'+status.label+'</span> <span class="popup-label" style="font-size:10px;">(demo default)</span></div>';
+  if (a.next_action) h += '<div class="popup-row"><span class="popup-label">Next action:</span> '+esc(a.next_action)+'</div>';
+  h += actionsHtml(a);
+  h += '<div class="popup-foot">';
+  if (a.source_url) h += 'Source: <a href="'+esc(a.source_url)+'" target="_blank" rel="noopener noreferrer">official page</a><br>';
+  if (a.geocode_notes) h += '<em>'+esc(a.geocode_notes)+'</em><br>';
+  h += 'Privacy level: '+esc(a.privacy_level)+' (demo default) · No private account, billing, or personal data is published.';
+  h += '</div>';
+  return h;
+}
+
+function makeIcon(a){
+  var st = STYLE[a.agency_type] || STYLE["other"];
+  return L.divIcon({ className:"", html:'<div style="background:'+st.color+';width:26px;height:26px;border-radius:50%;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4);"><div class="marker-glyph">'+(st.glyph||"")+'</div></div>', iconSize:[26,26], iconAnchor:[13,13], popupAnchor:[0,-13] });
+}
+
+// ---- Graceful degradation: if Leaflet didn't load, show a usable fallback list ----
+function showFallback(reason){
+  var fb = document.getElementById("fallback");
+  var mapEl = document.getElementById("map");
+  mapEl.style.display = "none";
+  mapEl.style.minHeight = "0";
+  mapEl.style.flex = "0";
+  var html = '<div class="warn"><strong>The interactive map couldn\'t load here.</strong><br>' +
+    (reason ? esc(reason)+'<br>' : '') +
+    'This usually happens in an in-app browser or offline, where the map library is blocked. ' +
+    'All ' + AGENCIES.length + ' offices are listed below so the directory still works. ' +
+    'For the full map, open this file in a normal desktop browser (Chrome, Safari, Firefox, Edge) with internet access.</div>';
+  AGENCIES.forEach(function(a){
+    var st = STYLE[a.agency_type] || STYLE["other"];
+    html += '<div class="office-card">';
+    html += '<h3>'+esc(a.name)+'</h3>';
+    html += '<div class="row"><span class="swatch" style="background:'+st.color+'"></span>'+humanize(a.agency_type)+'</div>';
+    if (a.jurisdiction) html += '<div class="popup-row"><span class="popup-label">Jurisdiction:</span> '+esc(a.jurisdiction)+'</div>';
+    if (a.address) html += '<div class="popup-row"><span class="popup-label">Address:</span> '+esc(a.address)+'</div>';
+    if (a.system_role) html += '<div class="popup-row"><span class="popup-label">Role:</span> '+esc(a.system_role)+'</div>';
+    html += '<div class="popup-row"><span class="popup-label">Records access:</span> '+recordsAccessHtml(a)+'</div>';
+    if (a.source_url) html += '<div class="popup-row">Source: <a href="'+esc(a.source_url)+'" target="_blank" rel="noopener noreferrer">official page</a></div>';
+    html += actionsHtml(a);
+    html += '</div>';
+  });
+  fb.innerHTML = html;
+  fb.classList.add("show");
+}
+
+function initMap(){
+  try {
+    if (typeof L === "undefined") { showFallback("Map library (Leaflet) did not load."); return; }
+    document.getElementById("map").style.minHeight = "420px";
+    var map = L.map("map").setView([39.97,-82.90], 11);
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { attribution:"© OpenStreetMap contributors", maxZoom:18 }).addTo(map);
+    var clusterAvailable = (typeof L.markerClusterGroup === "function");
+    var layer = clusterAvailable ? L.markerClusterGroup({ maxClusterRadius:40, spiderfyDistanceMultiplier:1.6, showCoverageOnHover:false }) : L.layerGroup();
+    var bounds = []; var rendered = 0;
+    AGENCIES.forEach(function(a){
+      if (!a.lat || !a.lng) return;
+      var lat=parseFloat(a.lat), lng=parseFloat(a.lng);
+      if (isNaN(lat)||isNaN(lng)) return;
+      var m = L.marker([lat,lng], { icon: makeIcon(a) });
+      m.bindPopup(popupHtml(a), { maxWidth:280 });
+      layer.addLayer(m); bounds.push([lat,lng]); rendered++;
+    });
+    map.addLayer(layer);
+    if (bounds.length) map.fitBounds(bounds, { padding:[40,40] });
+    var legendCtl = L.control({ position:"bottomright" });
+    legendCtl.onAdd = function(){
+      var div = L.DomUtil.create("div","legend"); var seen={}; var rows="";
+      LEGEND.legend.forEach(function(l){ if(seen[l.color+l.label]) return; seen[l.color+l.label]=true; rows += '<div class="row"><span class="swatch" style="background:'+l.color+'"></span>'+l.label+'</div>'; });
+      div.innerHTML = '<h4>Office types</h4>'+rows; L.DomEvent.disableScrollPropagation(div); return div;
+    };
+    legendCtl.addTo(map);
+    window.__RENDERED_COUNT__ = rendered; window.__TOTAL_COUNT__ = AGENCIES.length;
+    if (!clusterAvailable) console.warn("markercluster not available; rendered without clustering.");
+    console.log("Rendered "+rendered+" of "+AGENCIES.length+" points.");
+  } catch (e) {
+    showFallback("Map error: " + (e && e.message ? e.message : e));
+  }
+}
+
+// How-to + correction handlers
+function openHowTo(){ document.getElementById("howtoModal").classList.add("show"); }
+function closeHowTo(){ document.getElementById("howtoModal").classList.remove("show"); }
+function reportCorrection(ev){ ev.preventDefault(); alert("Report a correction / feedback (placeholder)\n\nIn the full version this links to a correction form or TSR.columbus@protonmail.com. For now, note the office name and the issue."); }
+window.openHowTo=openHowTo; window.closeHowTo=closeHowTo; window.reportCorrection=reportCorrection;
+
+// ---- Resilient init: do NOT depend solely on the window "load" event ----
+// In strict in-app browsers, blocked CDN scripts can cause "load" to fire
+// late, early, or never. So we drive init from multiple independent triggers
+// and guard against running twice.
+var __initDone = false;
+function runInitOnce(){
+  if (__initDone) return;
+  __initDone = true;
+  initMap();
+}
+
+// 1. If a CDN script or stylesheet fails, fall back immediately.
+window.addEventListener("error", function(e){
+  if (typeof L === "undefined") {
+    __initDone = true;            // prevent a later trigger from double-rendering
+    showFallback("A resource failed to load (the map library was likely blocked here).");
+  }
+}, true);
+
+// 2. Try as soon as the DOM is ready (don't wait for external resources).
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", function(){
+    // Give CDN scripts a brief chance, then init regardless.
+    setTimeout(runInitOnce, 600);
+  });
+} else {
+  setTimeout(runInitOnce, 600);
+}
+
+// 3. Also try on full load (covers the normal desktop case).
+window.addEventListener("load", runInitOnce);
+
+// 4. Hard backstop: no matter what, decide within 3 seconds. If Leaflet still
+//    isn't here, show the fallback list so the page is never stuck blank.
+setTimeout(function(){
+  if (__initDone) return;
+  runInitOnce();
+}, 3000);
+
+// 5. Absolute last resort: if somehow nothing ran and the map is still empty,
+//    force the fallback at 4s.
+setTimeout(function(){
+  var mapEl = document.getElementById("map");
+  var fbEl = document.getElementById("fallback");
+  var mapEmpty = mapEl && mapEl.children.length === 0 && mapEl.style.display !== "none";
+  var fbHidden = fbEl && !fbEl.classList.contains("show");
+  if (mapEmpty && fbHidden) {
+    showFallback("The map could not be displayed in this browser.");
+  }
+}, 4000);
+</script>
+
+
+
+
+
+
+
+
+<!-- v0.5 data globals -->
+<script>
+window.RECORD_TYPES = [
+  {
+    "name": "Utility deposit aggregate totals",
+    "description": "Annual count and dollar totals of renter water-service deposits collected/refunded/held"
+  },
+  {
+    "name": "Water/sewer rate ordinances",
+    "description": "Council ordinances and chapters setting water/sewer rates and fees"
+  },
+  {
+    "name": "Council meeting minutes",
+    "description": "Public meeting minutes and agenda packets"
+  },
+  {
+    "name": "Service agreements / contracts",
+    "description": "Wholesale or inter-municipal water/sewer service agreements"
+  },
+  {
+    "name": "GIS / infrastructure maps",
+    "description": "Publicly releasable GIS layers for water/storm/sanitary infrastructure"
+  },
+  {
+    "name": "Stormwater fee records",
+    "description": "Stormwater utility fee schedules and billing policy"
+  },
+  {
+    "name": "Property/parcel records",
+    "description": "County auditor parcel and ownership data"
+  },
+  {
+    "name": "Property tax payment records",
+    "description": "County treasurer tax billing and payment status"
+  },
+  {
+    "name": "Public water system compliance records",
+    "description": "Drinking water compliance and monitoring records"
+  },
+  {
+    "name": "Budget / annual financial reports",
+    "description": "City/county annual financial reports and budgets"
+  },
+  {
+    "name": "Police/fire incident aggregate statistics",
+    "description": "Aggregate"
+  },
+  {
+    "name": "School board records",
+    "description": "School board meeting minutes and policy records"
+  }
+];
+window.RB_TEMPLATES = {
+  "$comment": "Sentinel OS Public Records Atlas \u2014 request builder templates (v0.3). Drives the Generate request flow. The builder assembles: opening + scope-specific body + date range + privacy exclusion + closing. All text is plain-language Ohio public-records request language. Nothing here submits or emails anything.",
+  "version": "0.3",
+  "statute": {
+    "label": "Ohio Public Records Act",
+    "citation": "O.R.C. \u00a7 149.43"
+  },
+  "opening": "Pursuant to Ohio's Public Records Act (O.R.C. \u00a7 149.43), I am requesting to inspect or obtain copies of the following public records from {AGENCY_NAME}:",
+  "scopes": [
+    {
+      "key": "policy_records",
+      "label": "Policy records",
+      "body": "Copies of current policies, rules, directives, or written procedures governing {TOPIC}."
+    },
+    {
+      "key": "aggregate_totals",
+      "label": "Aggregate totals",
+      "body": "Records showing aggregate, summary-level totals related to {TOPIC} \u2014 for example counts, dollar totals, or annual summaries \u2014 rather than individual records."
+    },
+    {
+      "key": "contracts_agreements",
+      "label": "Contracts / agreements",
+      "body": "Copies of contracts, service agreements, or memoranda of understanding related to {TOPIC}, including any attached rate schedules or amendments."
+    },
+    {
+      "key": "meeting_minutes_agendas",
+      "label": "Meeting minutes / agendas",
+      "body": "Copies of meeting agendas, agenda packets, and approved minutes related to {TOPIC}."
+    },
+    {
+      "key": "gis_map_records",
+      "label": "GIS / map records",
+      "body": "Publicly releasable GIS data layers, maps, or related documentation concerning {TOPIC}."
+    },
+    {
+      "key": "budgets_finance",
+      "label": "Budgets / finance",
+      "body": "Copies of adopted budgets, financial reports, fund or account classifications, or related fiscal records concerning {TOPIC}."
+    },
+    {
+      "key": "court_records",
+      "label": "Court records",
+      "body": "Copies of publicly available court records, dockets, or case-index information concerning {TOPIC}, excluding any records sealed or restricted by law."
+    },
+    {
+      "key": "property_records",
+      "label": "Property records",
+      "body": "Publicly available property, parcel, or ownership records concerning {TOPIC}."
+    }
+  ],
+  "date_range_clause": " The time period for this request is {DATE_START} through {DATE_END}.",
+  "date_range_all_clause": " Please include all responsive records regardless of date.",
+  "privacy_exclusion": "I am not requesting private customer names, account numbers, Social Security numbers, bank information, private addresses, private utility bills, or other personally identifying information. If responsive records contain exempt personal information, please redact only the exempt portions and provide the remainder.",
+  "closing": "I am not required to state a purpose for this request. I am providing contact information below solely to facilitate delivery of the response. If any fees apply, please notify me before processing. Thank you for your time and assistance.",
+  "contact_placeholder": "[Your name and preferred contact \u2014 optional]",
+  "disclaimer": "This tool creates a draft public-records request. It does not submit the request automatically.",
+  "scope_topic_hint": "Describe the specific subject, program, address, parcel, or document set you are asking about (e.g. \"renter water-service deposits\" or \"Flock Safety ALPR contract\")."
+};
+try { window.AGENCIES = (typeof AGENCIES !== 'undefined') ? AGENCIES : (window.AGENCIES||[]); } catch(e) {}
+</script>
+<!-- v0.5 Uploads (metadata-only); load before tracker -->
+<script>
+/* =====================================================================
+   Sentinel OS Public Records Atlas — Upload Received Records (v0.5)
+   METADATA-ONLY. Local/session-only. Raw files are NEVER embedded,
+   read, scanned, synced, submitted, emailed, or published.
+
+   Core principle: protect people first, organize records second.
+
+   - Raw files stay in the user's filing-cabinet Received_Records folder.
+   - JSON stores metadata only (exported_metadata_only = true).
+   - File CONTENTS are not read or scanned in v0.5. Filename + metadata only.
+   - Every upload is labeled: "Content scan not performed. Manual review required."
+   ===================================================================== */
+(function () {
+  "use strict";
+
+  var REVIEW_STATUSES = ["uploaded", "needs_review", "redaction_needed",
+    "redacted", "approved_internal", "approved_public", "rejected_private_data"];
+
+  var REVIEW_COLOR = {
+    uploaded: "#6c757d", needs_review: "#d4a017", redaction_needed: "#e8731c",
+    redacted: "#1f77b4", approved_internal: "#7b2cbf",
+    approved_public: "#2ca02c", rejected_private_data: "#b23b3b"
+  };
+
+  // Upload metadata fields (the only things Sentinel stores).
+  // original_filename = internal-only evidence-chain metadata.
+  // safe_display_name = sanitized display label. Each scanned separately.
+  var UPLOAD_FIELDS = ["upload_id", "request_id",
+    "original_filename", "original_filename_visibility",
+    "original_filename_scan_status", "original_filename_flags",
+    "safe_display_name", "safe_display_name_scan_status", "safe_display_name_flags",
+    "user_notes", "user_notes_scan_status", "user_notes_flags",
+    "file_type", "file_size", "uploaded_at",
+    "review_status", "privacy_scan_status", "privacy_scan_flags",
+    "overall_privacy_status",
+    "source_agency", "related_request_id",
+    "record_date_if_known", "public_release_status", "exported_metadata_only",
+    "content_scan_status", "recommended_file_folder", "recommended_safe_filename"];
+
+  // ---- Metadata-only privacy scan signals ----
+  // Field-name-style tokens that suggest sensitive content
+  var SENSITIVE_TOKENS = ["ssn", "socialsecurity", "social_security",
+    "account", "acct", "routing", "iban", "creditcard", "credit_card",
+    "debit", "card", "cardnumber", "dob", "dateofbirth", "birth",
+    "medical", "diagnosis", "patient", "hipaa", "rx", "prescription",
+    "juvenile", "minor", "sealed", "expunged", "ssn#",
+    "homeaddress", "home_address", "privatebill", "private_bill",
+    "customer", "customername", "customer_name"];
+  // Value patterns (note: filenames often use _ around numbers, so we avoid \b before digits)
+  var SSN_RE = /(?:^|[^\d])\d{3}-\d{2}-\d{4}(?:[^\d]|$)/;
+  var CARD_RE = /(?:^|[^\d])(?:\d[ -]*?){13,16}(?:[^\d]|$)/;
+  var ACCT_RE = /(?:acct|account)\s*#?\s*\d{4,}/i;
+  var LONGNUM_RE = /\d{6,}/; // long number anywhere (filename/notes)
+  var STREET_RE = /\b\d{1,6}\s+([A-Za-z]+\s){0,3}(st|street|ave|avenue|rd|road|dr|drive|ln|lane|blvd|ct|court|way|pl|place)\b/i;
+  // crude "FirstName_LastName" or "First Last" personal-name heuristic.
+  // Filenames chain tokens with underscores, so we don't require trailing \b.
+  var NAME_PAIR_RE = /(?:^|[^A-Za-z])([A-Z][a-z]+)[_ ]([A-Z][a-z]+)(?:[^A-Za-z]|$)/g;
+  // Common non-name capitalized tokens in civic filenames (reduce false positives).
+  var NON_NAME_TOKENS = {
+    Water: 1, Sewer: 1, Storm: 1, Stormwater: 1, Department: 1, Division: 1,
+    Police: 1, Fire: 1, City: 1, County: 1, Office: 1, Public: 1, Records: 1,
+    Request: 1, Response: 1, Report: 1, Letter: 1, Cover: 1, Attachment: 1,
+    Attachments: 1, Reynoldsburg: 1, Columbus: 1, Gahanna: 1, Franklin: 1,
+    Ohio: 1, Auditor: 1, Clerk: 1, Council: 1, Board: 1, Utility: 1,
+    Utilities: 1, Wastewater: 1, Service: 1, Services: 1, Agency: 1,
+    Final: 1, Draft: 1, Copy: 1, Document: 1, Form: 1, Permit: 1, Contract: 1,
+    Invoice: 1, Budget: 1, Meeting: 1, Minutes: 1, Agenda: 1, Map: 1, GIS: 1
+  };
+  function looksLikePersonName(text) {
+    var raw = text || "";
+    NAME_PAIR_RE.lastIndex = 0;
+    var m;
+    while ((m = NAME_PAIR_RE.exec(raw)) !== null) {
+      var a = m[1], b = m[2];
+      // If EITHER token is a known civic/non-name word, it's probably not a person.
+      if (NON_NAME_TOKENS[a] || NON_NAME_TOKENS[b]) continue;
+      return true; // two capitalized non-vocabulary words adjacent → likely a name
+    }
+    return false;
+  }
+
+  function esc(s) {
+    return (s == null ? "" : String(s)).replace(/&/g, "&amp;").replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  }
+  function nowIso() { return new Date().toISOString(); }
+  function pad2(n) { return String(n).padStart(2, "0"); }
+
+  function extOf(name) {
+    var m = /\.([A-Za-z0-9]+)$/.exec(name || "");
+    return m ? m[1].toLowerCase() : "";
+  }
+  function humanSize(bytes) {
+    if (bytes == null) return "";
+    var u = ["B", "KB", "MB", "GB"], i = 0, n = bytes;
+    while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+    return (i === 0 ? n : n.toFixed(1)) + " " + u[i];
+  }
+
+  // Per-field metadata scan. Scans ONLY the given string — never file bytes.
+  // Returns { status: "clean"|"flagged", flags: [...] }.
+  function scanField(text) {
+    var flags = [];
+    var raw = text || "";
+    var low = raw.toLowerCase();
+
+    SENSITIVE_TOKENS.forEach(function (tok) {
+      if (low.indexOf(tok) !== -1) flags.push("possible sensitive term: \"" + tok + "\"");
+    });
+    if (SSN_RE.test(raw)) flags.push("possible SSN pattern");
+    if (ACCT_RE.test(raw)) flags.push("possible account number");
+    if (CARD_RE.test(raw.replace(/(?:^|[^\d])\d{4}-\d{2}-\d{2}(?:[^\d]|$)/g, " "))) flags.push("possible card-number pattern");
+    if (STREET_RE.test(raw)) flags.push("possible street address");
+    if (looksLikePersonName(raw)) flags.push("possible personal name");
+    else if (LONGNUM_RE.test(raw)) flags.push("long numeric string (possible account/case number)");
+
+    var seen = {}, out = [];
+    flags.forEach(function (f) { if (!seen[f]) { seen[f] = 1; out.push(f); } });
+    return { status: out.length ? "flagged" : "clean", flags: out };
+  }
+  window.PRA_scanField = scanField; // QA hook
+
+  // Backward-compatible aggregate scan (used by some QA hooks). Always includes
+  // the content-not-scanned label, then any field flags found in the parts.
+  function scanMetadata(parts) {
+    var out = ["Content scan not performed. Manual review required."];
+    var combined = (parts || []).filter(Boolean).join("  ");
+    var r = scanField(combined);
+    r.flags.forEach(function (f) { out.push(f); });
+    return out;
+  }
+  window.PRA_scanUploadMetadata = scanMetadata; // QA hook
+
+  // Overall privacy status = highest risk among the per-field scans.
+  // Order: rejected_private_data > flagged(needs_review) > clean(metadata_only_ok)
+  function computeOverall(rec) {
+    var anyFlagged =
+      rec.original_filename_scan_status === "flagged" ||
+      rec.safe_display_name_scan_status === "flagged" ||
+      rec.user_notes_scan_status === "flagged";
+    // content is never scanned in v0.5 → manual review is always implied
+    rec.overall_privacy_status = anyFlagged ? "needs_review" : "metadata_only_ok";
+    return rec.overall_privacy_status;
+  }
+  window.PRA_computeOverall = computeOverall; // QA hook
+
+  // Suggest a safer display name from agency + date, avoiding personal data.
+  function suggestSafeName(agencyName, ext, recordDate) {
+    function slug(s) { return (s || "").replace(/&/g, " and ").replace(/[^A-Za-z0-9]+/g, "_").replace(/^_+|_+$/g, ""); }
+    var d = recordDate && /^\d{4}-\d{2}-\d{2}/.test(recordDate) ? recordDate.slice(0, 10) :
+      (new Date().getFullYear() + "-" + pad2(new Date().getMonth() + 1) + "-" + pad2(new Date().getDate()));
+    var base = slug(agencyName || "Agency") + "_Response_" + d;
+    return base + (ext ? "." + ext : "");
+  }
+  window.PRA_suggestSafeName = suggestSafeName; // QA hook
+
+  // Build the recommended Received_Records folder from the tracker's filing logic.
+  function recommendedFolder(req) {
+    // Reuse tracker helpers if present; else fall back to a generic path.
+    if (typeof window.PRA_buildFolderPathForRequest === "function") {
+      return window.PRA_buildFolderPathForRequest(req) + "Received_Records/";
+    }
+    var city = (req && req.jurisdiction) ? req.jurisdiction.replace(/[^A-Za-z0-9]+/g, "_") : "City";
+    var d = new Date();
+    var months = ["01_January","02_February","03_March","04_April","05_May","06_June",
+      "07_July","08_August","09_September","10_October","11_November","12_December"];
+    return "Sentinel_Public_Records_Atlas/Requests/Ohio/Franklin_County/" + city + "/" +
+      d.getFullYear() + "/" + months[d.getMonth()] + "/Received_Records/";
+  }
+
+  var idSeq = 0;
+  function makeUploadId() {
+    var d = new Date();
+    idSeq++;
+    return "UP-" + d.getFullYear() + pad2(d.getMonth() + 1) + pad2(d.getDate()) + "-" + pad2(idSeq);
+  }
+
+  // Attach one file's METADATA (never its bytes) to a tracked request.
+  function attachFileMeta(req, file) {
+    var ext = extOf(file.name);
+    var safeName = suggestSafeName(req.agency_name, ext, req.date_range && /^\d{4}/.test(req.date_range) ? req.date_range : "");
+    var origScan = scanField(file.name);           // evidence-chain metadata (internal)
+    var dispScan = scanField(safeName);            // sanitized display label
+    var notesScan = scanField("");                 // notes start empty
+    var rec = {
+      upload_id: makeUploadId(),
+      request_id: req.request_id,
+      // original_filename = internal-only evidence-chain metadata
+      original_filename: file.name,
+      original_filename_visibility: "internal_only",
+      original_filename_scan_status: origScan.status,
+      original_filename_flags: origScan.flags,
+      // safe_display_name = sanitized display label
+      safe_display_name: safeName,
+      safe_display_name_scan_status: dispScan.status,
+      safe_display_name_flags: dispScan.flags,
+      // notes
+      user_notes: "",
+      user_notes_scan_status: notesScan.status,
+      user_notes_flags: notesScan.flags,
+      file_type: file.type || ext || "unknown",
+      file_size: humanSize(file.size),
+      uploaded_at: nowIso(),
+      review_status: "uploaded",
+      privacy_scan_status: "metadata_only",
+      privacy_scan_flags: ["Content scan not performed. Manual review required."],
+      overall_privacy_status: "metadata_only_ok",
+      source_agency: req.agency_name || "",
+      related_request_id: req.request_id,
+      record_date_if_known: "",
+      public_release_status: "not_released",
+      exported_metadata_only: true,
+      content_scan_status: "not_performed",
+      recommended_file_folder: recommendedFolder(req),
+      recommended_safe_filename: safeName
+    };
+    computeOverall(rec);
+    // If anything flagged, nudge review_status to needs_review by default.
+    if (rec.overall_privacy_status === "needs_review" && rec.review_status === "uploaded") {
+      rec.review_status = "needs_review";
+    }
+    if (!req.uploads) req.uploads = [];
+    req.uploads.push(rec);
+    return rec;
+  }
+  window.PRA_attachFileMeta = attachFileMeta; // QA hook
+
+  // Re-scan ONLY the editable fields (display name + notes).
+  // original_filename is evidence-chain metadata and is NOT re-scanned away —
+  // its warnings persist because the original filename itself does not change.
+  function rescan(rec) {
+    var dispScan = scanField(rec.safe_display_name);
+    var notesScan = scanField(rec.user_notes);
+    rec.safe_display_name_scan_status = dispScan.status;
+    rec.safe_display_name_flags = dispScan.flags;
+    rec.user_notes_scan_status = notesScan.status;
+    rec.user_notes_flags = notesScan.flags;
+    // original_filename scan is preserved as-is (do not clear)
+    if (rec.original_filename_scan_status === undefined) {
+      var o = scanField(rec.original_filename);
+      rec.original_filename_scan_status = o.status;
+      rec.original_filename_flags = o.flags;
+    }
+    rec.privacy_scan_status = "metadata_only";
+    rec.content_scan_status = "not_performed";
+    if (!rec.privacy_scan_flags || !rec.privacy_scan_flags.length) {
+      rec.privacy_scan_flags = ["Content scan not performed. Manual review required."];
+    }
+    computeOverall(rec);
+  }
+  window.PRA_rescanUpload = rescan;
+
+  // ---- UI: upload panel injected into a request's tracker card ----
+  function reviewBadge(s) {
+    var c = REVIEW_COLOR[s] || "#6c757d";
+    return '<span class="up-badge" style="background:' + c + '">' + esc(s) + '</span>';
+  }
+  function reviewSelect(uid, current) {
+    var opts = REVIEW_STATUSES.map(function (s) {
+      return '<option value="' + s + '"' + (s === current ? " selected" : "") + '>' + s + '</option>';
+    }).join("");
+    return '<select class="up-review" data-uid="' + esc(uid) + '">' + opts + '</select>';
+  }
+
+  function flagsHtml(flags) {
+    if (!flags || !flags.length) return "";
+    var items = flags.map(function (f) {
+      var risky = f.indexOf("Content scan not performed") === -1; // the label itself is neutral
+      return '<li class="' + (risky ? "up-flag-risk" : "up-flag-note") + '">' + esc(f) + '</li>';
+    }).join("");
+    return '<ul class="up-flags">' + items + '</ul>';
+  }
+
+  function fieldScanHtml(label, status, flags) {
+    if (status === "clean") {
+      return '<div class="up-scan up-scan-clean">' + esc(label) + ': No sensitive metadata detected.</div>';
+    }
+    return '<div class="up-scan up-scan-flag">' + esc(label) + ': possible sensitive information detected:' +
+      flagsHtml(flags) + '</div>';
+  }
+
+  function overallBadge(s) {
+    var clean = s === "metadata_only_ok";
+    var txt = clean ? "metadata only — review before public use" : "needs review";
+    var cls = clean ? "up-overall-ok" : "up-overall-review";
+    return '<span class="up-overall ' + cls + '">Overall: ' + esc(txt) + '</span>';
+  }
+
+  // Render the uploads section for one request (called by the tracker).
+  window.PRA_renderUploads = function (req) {
+    var ups = (req && req.uploads) || [];
+    var html = '<div class="up-wrap">';
+    html += '<div class="up-head">Received records (metadata only) — ' + ups.length + '</div>';
+
+    // warnings
+    html += '<div class="up-warn up-warn-red">Do not upload private bills, Social Security numbers, bank records, ' +
+      'medical records, juvenile records, sealed records, or private customer information unless the file is being ' +
+      'kept for private/internal review and will not be published.</div>';
+    html += '<div class="up-warn up-warn-amber">Metadata can expose private individuals. Sentinel stores only minimum ' +
+      'filing-cabinet metadata for organization and requires manual review before any public use.</div>';
+    html += '<div class="up-warn up-warn-blue">This prototype does not scan file contents. Review documents manually ' +
+      'before marking them public. Raw files remain in your filing-cabinet folder — Sentinel v0.5 stores metadata only in JSON.</div>';
+
+    html += '<div class="up-row"><button class="trk-btn small" data-upload="' + esc(req.request_id) + '">Upload received records</button>' +
+      '<input type="file" class="up-file" data-uploadfile="' + esc(req.request_id) + '" multiple style="display:none" /></div>';
+
+    if (ups.length) {
+      ups.forEach(function (u) {
+        var rejected = u.review_status === "rejected_private_data";
+        html += '<div class="up-card' + (rejected ? " up-card-rejected" : "") + '">';
+        html += '<div class="up-card-head">' + reviewBadge(u.review_status) + ' ' + overallBadge(u.overall_privacy_status) + ' <span class="up-id">' + esc(u.upload_id) + '</span></div>';
+
+        // Safe display name (editable) + its own scan result
+        html += '<div class="up-meta">Safe display name: <input class="up-display" data-uid="' + esc(u.upload_id) + '" value="' + esc(u.safe_display_name) + '" /></div>';
+        html += fieldScanHtml("Display name scan", u.safe_display_name_scan_status, u.safe_display_name_flags);
+
+        // Original filename: hidden by default, with toggle + its own scan result
+        html += '<div class="up-meta">Original filename: <span class="up-orig-hidden" data-uid="' + esc(u.upload_id) + '">Hidden for safety.</span> ' +
+          '<button class="up-toggle-orig trk-btn small" data-uid="' + esc(u.upload_id) + '">Show original filename</button>' +
+          '<code class="up-orig-value" data-uid="' + esc(u.upload_id) + '" style="display:none">' + esc(u.original_filename) + '</code></div>';
+        html += fieldScanHtml("Original filename scan", u.original_filename_scan_status, u.original_filename_flags);
+        if (u.original_filename_scan_status === "flagged") {
+          html += '<div class="up-meta up-orig-warn">This original filename may contain sensitive information. Do not use it in public reports unless reviewed. Future public views use the safe display name only.</div>';
+        }
+
+        html += '<div class="up-meta">Type: ' + esc(u.file_type) + (u.file_size ? ' · Size: ' + esc(u.file_size) : '') + '</div>';
+        html += '<div class="up-meta">Content scan: <strong>' + esc(u.content_scan_status) + '</strong>. Manual review required.</div>';
+        html += '<div class="up-meta">Review status: ' + reviewSelect(u.upload_id, u.review_status) + '</div>';
+        html += '<div class="up-meta">Record date (if known): <input class="up-recdate" data-uid="' + esc(u.upload_id) + '" placeholder="YYYY-MM-DD" value="' + esc(u.record_date_if_known) + '" /></div>';
+        html += '<div class="up-meta">Notes: <textarea class="up-notes" data-uid="' + esc(u.upload_id) + '" placeholder="Private notes (session-local)">' + esc(u.user_notes) + '</textarea></div>';
+        if (u.user_notes_scan_status === "flagged") html += fieldScanHtml("Notes scan", u.user_notes_scan_status, u.user_notes_flags);
+        html += '<div class="up-meta up-folder">Place the raw file in: <code>' + esc(u.recommended_file_folder) + '</code></div>';
+        html += '<div class="up-meta up-folder">Suggested safe filename: <code>' + esc(u.recommended_safe_filename) + '</code></div>';
+        html += '<div class="up-row"><button class="trk-btn small danger" data-updel="' + esc(u.upload_id) + '">Remove metadata</button></div>';
+        html += '</div>';
+      });
+    }
+    html += '</div>';
+    return html;
+  };
+
+  // Wire the upload controls inside a rendered tracker list. Called by tracker after render.
+  window.PRA_wireUploads = function (listEl, getReqById, refresh) {
+    if (!listEl) return;
+    // Upload button -> open hidden file input
+    Array.prototype.forEach.call(listEl.querySelectorAll("[data-upload]"), function (btn) {
+      btn.addEventListener("click", function () {
+        var rid = this.getAttribute("data-upload");
+        var inp = listEl.querySelector('[data-uploadfile="' + rid + '"]');
+        if (inp) {
+          // privacy confirm before opening picker
+          var ok = window.confirm("Before you attach files:\n\n" +
+            "• Sentinel stores METADATA ONLY — raw files stay in your filing-cabinet folder.\n" +
+            "• File contents are NOT scanned. Manual review is required before any public use.\n" +
+            "• Do not attach SSNs, bank/medical/juvenile/sealed records or private customer info for public use.\n\nContinue?");
+          if (ok) inp.click();
+        }
+      });
+    });
+    // File input -> attach metadata only
+    Array.prototype.forEach.call(listEl.querySelectorAll("[data-uploadfile]"), function (inp) {
+      inp.addEventListener("change", function (e) {
+        var rid = this.getAttribute("data-uploadfile");
+        var req = getReqById(rid);
+        if (!req) return;
+        var files = e.target.files;
+        if (files && files.length) {
+          for (var i = 0; i < files.length; i++) attachFileMeta(req, files[i]);
+        }
+        e.target.value = "";
+        refresh();
+      });
+    });
+    // Review status
+    Array.prototype.forEach.call(listEl.querySelectorAll(".up-review"), function (sel) {
+      sel.addEventListener("change", function () {
+        var uid = this.getAttribute("data-uid"), val = this.value;
+        var rec = findUpload(getReqById, uid);
+        if (rec) {
+          rec.review_status = val;
+          // keep public_release_status coherent
+          rec.public_release_status = (val === "approved_public") ? "approved_public" :
+            (val === "rejected_private_data" ? "blocked_private_data" : "not_released");
+          refresh();
+        }
+      });
+    });
+    // Editable display name (re-scan on change)
+    Array.prototype.forEach.call(listEl.querySelectorAll(".up-display"), function (inp) {
+      inp.addEventListener("change", function () {
+        var rec = findUpload(getReqById, this.getAttribute("data-uid"));
+        if (rec) { rec.safe_display_name = this.value; rescan(rec); refresh(); }
+      });
+    });
+    // Record date
+    Array.prototype.forEach.call(listEl.querySelectorAll(".up-recdate"), function (inp) {
+      inp.addEventListener("change", function () {
+        var rec = findUpload(getReqById, this.getAttribute("data-uid"));
+        if (rec) { rec.record_date_if_known = this.value; }
+      });
+    });
+    // Notes (re-scan on input so risky notes get flagged)
+    Array.prototype.forEach.call(listEl.querySelectorAll(".up-notes"), function (ta) {
+      ta.addEventListener("input", function () {
+        var rec = findUpload(getReqById, this.getAttribute("data-uid"));
+        if (rec) { rec.user_notes = this.value; }
+      });
+      ta.addEventListener("change", function () {
+        var rec = findUpload(getReqById, this.getAttribute("data-uid"));
+        if (rec) { rescan(rec); refresh(); }
+      });
+    });
+    // Remove metadata
+    Array.prototype.forEach.call(listEl.querySelectorAll("[data-updel]"), function (btn) {
+      btn.addEventListener("click", function () {
+        var uid = this.getAttribute("data-updel");
+        if (window.confirm("Remove this uploaded-record METADATA from the tracker?\n\n" +
+          "(This does not touch the raw file in your filing-cabinet folder.)")) {
+          removeUpload(getReqById, uid);
+          refresh();
+        }
+      });
+    });
+    // Show / hide original filename (kept hidden by default for safety)
+    Array.prototype.forEach.call(listEl.querySelectorAll(".up-toggle-orig"), function (btn) {
+      btn.addEventListener("click", function () {
+        var uid = this.getAttribute("data-uid");
+        var val = listEl.querySelector('.up-orig-value[data-uid="' + uid + '"]');
+        var hid = listEl.querySelector('.up-orig-hidden[data-uid="' + uid + '"]');
+        if (val) {
+          var showing = val.style.display !== "none";
+          val.style.display = showing ? "none" : "inline";
+          if (hid) hid.style.display = showing ? "inline" : "none";
+          this.textContent = showing ? "Show original filename" : "Hide original filename";
+        }
+      });
+    });
+  };
+
+  function findUpload(getReqById, uid) {
+    var all = window.PRA_TRACKER_STORE ? window.PRA_TRACKER_STORE.requests : [];
+    for (var i = 0; i < all.length; i++) {
+      var ups = all[i].uploads || [];
+      for (var j = 0; j < ups.length; j++) if (ups[j].upload_id === uid) return ups[j];
+    }
+    return null;
+  }
+  function removeUpload(getReqById, uid) {
+    var all = window.PRA_TRACKER_STORE ? window.PRA_TRACKER_STORE.requests : [];
+    all.forEach(function (r) {
+      if (r.uploads) r.uploads = r.uploads.filter(function (u) { return u.upload_id !== uid; });
+    });
+  }
+
+  window.PRA_REVIEW_STATUSES = REVIEW_STATUSES;
+  window.PRA_UPLOAD_FIELDS = UPLOAD_FIELDS;
+})();
+
+</script>
+<!-- v0.4 Request Tracker + v0.5 uploads wiring -->
+<script>
+/* =====================================================================
+   Sentinel OS Public Records Atlas — Request Tracker (v0.4)
+   Session-local tracker with manual JSON export/import + import validation.
+   - Requests live in memory while the page is open.
+   - Refresh/close clears them unless the user exported a JSON backup.
+   - NOTHING is submitted, emailed, uploaded, or synced. Local only.
+   - localStorage is NOT used as primary persistence.
+
+   Statuses (11): draft, planned, submitted, acknowledged, pending,
+                  received, partial, denied, revised, published, closed
+
+   NOTE: "published" here is LOCAL TRACKER METADATA ONLY. It means the user
+   marked the request/record ready or published in their own tracker. It does
+   NOT publish anything publicly.
+   ===================================================================== */
+(function () {
+  "use strict";
+
+  var STATUSES = ["draft", "planned", "submitted", "acknowledged", "pending",
+    "received", "partial", "denied", "revised", "published", "closed"];
+
+  var STATUS_COLOR = {
+    draft: "#6c757d", planned: "#6c757d", submitted: "#1f6feb",
+    acknowledged: "#1f77b4", pending: "#d4a017", received: "#d4a017",
+    partial: "#e8731c", denied: "#b23b3b", revised: "#7b2cbf",
+    published: "#2ca02c", closed: "#495057"
+  };
+
+  var FIELDS = ["request_id", "agency_id", "agency_name", "jurisdiction",
+    "record_type", "scope", "date_range", "request_text", "status",
+    "created_at", "updated_at", "submitted_at", "acknowledged_at",
+    "received_at", "notes", "public_records_url", "source_url",
+    "privacy_level", "exported_at"];
+
+  var FORBIDDEN_KEYS = ["ssn", "social_security", "account_number", "acct_number",
+    "bank_account", "routing_number", "credit_card", "card_number", "dob",
+    "date_of_birth", "home_address", "customer_name", "customer_account"];
+  var SSN_RE = /\b\d{3}-\d{2}-\d{4}\b/;
+  var CARD_RE = /\b(?:\d[ -]*?){13,16}\b/;
+  var ACCT_RE = /account\s*(?:number|no|#)\s*[:#]?\s*\d{4,}/i;
+
+  function esc(s) {
+    return (s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  }
+  function nowIso() { return new Date().toISOString(); }
+
+  var STORE = { requests: [] };
+  window.PRA_TRACKER_STORE = STORE;
+
+  function findById(id) {
+    for (var i = 0; i < STORE.requests.length; i++) {
+      if (STORE.requests[i].request_id === id) return STORE.requests[i];
+    }
+    return null;
+  }
+
+  function newRecord(rec) {
+    var r = {};
+    FIELDS.forEach(function (f) { r[f] = rec[f] || ""; });
+    r.request_id = rec.request_id;
+    r.status = (STATUSES.indexOf(rec.status) !== -1) ? rec.status : "draft";
+    r.created_at = nowIso();
+    r.updated_at = nowIso();
+    r.privacy_level = rec.privacy_level || "public";
+    r.history = [{ at: nowIso(), event: "created", status: r.status }];
+    // v0.5: uploaded-record METADATA (never raw bytes). Sanitized on import.
+    r.uploads = sanitizeUploads(rec.uploads);
+    return r;
+  }
+
+  // Strip anything that isn't recognized upload metadata; drop any stray file bytes.
+  function sanitizeUploads(arr) {
+    if (!Array.isArray(arr)) return [];
+    var allowed = (window.PRA_UPLOAD_FIELDS) || ["upload_id", "request_id",
+      "original_filename", "safe_display_name", "file_type", "file_size",
+      "uploaded_at", "review_status", "privacy_scan_status", "privacy_scan_flags",
+      "user_notes", "source_agency", "related_request_id", "record_date_if_known",
+      "public_release_status", "exported_metadata_only", "content_scan_status",
+      "recommended_file_folder", "recommended_safe_filename"];
+    return arr.map(function (u) {
+      var clean = {};
+      allowed.forEach(function (k) { if (u[k] !== undefined) clean[k] = u[k]; });
+      // hard guarantees: never carry raw bytes/base64/extracted content
+      delete clean.file_bytes; delete clean.base64; delete clean.data; delete clean.content;
+      clean.exported_metadata_only = true;
+      if (!clean.content_scan_status) clean.content_scan_status = "not_performed";
+      if (!clean.privacy_scan_status) clean.privacy_scan_status = "metadata_only";
+      return clean;
+    });
+  }
+  window.PRA_sanitizeUploads = sanitizeUploads;
+
+  function saveRequest(rec) {
+    var existing = findById(rec.request_id);
+    if (existing) {
+      FIELDS.forEach(function (f) { if (rec[f] !== undefined && rec[f] !== "") existing[f] = rec[f]; });
+      existing.updated_at = nowIso();
+      existing.history.push({ at: nowIso(), event: "updated" });
+      return existing;
+    }
+    var r = newRecord(rec);
+    STORE.requests.push(r);
+    return r;
+  }
+  window.PRA_saveRequest = saveRequest;
+
+  function setStatus(id, status) {
+    var r = findById(id);
+    if (!r || STATUSES.indexOf(status) === -1) return;
+    r.status = status;
+    r.updated_at = nowIso();
+    if (status === "submitted" && !r.submitted_at) r.submitted_at = nowIso();
+    if (status === "acknowledged" && !r.acknowledged_at) r.acknowledged_at = nowIso();
+    if ((status === "received" || status === "partial") && !r.received_at) r.received_at = nowIso();
+    r.history.push({ at: nowIso(), event: "status_change", status: status });
+    renderList();
+  }
+
+  function setNotes(id, notes) {
+    var r = findById(id);
+    if (!r) return;
+    r.notes = notes;
+    r.updated_at = nowIso();
+  }
+
+  function deleteRequest(id) {
+    STORE.requests = STORE.requests.filter(function (r) { return r.request_id !== id; });
+    renderList();
+  }
+
+  function clearSession() {
+    STORE.requests = [];
+    renderList();
+  }
+
+  // ---- Filing-cabinet helpers (v0.4 patch) ----
+  function pad2(n) { return String(n).padStart(2, "0"); }
+  function slug(s) {
+    return (s || "").replace(/&/g, " and ").replace(/[^A-Za-z0-9]+/g, "").trim();
+  }
+  function slugUnderscore(s) {
+    return (s || "").replace(/&/g, " and ").replace(/[^A-Za-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  }
+  var MONTHS = ["01_January", "02_February", "03_March", "04_April", "05_May",
+    "06_June", "07_July", "08_August", "09_September", "10_October",
+    "11_November", "12_December"];
+
+  function agencyMeta(name) {
+    var meta = null;
+    (window.AGENCIES || []).forEach(function (a) { if (a.name === name) meta = a; });
+    return meta;
+  }
+  function cityOf(r) {
+    var meta = agencyMeta(r.agency_name);
+    if (meta && meta.jurisdiction && !/county/i.test(meta.jurisdiction)) return meta.jurisdiction;
+    return r.jurisdiction || "";
+  }
+
+  function deriveFiling() {
+    var reqs = STORE.requests;
+    var cities = {};
+    reqs.forEach(function (r) { var c = cityOf(r); if (c) cities[c] = (cities[c] || 0) + 1; });
+    var cityKeys = Object.keys(cities);
+    var multi = cityKeys.length !== 1 || reqs.length === 0;
+    return {
+      state: "OH",
+      county: "Franklin",      // seeded set is Franklin County; generic otherwise
+      city: multi ? "AllAgencies" : cityKeys[0],
+      multi: multi,
+      agency: (reqs.length === 1) ? reqs[0].agency_name : ""
+    };
+  }
+
+  function buildFilename(filing, d) {
+    var date = d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate());
+    var time = pad2(d.getHours()) + pad2(d.getMinutes()) + pad2(d.getSeconds());
+    if (filing.multi) {
+      return date + "_" + time + "_" + filing.state + "_CentralOhio_AllAgencies_REQUESTTRACKER_v0_4.json";
+    }
+    return date + "_" + time + "_" + filing.state + "_" + slug(filing.county) + "_" +
+      slug(filing.city) + "_" + slug(filing.agency) + "_REQUESTTRACKER_v0_4.json";
+  }
+
+  function buildFolderPath(filing, d) {
+    var year = "" + d.getFullYear();
+    var month = MONTHS[d.getMonth()];
+    var cityFolder = filing.multi ? "_AllAgencies" : slugUnderscore(filing.city);
+    return "Sentinel_Public_Records_Atlas/Requests/Ohio/" +
+      slugUnderscore(filing.county) + "_County/" + cityFolder + "/" + year + "/" + month + "/";
+  }
+
+  function sortedRequests() {
+    return STORE.requests.slice().sort(function (a, b) {
+      var ka = ["OH", "Franklin", cityOf(a), a.agency_name || "", a.created_at || "", a.request_id || ""];
+      var kb = ["OH", "Franklin", cityOf(b), b.agency_name || "", b.created_at || "", b.request_id || ""];
+      for (var i = 0; i < ka.length; i++) { if (ka[i] < kb[i]) return -1; if (ka[i] > kb[i]) return 1; }
+      return 0;
+    });
+  }
+  window.PRA_sortedRequests = sortedRequests;     // QA hook
+  window.PRA_buildFilename = function () { return buildFilename(deriveFiling(), new Date()); };
+  window.PRA_buildFolderPath = function () { return buildFolderPath(deriveFiling(), new Date()); };
+
+  function refreshSavePanel() {
+    var d = new Date();
+    var filing = deriveFiling();
+    var fname = buildFilename(filing, d);
+    var folder = buildFolderPath(filing, d);
+    var fEl = document.getElementById("trk-suggest-filename");
+    var pEl = document.getElementById("trk-suggest-folder");
+    if (fEl) fEl.textContent = fname;
+    if (pEl) pEl.textContent = folder;
+    return { fname: fname, folder: folder, filing: filing, d: d };
+  }
+  window.PRA_refreshSavePanel = refreshSavePanel;
+
+  // Per-request folder path (used by the uploads module for Received_Records)
+  function buildFolderPathForRequest(req) {
+    var d = new Date();
+    var city = cityOf(req) || "City";
+    var filing = { state: "OH", county: "Franklin", city: city, multi: false, agency: req.agency_name };
+    return buildFolderPath(filing, d);
+  }
+  window.PRA_buildFolderPathForRequest = buildFolderPathForRequest;
+
+  function exportJson() {
+    var info = refreshSavePanel();
+    var sorted = sortedRequests();
+    var stamp = info.d.toISOString();
+    sorted.forEach(function (r) { r.exported_at = stamp; });
+    STORE.requests.forEach(function (r) { r.exported_at = stamp; });
+    // Defensive: ensure exported uploads are metadata-only (no raw bytes ever).
+    sorted = sorted.map(function (r) {
+      var c = {};
+      Object.keys(r).forEach(function (k) { c[k] = r[k]; });
+      c.uploads = sanitizeUploads(r.uploads);
+      return c;
+    });
+
+    var payload = {
+      export_manifest: {
+        project: "Sentinel Public Records Atlas",
+        module: "Request Tracker",
+        version: "v0.4",
+        exported_at: stamp,
+        recommended_folder: info.folder,
+        suggested_filename: info.fname,
+        record_count: sorted.length,
+        sort_order: ["state", "county", "jurisdiction", "agency_name", "created_at", "request_id"],
+        uploads_handling: "Uploaded records are stored as METADATA ONLY (exported_metadata_only=true). Raw file bytes, base64, and extracted content are never included. Raw files remain in the user's filing-cabinet Received_Records folder.",
+        privacy_notice: "This file is user-controlled and was not automatically submitted, uploaded, emailed, or synced."
+      },
+      kind: "sentinel_os_public_records_atlas_tracker",
+      version: "0.4",
+      exported_at: stamp,
+      requests: sorted
+    };
+    var text = JSON.stringify(payload, null, 2);
+    try {
+      var blob = new Blob([text], { type: "application/json;charset=utf-8" });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement("a");
+      a.href = url; a.download = info.fname;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      setTimeout(function () { URL.revokeObjectURL(url); }, 1500);
+      setStatusMsg("Exported " + sorted.length + " request(s) as " + info.fname +
+        ". Move it into: " + info.folder);
+    } catch (e) {
+      setStatusMsg("Export not supported here — copy the JSON below. Save it as: " + info.fname);
+      showRawJson(
+        "// SUGGESTED FILENAME: " + info.fname + "\n" +
+        "// RECOMMENDED FOLDER: " + info.folder + "\n" +
+        "// Move/save this file into the folder above after copying.\n\n" + text);
+    }
+  }
+
+  function validateImport(raw) {
+    var data;
+    try { data = JSON.parse(raw); }
+    catch (e) { return { ok: false, error: "Invalid JSON: " + (e && e.message ? e.message : e) }; }
+
+    var requests = null;
+    if (data && Array.isArray(data.requests)) requests = data.requests;
+    else if (Array.isArray(data)) requests = data;
+    if (!requests) return { ok: false, error: "No 'requests' array found in this file." };
+
+    var privacyFlags = [];
+    for (var i = 0; i < requests.length; i++) {
+      var r = requests[i];
+      if (!r || typeof r !== "object") return { ok: false, error: "Entry " + (i + 1) + " is not a valid object." };
+      if (!r.request_id) return { ok: false, error: "Entry " + (i + 1) + " is missing a request_id." };
+      if (r.status && STATUSES.indexOf(r.status) === -1)
+        return { ok: false, error: "Entry " + (i + 1) + " has an unknown status: " + r.status };
+
+      Object.keys(r).forEach(function (k) {
+        var lk = k.toLowerCase();
+        FORBIDDEN_KEYS.forEach(function (bad) {
+          if (lk.indexOf(bad) !== -1) privacyFlags.push("Entry " + (i + 1) + ": suspicious field '" + k + "'");
+        });
+      });
+      var blob = "";
+      Object.keys(r).forEach(function (k) { if (typeof r[k] === "string") blob += " " + r[k]; });
+      if (SSN_RE.test(blob)) privacyFlags.push("Entry " + (i + 1) + ": looks like an SSN pattern");
+      if (ACCT_RE.test(blob)) privacyFlags.push("Entry " + (i + 1) + ": looks like an account number value");
+      if (CARD_RE.test(blob.replace(/\b\d{4}-\d{2}-\d{2}\b/g, ""))) privacyFlags.push("Entry " + (i + 1) + ": looks like a card-number pattern");
+    }
+    return { ok: true, requests: requests, privacyFlags: privacyFlags };
+  }
+  window.PRA_validateImport = validateImport;
+
+  function importJsonFile(file) {
+    var reader = new FileReader();
+    reader.onload = function (e) {
+      var v = validateImport(e.target.result);
+      if (!v.ok) { setStatusMsg("Import rejected — " + v.error); return; }
+
+      if (v.privacyFlags.length) {
+        var msg = "This import appears to contain private-data-looking content:\n\n" +
+          v.privacyFlags.slice(0, 8).join("\n") +
+          (v.privacyFlags.length > 8 ? "\n…and more" : "") +
+          "\n\nThis tracker is for public records only. Import anyway?";
+        if (!window.confirm(msg)) { setStatusMsg("Import cancelled (privacy flags)."); return; }
+      }
+
+      var dups = v.requests.filter(function (r) { return findById(r.request_id); });
+      var overwrite = false;
+      if (dups.length) {
+        overwrite = window.confirm(dups.length + " imported request(s) share an ID with ones already in this session.\n\n" +
+          "OK = overwrite those existing requests.\nCancel = keep existing, import only new ones.");
+      }
+
+      var added = 0, overwritten = 0, skipped = 0;
+      v.requests.forEach(function (r) {
+        var existing = findById(r.request_id);
+        if (existing) {
+          if (overwrite) {
+            FIELDS.forEach(function (f) { if (r[f] !== undefined) existing[f] = r[f]; });
+            if (r.uploads !== undefined) existing.uploads = sanitizeUploads(r.uploads);
+            existing.history = (existing.history || []).concat([{ at: nowIso(), event: "import_overwrite" }]);
+            overwritten++;
+          } else { skipped++; }
+        } else {
+          var rec = newRecord(r);
+          FIELDS.forEach(function (f) { if (r[f] !== undefined && r[f] !== "") rec[f] = r[f]; });
+          rec.uploads = sanitizeUploads(r.uploads);
+          rec.history = (r.history && r.history.length) ? r.history : [{ at: nowIso(), event: "imported" }];
+          STORE.requests.push(rec); added++;
+        }
+      });
+      var anyUploads = v.requests.some(function (r) { return Array.isArray(r.uploads) && r.uploads.length; });
+      var msg = "Imported " + added + " new, overwrote " + overwritten + ", skipped " + skipped + " duplicate(s).";
+      if (anyUploads) msg += " Imported metadata does not restore raw files — make sure the raw files are still in the matching filing-cabinet folder.";
+      setStatusMsg(msg);
+      renderList();
+    };
+    reader.onerror = function () { setStatusMsg("Couldn't read the selected file."); };
+    reader.readAsText(file);
+  }
+
+  function setStatusMsg(msg) { var el = document.getElementById("trk-status"); if (el) el.textContent = msg; }
+  function showRawJson(text) { var el = document.getElementById("trk-raw"); if (el) { el.style.display = "block"; el.value = text; } }
+
+  function ensureModal() {
+    if (document.getElementById("trkModal")) return;
+    var wrap = document.createElement("div");
+    wrap.className = "trk-backdrop";
+    wrap.id = "trkModal";
+    wrap.innerHTML = [
+      '<div class="trk-modal" role="dialog" aria-modal="true" aria-label="Request tracker">',
+      '  <button class="trk-close" id="trkClose" aria-label="Close">Close</button>',
+      '  <h2 class="trk-h2">Request tracker</h2>',
+      '  <div class="trk-disclaimer" id="trk-disclaimer"></div>',
+      '  <div class="trk-note" id="trk-pubnote"></div>',
+      '  <div class="trk-hint" id="trk-hint" style="display:none"></div>',
+      '  <div class="trk-toolbar">',
+      '    <button class="trk-btn" id="trk-export">Export JSON</button>',
+      '    <button class="trk-btn" id="trk-import-btn">Import JSON</button>',
+      '    <input type="file" id="trk-import-file" accept="application/json,.json" style="display:none" />',
+      '    <button class="trk-btn danger" id="trk-clear">Clear session</button>',
+      '  </div>',
+      '  <div class="trk-savebox" id="trk-savebox">',
+      '    <div class="trk-savebox-h">Recommended save location</div>',
+      '    <div class="trk-savebox-row"><span class="trk-savebox-lbl">Folder:</span> <code id="trk-suggest-folder"></code> <button class="trk-btn small" id="trk-copy-folder">Copy folder path</button></div>',
+      '    <div class="trk-savebox-row"><span class="trk-savebox-lbl">Filename:</span> <code id="trk-suggest-filename"></code> <button class="trk-btn small" id="trk-copy-filename">Copy filename</button></div>',
+      '    <div class="trk-savebox-note">This prototype cannot force your browser to save into a specific folder. After exporting, move the downloaded JSON file into the folder above. Browser downloads usually land in your Downloads folder (or you may be prompted to choose a location).</div>',
+      '  </div>',
+      '  <div class="trk-status" id="trk-status"></div>',
+      '  <textarea id="trk-raw" class="trk-raw" readonly style="display:none"></textarea>',
+      '  <div id="trk-list"></div>',
+      '</div>'
+    ].join("");
+    document.body.appendChild(wrap);
+
+    document.getElementById("trk-disclaimer").textContent =
+      "This tracker is local to your browser session unless you export your JSON file. " +
+      "Sentinel OS v0.4 does not submit, store, email, or sync requests automatically.";
+    document.getElementById("trk-pubnote").textContent =
+      "Note: \"published\" status here is local tracker metadata only. It does not publish records publicly.";
+
+    document.getElementById("trkClose").addEventListener("click", closeModal);
+    wrap.addEventListener("click", function (e) { if (e.target === wrap) closeModal(); });
+    document.getElementById("trk-export").addEventListener("click", exportJson);
+    document.getElementById("trk-import-btn").addEventListener("click", function () {
+      document.getElementById("trk-import-file").click();
+    });
+    document.getElementById("trk-import-file").addEventListener("change", function (e) {
+      if (e.target.files && e.target.files[0]) importJsonFile(e.target.files[0]);
+      e.target.value = "";
+    });
+    document.getElementById("trk-clear").addEventListener("click", function () {
+      if (!STORE.requests.length) { setStatusMsg("Tracker is already empty."); return; }
+      if (window.confirm("Clear all " + STORE.requests.length + " tracked request(s) from this session?\n\n" +
+        "Export a JSON backup first if you want to keep them. This cannot be undone.")) {
+        clearSession();
+        setStatusMsg("Session cleared.");
+      }
+    });
+    // Copy folder path / filename (with manual-copy fallback)
+    function copyToClipboard(text, okMsg) {
+      function ok() { setStatusMsg(okMsg); }
+      function fail() { setStatusMsg("Couldn't auto-copy. Manually copy: " + text); }
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(ok, fail);
+      } else { fail(); }
+    }
+    document.getElementById("trk-copy-folder").addEventListener("click", function () {
+      var t = document.getElementById("trk-suggest-folder").textContent;
+      copyToClipboard(t, "Copied folder path.");
+    });
+    document.getElementById("trk-copy-filename").addEventListener("click", function () {
+      var t = document.getElementById("trk-suggest-filename").textContent;
+      copyToClipboard(t, "Copied filename.");
+    });
+  }
+
+  function statusBadge(s) {
+    var c = STATUS_COLOR[s] || "#6c757d";
+    return '<span class="trk-badge" style="background:' + c + '">' + esc(s) + '</span>';
+  }
+  function statusSelect(id, current) {
+    var opts = STATUSES.map(function (s) {
+      return '<option value="' + s + '"' + (s === current ? " selected" : "") + '>' + s + '</option>';
+    }).join("");
+    return '<select class="trk-select" data-id="' + esc(id) + '">' + opts + '</select>';
+  }
+
+  function renderList() {
+    var list = document.getElementById("trk-list");
+    if (!list) return;
+    if (!STORE.requests.length) {
+      list.innerHTML = '<div class="trk-empty">No tracked requests yet. Generate a request and choose ' +
+        '"Save to tracker," or import a JSON backup.</div>';
+      return;
+    }
+    var html = "";
+    STORE.requests.slice().reverse().forEach(function (r) {
+      html += '<div class="trk-card">';
+      html += '<div class="trk-card-head"><strong>' + esc(r.agency_name || "(no agency)") + '</strong> ' + statusBadge(r.status) + '</div>';
+      html += '<div class="trk-meta">ID: ' + esc(r.request_id) + '</div>';
+      if (r.jurisdiction) html += '<div class="trk-meta">Jurisdiction: ' + esc(r.jurisdiction) + '</div>';
+      if (r.record_type) html += '<div class="trk-meta">Record type: ' + esc(r.record_type) + '</div>';
+      if (r.scope) html += '<div class="trk-meta">Scope: ' + esc(r.scope) + '</div>';
+      if (r.date_range) html += '<div class="trk-meta">Date range: ' + esc(r.date_range) + '</div>';
+      html += '<div class="trk-meta">Created: ' + esc((r.created_at || "").slice(0, 19).replace("T", " ")) + '</div>';
+      if (r.submitted_at) html += '<div class="trk-meta">Submitted: ' + esc((r.submitted_at || "").slice(0, 19).replace("T", " ")) + '</div>';
+      if (r.received_at) html += '<div class="trk-meta">Received: ' + esc((r.received_at || "").slice(0, 19).replace("T", " ")) + '</div>';
+      html += '<div class="trk-row">Status: ' + statusSelect(r.request_id, r.status) + '</div>';
+      html += '<div class="trk-row"><label class="trk-lbl">Notes</label>' +
+        '<textarea class="trk-notes" data-id="' + esc(r.request_id) + '" placeholder="Your private notes (session-local)">' + esc(r.notes || "") + '</textarea></div>';
+      if (r.public_records_url) html += '<div class="trk-meta">Records: <a href="' + esc(r.public_records_url) + '" target="_blank" rel="noopener noreferrer">portal</a></div>';
+      if (r.source_url) html += '<div class="trk-meta">Source: <a href="' + esc(r.source_url) + '" target="_blank" rel="noopener noreferrer">official page</a></div>';
+      html += '<details class="trk-details"><summary>View request text</summary><pre class="trk-pre">' + esc(r.request_text || "") + '</pre></details>';
+      if (typeof window.PRA_renderUploads === "function") { html += window.PRA_renderUploads(r); }
+      html += '<div class="trk-row"><button class="trk-btn small danger" data-del="' + esc(r.request_id) + '">Delete</button></div>';
+      html += '</div>';
+    });
+    list.innerHTML = html;
+
+    Array.prototype.forEach.call(list.querySelectorAll(".trk-select"), function (sel) {
+      sel.addEventListener("change", function () { setStatus(this.getAttribute("data-id"), this.value); });
+    });
+    Array.prototype.forEach.call(list.querySelectorAll(".trk-notes"), function (ta) {
+      ta.addEventListener("input", function () { setNotes(this.getAttribute("data-id"), this.value); });
+    });
+    Array.prototype.forEach.call(list.querySelectorAll("[data-del]"), function (btn) {
+      btn.addEventListener("click", function () {
+        if (window.confirm("Delete this tracked request? (Export a backup first if you want to keep it.)")) {
+          deleteRequest(this.getAttribute("data-del"));
+        }
+      });
+    });
+    // v0.5: wire upload controls (metadata-only)
+    if (typeof window.PRA_wireUploads === "function") {
+      window.PRA_wireUploads(list, findById, renderList);
+    }
+  }
+
+  function openTracker() {
+    ensureModal();
+    renderList();
+    refreshSavePanel();
+    document.getElementById("trkModal").classList.add("show");
+  }
+  function closeModal() { var m = document.getElementById("trkModal"); if (m) m.classList.remove("show"); }
+
+  window.openTracker = openTracker;
+  window.trackRequest = function (agencyName) { openTracker(); };
+  window.PRA_setTrackerHint = function (msg) {
+    ensureModal();
+    var el = document.getElementById("trk-hint");
+    if (el) { el.textContent = msg; el.style.display = msg ? "block" : "none"; }
+  };
+  window.PRA_STATUSES = STATUSES;
+  window.PRA_setStatus = setStatus;
+  window.PRA_setNotes = setNotes;
+  window.PRA_clearSession = clearSession;
+})();
+
+</script>
+<!-- v0.3 Request Builder -->
+<script>
+/* =====================================================================
+   Sentinel OS Public Records Atlas — Request Builder (v0.3)
+   Standalone module. Works identically from a map popup or the fallback
+   list. Generates a DRAFT Ohio public-records request. It NEVER submits
+   or emails anything.
+   Depends on: window.AGENCIES, window.RECORD_TYPES, window.RB_TEMPLATES
+   ===================================================================== */
+(function () {
+  "use strict";
+
+  function esc(s) {
+    return (s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  }
+
+  // Local draft id, e.g. PRA-DRAFT-20260623-0001 (sequential within session)
+  var __draftSeq = 0;
+  function makeDraftId() {
+    __draftSeq += 1;
+    var d = new Date();
+    var ymd = "" + d.getFullYear() +
+      String(d.getMonth() + 1).padStart(2, "0") +
+      String(d.getDate()).padStart(2, "0");
+    return "PRA-DRAFT-" + ymd + "-" + String(__draftSeq).padStart(4, "0");
+  }
+
+  // Build the request text from current selections
+  function buildText(opts) {
+    var T = window.RB_TEMPLATES;
+    var scope = (T.scopes || []).filter(function (s) { return s.key === opts.scopeKey; })[0];
+    var agencyName = opts.agencyName || "[Agency]";
+    var topic = (opts.topic && opts.topic.trim()) ? opts.topic.trim() : "[describe the records you are requesting]";
+
+    var parts = [];
+    parts.push(T.opening.replace("{AGENCY_NAME}", agencyName));
+    parts.push("");
+    if (scope) parts.push(scope.body.replace("{TOPIC}", topic));
+    else parts.push("Copies of public records concerning " + topic + ".");
+
+    // Date range
+    if (opts.allDates) {
+      parts[parts.length - 1] += T.date_range_all_clause;
+    } else if (opts.dateStart || opts.dateEnd) {
+      parts[parts.length - 1] += T.date_range_clause
+        .replace("{DATE_START}", opts.dateStart || "[start date]")
+        .replace("{DATE_END}", opts.dateEnd || "present");
+    }
+
+    parts.push("");
+    parts.push(T.privacy_exclusion);
+    parts.push("");
+    parts.push(T.closing);
+    parts.push("");
+    parts.push(T.contact_placeholder);
+    return parts.join("\n");
+  }
+
+  function downloadText(filename, text) {
+    try {
+      var blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement("a");
+      a.href = url; a.download = filename;
+      document.body.appendChild(a); a.click();
+      document.body.removeChild(a);
+      setTimeout(function () { URL.revokeObjectURL(url); }, 1500);
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function copyText(text, statusEl) {
+    function ok() { if (statusEl) statusEl.textContent = "Copied to clipboard."; }
+    function fail() { if (statusEl) statusEl.textContent = "Couldn't auto-copy — select the text and copy manually."; }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(ok, fail);
+    } else {
+      // Fallback for older/in-app browsers
+      var ta = document.getElementById("rb-output");
+      if (ta) { ta.removeAttribute("readonly"); ta.select();
+        try { document.execCommand("copy"); ok(); } catch (e) { fail(); }
+        ta.setAttribute("readonly", "readonly");
+      } else fail();
+    }
+  }
+
+  // Ensure a single modal exists in the DOM
+  function ensureModal() {
+    if (document.getElementById("rbModal")) return;
+    var wrap = document.createElement("div");
+    wrap.className = "rb-backdrop";
+    wrap.id = "rbModal";
+    wrap.innerHTML = [
+      '<div class="rb-modal" role="dialog" aria-modal="true" aria-label="Generate a public-records request">',
+      '  <button class="rb-close" id="rbClose" aria-label="Close">Close</button>',
+      '  <h2 class="rb-h2">Generate a public-records request</h2>',
+      '  <div class="rb-disclaimer" id="rbDisclaimer"></div>',
+      '  <div id="rbDraftId" class="rb-draftid"></div>',
+      '  <label class="rb-label">Agency</label>',
+      '  <select id="rb-agency" class="rb-input"></select>',
+      '  <label class="rb-label">Record type</label>',
+      '  <select id="rb-recordtype" class="rb-input"></select>',
+      '  <label class="rb-label">Request scope</label>',
+      '  <select id="rb-scope" class="rb-input"></select>',
+      '  <label class="rb-label">Subject / topic</label>',
+      '  <input id="rb-topic" class="rb-input" type="text" placeholder="" />',
+      '  <div class="rb-hint" id="rb-topic-hint"></div>',
+      '  <label class="rb-label"><input type="checkbox" id="rb-alldates" /> Request all dates (no date range)</label>',
+      '  <div id="rb-daterow">',
+      '    <div class="rb-daterow">',
+      '      <div><label class="rb-label">From</label><input id="rb-datestart" class="rb-input" type="date" /></div>',
+      '      <div><label class="rb-label">To</label><input id="rb-dateend" class="rb-input" type="date" /></div>',
+      '    </div>',
+      '  </div>',
+      '  <label class="rb-label">Generated draft request</label>',
+      '  <textarea id="rb-output" class="rb-output" readonly></textarea>',
+      '  <div class="rb-actions">',
+      '    <button class="rb-btn" id="rb-regen">Regenerate</button>',
+      '    <button class="rb-btn primary" id="rb-copy">Copy</button>',
+      '    <button class="rb-btn" id="rb-dl-txt">Download .txt</button>',
+      '    <button class="rb-btn" id="rb-dl-md">Download .md</button>',
+      '    <button class="rb-btn" id="rb-save-tracker">Save to tracker</button>',
+      '  </div>',
+      '  <div class="rb-status" id="rb-status"></div>',
+      '</div>'
+    ].join("");
+    document.body.appendChild(wrap);
+
+    // Populate static selects once
+    var T = window.RB_TEMPLATES;
+    document.getElementById("rbDisclaimer").textContent = T.disclaimer;
+    document.getElementById("rb-topic-hint").textContent = T.scope_topic_hint || "";
+    document.getElementById("rb-topic").placeholder = T.scope_topic_hint || "";
+
+    var agSel = document.getElementById("rb-agency");
+    (window.AGENCIES || []).slice().sort(function (a, b) {
+      return a.name.localeCompare(b.name);
+    }).forEach(function (a) {
+      var o = document.createElement("option");
+      o.value = a.name; o.textContent = a.name;
+      agSel.appendChild(o);
+    });
+
+    var rtSel = document.getElementById("rb-recordtype");
+    (window.RECORD_TYPES || []).forEach(function (rt) {
+      var o = document.createElement("option");
+      o.value = rt.name; o.textContent = rt.name;
+      rtSel.appendChild(o);
+    });
+    if (!(window.RECORD_TYPES || []).length) {
+      var o = document.createElement("option");
+      o.value = ""; o.textContent = "(record types unavailable)";
+      rtSel.appendChild(o);
+    }
+
+    var scSel = document.getElementById("rb-scope");
+    (T.scopes || []).forEach(function (s) {
+      var o = document.createElement("option");
+      o.value = s.key; o.textContent = s.label;
+      scSel.appendChild(o);
+    });
+
+    // Wire events
+    document.getElementById("rbClose").addEventListener("click", closeModal);
+    wrap.addEventListener("click", function (e) { if (e.target === wrap) closeModal(); });
+    document.getElementById("rb-alldates").addEventListener("change", function () {
+      document.getElementById("rb-daterow").style.display = this.checked ? "none" : "block";
+      regen();
+    });
+    ["rb-agency", "rb-recordtype", "rb-scope", "rb-topic", "rb-datestart", "rb-dateend"]
+      .forEach(function (id) {
+        var el = document.getElementById(id);
+        el.addEventListener("change", regen);
+        el.addEventListener("keyup", regen);
+      });
+    document.getElementById("rb-regen").addEventListener("click", regen);
+    document.getElementById("rb-copy").addEventListener("click", function () {
+      copyText(document.getElementById("rb-output").value, document.getElementById("rb-status"));
+    });
+    document.getElementById("rb-dl-txt").addEventListener("click", function () {
+      var id = currentDraftId || "request";
+      var okd = downloadText(id + ".txt", document.getElementById("rb-output").value);
+      document.getElementById("rb-status").textContent = okd ? "Downloaded " + id + ".txt" : "Download not supported here — copy instead.";
+    });
+    document.getElementById("rb-dl-md").addEventListener("click", function () {
+      var id = currentDraftId || "request";
+      var md = "# Public Records Request (DRAFT)\n\n- Draft ID: " + id + "\n- Status: draft\n- Agency: " +
+        document.getElementById("rb-agency").value + "\n\n---\n\n" +
+        document.getElementById("rb-output").value + "\n";
+      var okd = downloadText(id + ".md", md);
+      document.getElementById("rb-status").textContent = okd ? "Downloaded " + id + ".md" : "Download not supported here — copy instead.";
+    });
+    var saveBtn = document.getElementById("rb-save-tracker");
+    if (saveBtn) saveBtn.addEventListener("click", function () {
+      if (typeof window.PRA_saveRequest !== "function") {
+        document.getElementById("rb-status").textContent = "Tracker module not loaded.";
+        return;
+      }
+      var agencyName = document.getElementById("rb-agency").value;
+      // look up the agency's metadata so the tracker record is complete
+      var meta = {};
+      (window.AGENCIES || []).forEach(function (a) { if (a.name === agencyName) meta = a; });
+      var allDates = document.getElementById("rb-alldates").checked;
+      var dr = allDates ? "all dates" :
+        ((document.getElementById("rb-datestart").value || "[start]") + " to " +
+         (document.getElementById("rb-dateend").value || "present"));
+      var rec = {
+        request_id: currentDraftId,
+        agency_name: agencyName,
+        jurisdiction: meta.jurisdiction || "",
+        record_type: document.getElementById("rb-recordtype").value,
+        scope: document.getElementById("rb-scope").value,
+        date_range: dr,
+        request_text: document.getElementById("rb-output").value,
+        public_records_url: meta.public_records_url || "",
+        source_url: meta.source_url || "",
+        privacy_level: meta.privacy_level || "public",
+        status: "draft"
+      };
+      window.PRA_saveRequest(rec);
+      document.getElementById("rb-status").textContent =
+        "Saved to tracker as " + currentDraftId + " (status: draft). Open Track request to manage it.";
+    });
+  }
+
+  var currentDraftId = null;
+
+  function regen() {
+    var T = window.RB_TEMPLATES;
+    var opts = {
+      agencyName: document.getElementById("rb-agency").value,
+      scopeKey: document.getElementById("rb-scope").value,
+      topic: document.getElementById("rb-topic").value,
+      allDates: document.getElementById("rb-alldates").checked,
+      dateStart: document.getElementById("rb-datestart").value,
+      dateEnd: document.getElementById("rb-dateend").value
+    };
+    document.getElementById("rb-output").value = buildText(opts);
+  }
+
+  function closeModal() {
+    var m = document.getElementById("rbModal");
+    if (m) m.classList.remove("show");
+  }
+
+  // Public entry point — called by popups and fallback cards
+  function openRequestBuilder(agencyName) {
+    if (!window.RB_TEMPLATES) {
+      alert("Request builder templates failed to load.");
+      return;
+    }
+    ensureModal();
+    currentDraftId = makeDraftId();
+    document.getElementById("rbDraftId").textContent =
+      "Draft ID: " + currentDraftId + "  ·  Status: draft";
+    // Preselect the agency if provided
+    if (agencyName) {
+      var sel = document.getElementById("rb-agency");
+      for (var i = 0; i < sel.options.length; i++) {
+        if (sel.options[i].value === agencyName) { sel.selectedIndex = i; break; }
+      }
+    }
+    regen();
+    document.getElementById("rbModal").classList.add("show");
+  }
+
+  // Expose globally and override the v0.2 placeholder
+  window.openRequestBuilder = openRequestBuilder;
+  window.genRequest = openRequestBuilder;  // replaces the v0.2 alert placeholder
+})();
+
+</script>
+<!-- v0.6.1 OPTIONAL metadata persistence. Additive only; preserves v0.5
+     session/JSON behavior as the fallback when the local service/DB is absent. -->
+<script src="pra_persistence_client.js"></script>
+<script>
+(function () {
+  if (!window.PRA_PERSISTENCE) return;
+  window.PRA_PERSISTENCE.detect().then(function (mode) {
+    // Non-invasive status line; does not alter existing v0.5 data flow.
+    try {
+      var el = document.createElement('div');
+      el.id = 'pra-persistence-mode';
+      el.style.cssText = 'position:fixed;bottom:6px;right:8px;font:11px/1.4 system-ui,sans-serif;'
+        + 'color:#6c757d;background:rgba(255,255,255,.85);border:1px solid #dee2e6;'
+        + 'border-radius:6px;padding:3px 7px;z-index:9999;';
+      el.textContent = (mode === 'local-postgres')
+        ? 'persistence: local Postgres (v0.6.1)'
+        : 'persistence: session/JSON (v0.5 fallback)';
+      document.body.appendChild(el);
+    } catch (e) { /* purely cosmetic */ }
+  });
+})();
+</script>
+</body>
+</html>

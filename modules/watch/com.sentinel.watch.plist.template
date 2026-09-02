@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Template for the scheduled watch run. `sentinel watch install` fills in the
+  __PLACEHOLDERS__ and writes the result to ~/Library/LaunchAgents/.
+
+  launchd rather than cron on purpose: if the Mac is asleep at the scheduled
+  hour, launchd runs the job once the machine wakes. cron simply skips the day,
+  which is the failure mode you would never notice — a watchlist that silently
+  did not run looks exactly like a watchlist with nothing to report.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.sentinel.watch</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>__NODE__</string>
+    <string>__ROOT__/modules/watch/run.js</string>
+    <string>run</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>__ROOT__</string>
+
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key>
+    <integer>__HOUR__</integer>
+    <key>Minute</key>
+    <integer>0</integer>
+  </dict>
+
+  <!-- Run the missed job after a wake rather than skipping the day. -->
+  <key>RunAtLoad</key>
+  <false/>
+
+  <key>StandardOutPath</key>
+  <string>__ROOT__/evidence/watch/launchd.log</string>
+  <key>StandardErrorPath</key>
+  <string>__ROOT__/evidence/watch/launchd.log</string>
+
+  <key>ProcessType</key>
+  <string>Background</string>
+
+  <!-- Do not wake the machine just to run a search. If it is asleep, the run
+       happens when you next open the lid; nothing is lost. -->
+  <key>LowPriorityIO</key>
+  <true/>
+</dict>
+</plist>

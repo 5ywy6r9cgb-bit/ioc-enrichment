@@ -1,0 +1,26 @@
+{
+  "name": "sentinel-pra",
+  "version": "0.7.0",
+  "private": true,
+  "description": "Sentinel Public Records Atlas — local, metadata-only FOIA/public-records tracker and research database",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "setup": "./scripts/setup_macos.sh",
+    "seed": "node scripts/load_seeds.js",
+    "brief": "node scripts/daily_brief.js",
+    "foia": "node scripts/foia.js",
+    "mail": "node scripts/mail.js",
+    "portals": "node scripts/check_portals.js",
+    "service": "node scripts/start_service.js",
+    "backup": "./scripts/backup.sh",
+    "verify": "./scripts/verify_integrity.sh",
+    "test": "node tests/run_all.js"
+  },
+  "dependencies": {
+    "pg": "^8.11.0",
+    "playwright": "^1.62.1",
+    "web-push": "^3.6.7"
+  }
+}
