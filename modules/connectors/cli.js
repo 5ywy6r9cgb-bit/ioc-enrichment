@@ -802,9 +802,33 @@ function cmdLobby(opts) {
   if (truncated.length) {
     console.log(`  ${C.y('TRUNCATED — these totals are floors, not totals')}`);
     console.log(C.dim('  The connector asks for 25 filings and does not follow the next page.'));
+
+    // ONE LINE PER SUBJECT, not per capture.
+    //
+    // A subject searched sixty times has sixty truncated captures, and this
+    // printed every one: a real run emitted roughly six hundred consecutive
+    // identical `ALPINE GROUP PARTNERS LLC  kept 25 of 7346` lines and pushed
+    // the actual analysis off the top of the scrollback. A coverage warning
+    // that buries the thing it is warning about is not a warning.
+    const bySubject = new Map();
     for (const s of truncated) {
-      console.log(C.dim(`    ${s.subject.slice(0, 40).padEnd(42)}kept ${s.kept} of ${s.total}`));
+      const cur = bySubject.get(s.subject);
+      if (!cur) { bySubject.set(s.subject, { kept: s.kept, total: s.total, captures: 1 }); continue; }
+      cur.captures++;
+      cur.kept = Math.max(cur.kept, s.kept);       // best coverage we achieved
+      cur.total = Math.max(cur.total, s.total);
     }
+    const rows = [...bySubject.entries()]
+      .sort((a, b) => (b[1].total - b[1].kept) - (a[1].total - a[1].kept));
+    const show = opts.verbose ? rows.length : Math.min(rows.length, 12);
+    for (const [subject, t] of rows.slice(0, show)) {
+      const times = t.captures > 1 ? ` ${C.dim(`(×${t.captures} captures)`)}` : '';
+      console.log(C.dim(`    ${subject.slice(0, 40).padEnd(42)}kept ${t.kept} of ${t.total}`) + times);
+    }
+    if (rows.length > show) {
+      console.log(C.dim(`    …and ${rows.length - show} more subject(s) (--verbose for all)`));
+    }
+    console.log(C.dim(`    ${rows.length} subject(s) across ${truncated.length} truncated capture(s)`));
     console.log('');
   }
   if (unknown.length) {
@@ -853,6 +877,30 @@ function cmdLobby(opts) {
 
   if (opts.chart) {
     const CH = require('./lobby_chart.js');
+
+    // REFUSE AN OUTPUT PATH THAT IS NOT AN HTML FILE.
+    //
+    // zsh does NOT treat `#` as a comment interactively (interactive_comments
+    // is off by default), so pasting
+    //
+    //     sentinel connect lobby --chart     # the money view
+    //
+    // passes `#` as the value of --chart, and the chart was written to a file
+    // literally named `#` in the repo root. Two such files accumulated before
+    // anyone noticed, and one of them was mistaken for junk and deleted.
+    //
+    // Anything that does not end in .html is far more likely to be shell
+    // debris than an intended filename, and writing HTML to it is silent.
+    if (opts.chart !== true && !/\.html?$/i.test(String(opts.chart))) {
+      console.error(`\n  ${C.r('--chart needs an .html path, or no value at all.')}`);
+      console.error(C.dim(`  Got: ${JSON.stringify(String(opts.chart))}`));
+      console.error(C.dim('  If you pasted a command with a trailing # comment, zsh passed the'));
+      console.error(C.dim('  comment as an argument — zsh does not strip # interactively.'));
+      console.error(C.dim(`\n  Default:  sentinel connect lobby --chart`));
+      console.error(C.dim(`  Explicit: sentinel connect lobby --chart out.html\n`));
+      process.exit(2);
+    }
+
     const out = opts.chart === true
       ? path.join(R.EVIDENCE, 'lobbying.html') : path.resolve(opts.chart);
     require('fs').writeFileSync(out, CH.render({
