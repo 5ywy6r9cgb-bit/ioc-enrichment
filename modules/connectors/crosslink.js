@@ -235,6 +235,16 @@ function index(captures) {
             client, registrant,
             client_key: normalise(client), registrant_key: normalise(registrant),
             amount: r.amount || '', issues: r.issues || '',
+            // WHEN. Carried because "this firm lobbies for both sides" is a
+            // claim about SIMULTANEITY, and without a date the strongest row
+            // in this whole tool cannot be told apart from two engagements two
+            // years apart. Real case: Akin Gump filed for Energy Harbor every
+            // quarter from 2021 Q2 to 2024 Q1, and for AWS, Microsoft and Axon
+            // in 2026. Never once at the same time. The undated view read as
+            // one firm carrying the nuclear beneficiary and the data centers
+            // together, which is a different and false story.
+            period: r.period || '',
+            year: (String(r.period || '').match(/\b(19|20)\d{2}\b/) || [])[0] || null,
             subject: cap.subject, url: r.url || '',
           });
         }
@@ -373,11 +383,12 @@ function concentrated(edges, opts = {}) {
     }
     const g = byReg.get(e.registrant_key);
     if (!g.clients.has(e.client_key)) {
-      g.clients.set(e.client_key, { client: e.client, subjects: new Set(), filings: 0 });
+      g.clients.set(e.client_key, { client: e.client, subjects: new Set(), filings: 0, years: new Set() });
     }
     const c = g.clients.get(e.client_key);
     c.filings++;
     if (e.subject) c.subjects.add(e.subject);
+    if (e.year) c.years.add(Number(e.year));
   }
 
   const out = [];
@@ -390,25 +401,72 @@ function concentrated(edges, opts = {}) {
     if (onSubjects.length < minClients) continue;
     if (subjects.size < minSubjects) continue;
 
+    const matched = onSubjects
+      .map((c) => ({
+        client: c.client,
+        filings: c.filings,
+        subjects: [...c.subjects],
+        from: c.years.size ? Math.min(...c.years) : null,
+        to: c.years.size ? Math.max(...c.years) : null,
+      }))
+      .sort((a, b) => b.filings - a.filings);
+
+    // DO THE ENGAGEMENTS OVERLAP IN TIME?
+    //
+    // The whole force of this section is "one firm, several of your threads".
+    // Whether those threads were carried AT THE SAME TIME is a different claim
+    // and the one a reader will assume. Two clients whose filing years never
+    // intersect is a sequence, not a both-sides engagement, and it must not be
+    // presented as the latter.
+    const dated = matched.filter((m) => m.from !== null);
+    let concurrent = null;                       // null = not enough dates to say
+    if (dated.length >= 2) {
+      concurrent = dated.some((a, i) => dated.some((b, j) =>
+        i !== j && a.from <= b.to && b.from <= a.to));
+    }
+
     out.push({
       registrant: g.registrant,
       client_count: clients.length,
       clients_on_subjects: onSubjects.length,
       subjects: [...subjects],
-      concentration: subjects.size / clients.length,
-      // What actually links them, so the row can be read without a second query.
-      matched: onSubjects
-        .map((c) => ({ client: c.client, filings: c.filings, subjects: [...c.subjects] }))
-        .sort((a, b) => b.filings - a.filings),
+      // Threads bridged. NOT a percentage: the old `subjects / client_count`
+      // read as "how much of this firm's book is your investigation", and the
+      // denominator is only the clients the LIBRARY knows — which is only the
+      // clients you searched. Akin Gump showed "4 of 4 known clients, 100%"
+      // while actually having hundreds. It also exceeded 100% whenever one
+      // client matched two subject spellings of the same company
+      // (SoundThinking / ShotSpotter after the rename).
+      //
+      // What the data does establish is the count of your threads this one
+      // registrant connects. That is a fact about the filings, not an estimate
+      // about the firm.
+      threads: subjects.size,
+      // Kept for ORDERING and never printed. As a displayed statistic it
+      // overclaims (the denominator is only what you searched, and it can
+      // exceed 1.0 when one client matches two spellings of the same
+      // company). As a sort key it is exactly right: without it, a firm with
+      // four hundred clients bridges more threads than a boutique simply by
+      // having more clients, and the mega-firms retake the top of the list —
+      // the whole defect this section was written to fix.
+      _rank: subjects.size / clients.length,
+      concurrent,
+      span: dated.length
+        ? { from: Math.min(...dated.map((m) => m.from)), to: Math.max(...dated.map((m) => m.to)) }
+        : null,
+      matched,
     });
   }
 
   return out.sort((a, b) => {
-    if (b.concentration !== a.concentration) return b.concentration - a.concentration;
-    // Tie on ratio: more threads covered is the stronger row, then more filings
-    // behind it. Without this, ties come out in Map insertion order, which is
-    // capture-read order — an ordering with no meaning that looks like one.
-    if (b.subjects.length !== a.subjects.length) return b.subjects.length - a.subjects.length;
+    // Concurrent engagements first: same firm, same period, different threads
+    // is the strongest shape here. `null` (undated) ranks between yes and no
+    // rather than at either end, because unknown is not the same as no.
+    const rank = (x) => (x.concurrent === true ? 0 : x.concurrent === null ? 1 : 2);
+    if (rank(a) !== rank(b)) return rank(a) - rank(b);
+    if (b._rank !== a._rank) return b._rank - a._rank;
+    if (b.threads !== a.threads) return b.threads - a.threads;
+    if (a.client_count !== b.client_count) return a.client_count - b.client_count;
     return b.clients_on_subjects - a.clients_on_subjects;
   });
 }

@@ -300,15 +300,75 @@ module.exports = function run() {
 
     const b = byOdds.find((x) => /BOUTIQUE/.test(x.registrant));
     const m = byOdds.find((x) => /MEGA/.test(x.registrant));
-    check('the boutique scores far higher than the mega-firm',
-      b.concentration > m.concentration * 5,
-      `boutique ${b.concentration.toFixed(3)} vs mega ${m.concentration.toFixed(3)}`);
+    check('the mega-firm bridges MORE threads, and still ranks lower',
+      m.threads >= b.threads && byOdds.indexOf(b) < byOdds.indexOf(m),
+      `mega ${m.threads} threads @${byOdds.indexOf(m)}, boutique ${b.threads} @${byOdds.indexOf(b)}`);
+    check('because the ratio, not the raw count, drives the order',
+      b._rank > m._rank, `${b._rank.toFixed(3)} vs ${m._rank.toFixed(3)}`);
+    check('no percentage is reported — the denominator is only what was searched',
+      b.concentration === undefined);
     check('the row names which clients put it there',
       b.matched.some((x) => /AEP/.test(x.client))
       && b.matched.some((x) => /Amazon/.test(x.client)),
       JSON.stringify(b.matched.map((x) => x.client)));
     check('and which of your subjects each client came from',
       b.subjects.length === 2, b.subjects.join(', '));
+  }
+
+  // ══ two engagements two years apart are not "both sides" ═════════════
+  //
+  // The finding that forced this. Akin Gump filed for ENERGY HARBOR every
+  // quarter from 2021 Q2 to 2024 Q1, and for AWS / MICROSOFT / AXON in 2026.
+  // Undated, that row reads as one firm carrying the HB6 nuclear beneficiary
+  // and the data centers together. It never did. A sequence presented as a
+  // simultaneity is the single most defamatory mistake this section can make.
+  {
+    const dir = fixture({
+      'live_capture_senatelda_Energy_Harbor_2026-09-03T10-00-00-000Z.json':
+        { results: [2021, 2022, 2023, 2024].map((y, i) => ({
+          filing_uuid: `eh${i}`, client: { name: 'ENERGY HARBOR CORP' },
+          registrant: { name: 'SEQUENTIAL LLP' }, filing_year: y,
+          filing_period_display: '1st Quarter' })) },
+      'live_capture_senatelda_Amazon_Web_Services_2026-09-03T10-01-00-000Z.json':
+        { results: [{ filing_uuid: 'aws1', client: { name: 'AMAZON WEB SERVICES, INC.' },
+          registrant: { name: 'SEQUENTIAL LLP' }, filing_year: 2026,
+          filing_period_display: '2nd Quarter' }] },
+      // And a firm that really did carry two threads at once.
+      'live_capture_senatelda_Skydio_2026-09-03T10-02-00-000Z.json':
+        { results: [{ filing_uuid: 'sk1', client: { name: 'SKYDIO, INC.' },
+          registrant: { name: 'CONCURRENT LLP' }, filing_year: 2026,
+          filing_period_display: '1st Quarter' }] },
+      'live_capture_senatelda_Bloom_Energy_2026-09-03T10-03-00-000Z.json':
+        { results: [{ filing_uuid: 'be1', client: { name: 'BLOOM ENERGY' },
+          registrant: { name: 'CONCURRENT LLP' }, filing_year: 2026,
+          filing_period_display: '2nd Quarter' }] },
+    });
+    const { edges } = X.index(X.readCaptures(dir));
+    const rows = X.concentrated(edges, { minClients: 2, minSubjects: 2 });
+
+    const seq = rows.find((r) => /SEQUENTIAL/.test(r.registrant));
+    const con = rows.find((r) => /CONCURRENT/.test(r.registrant));
+    check('years are carried onto the edges', edges.every((e) => e.year));
+    check('engagements that never overlap are marked NOT concurrent',
+      seq && seq.concurrent === false, seq && String(seq.concurrent));
+    check('engagements in the same year are marked concurrent',
+      con && con.concurrent === true, con && String(con.concurrent));
+    check('and the concurrent firm ranks above the sequential one',
+      rows.indexOf(con) < rows.indexOf(seq),
+      rows.map((r) => `${r.registrant}:${r.concurrent}`).join(' | '));
+    check('each client carries its own first and last year',
+      seq.matched.find((m) => /ENERGY HARBOR/.test(m.client)).from === 2021
+      && seq.matched.find((m) => /ENERGY HARBOR/.test(m.client)).to === 2024);
+    check('the span covers the whole engagement',
+      seq.span.from === 2021 && seq.span.to === 2026,
+      JSON.stringify(seq.span));
+
+    // The label must reach the screen, not just the object.
+    const cli = fs.readFileSync(require.resolve('./cli.js'), 'utf8');
+    check('the terminal prints whether engagements overlapped',
+      /OVERLAPPING in time/.test(cli) && /never at the same time/.test(cli));
+    check('and no longer prints a concentration percentage',
+      !/concentration \$\{pct\}%/.test(cli));
   }
 
   // ══ one client under two subjects is NOT a concentrated book ══════════
@@ -343,10 +403,10 @@ module.exports = function run() {
     });
     const { edges } = X.index(X.readCaptures(dir));
     const byOdds = X.concentrated(edges, { minClients: 2, minSubjects: 2 });
-    check('equal ratios are ordered by threads then filings, deterministically',
+    check('the order is monotonic and deterministic, never insertion order',
       byOdds.length >= 2
-      && byOdds.every((x, i) => i === 0 || byOdds[i - 1].concentration >= x.concentration),
-      byOdds.map((x) => `${x.registrant}:${x.concentration.toFixed(2)}`).join(' | '));
+      && byOdds.every((x, i) => i === 0 || byOdds[i - 1]._rank >= x._rank),
+      byOdds.map((x) => `${x.registrant}:${x._rank.toFixed(2)}`).join(' | '));
   }
 
   // ══ the disclaimer is not optional ════════════════════════════════════

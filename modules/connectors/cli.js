@@ -471,18 +471,25 @@ function cmdCrosslink(opts) {
   // utility and a data-center operator is the story, and it was on page three.
   const conc = X.concentrated(edges, { minClients: 2, minSubjects: 2 });
   if (conc.length) {
-    console.log(`  ${C.b('CONCENTRATED — small books, several of your threads')}`);
-    console.log(C.dim('  How much of a firm\'s known book sits on subjects you are working.'));
-    console.log(C.dim('  A boutique carrying two sides is a thread. A firm with four hundred'));
-    console.log(C.dim('  clients carrying two of them is arithmetic.\n'));
+    console.log(`  ${C.b('ONE REGISTRANT, SEVERAL OF YOUR THREADS')}`);
+    console.log(C.dim('  Firms whose sworn filings connect more than one thread you are'));
+    console.log(C.dim('  working. Ordered by whether the engagements OVERLAPPED IN TIME —'));
+    console.log(C.dim('  carrying two sides at once is a different fact from carrying one,'));
+    console.log(C.dim('  then the other two years later, and they look identical undated.\n'));
     for (const g of conc.slice(0, opts.verbose ? 999 : 10)) {
-      const pct = (g.concentration * 100).toFixed(0);
-      console.log(`    ${C.b(g.registrant)}`);
-      console.log(C.dim(`      ${g.clients_on_subjects} of ${g.client_count} known clients`
-        + ` on ${g.subjects.length} of your subjects  ·  concentration ${pct}%`));
+      // Concurrency is the headline, because it is the difference between
+      // "carried both sides" and "carried one, then years later the other".
+      const when = g.concurrent === true ? C.y('OVERLAPPING in time')
+        : g.concurrent === false ? C.dim('never at the same time')
+          : C.dim('dates unknown');
+      console.log(`    ${C.b(g.registrant)}  ${when}`);
+      console.log(C.dim(`      bridges ${g.threads} of your threads`
+        + ` across ${g.clients_on_subjects} client(s) the library knows`
+        + (g.span ? `  ·  ${g.span.from}–${g.span.to}` : '')));
       for (const m of g.matched.slice(0, opts.verbose ? 999 : 5)) {
-        console.log(`      ${m.client.slice(0, 50).padEnd(52)}`
-          + C.dim(`${m.filings} filing(s) · ${m.subjects.join(', ')}`));
+        const yrs = m.from === null ? '' : (m.from === m.to ? ` ${m.from}` : ` ${m.from}–${m.to}`);
+        console.log(`      ${m.client.slice(0, 44).padEnd(46)}`
+          + C.dim(`${String(m.filings).padStart(3)} filing(s)${yrs.padEnd(11)} ${m.subjects.join(', ')}`));
       }
       console.log('');
     }
@@ -491,8 +498,10 @@ function cmdCrosslink(opts) {
     }
     // Said here rather than only in the closing block, because this section is
     // the one that looks most like a finding and is read first.
-    console.log(C.dim('  Client counts are FLOORS — a truncated capture means a firm shown'));
-    console.log(C.dim('  with three clients may have thirty, which would collapse its score.'));
+    console.log(C.dim('  "Clients the library knows" is only the clients YOU SEARCHED. A firm'));
+    console.log(C.dim('  shown with four may have four hundred; 1000+ captures are truncated.'));
+    console.log(C.dim('  Get a real client list with:  sentinel connect senatelda \\'));
+    console.log(C.dim('    --registrant "FIRM NAME" --pages 20'));
     console.log(C.dim('  "Lobbies for both sides" is an inference no filing states.\n'));
   }
 
