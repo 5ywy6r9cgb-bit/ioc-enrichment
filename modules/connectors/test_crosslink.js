@@ -260,6 +260,95 @@ module.exports = function run() {
       X.readCaptures(path.join(dir, 'nope')).length === 0);
   }
 
+  // ══ improbability, not size ═══════════════════════════════════════════
+  //
+  // The defect this replaces: `sharedRegistrants` sorts by client_count, so a
+  // 398-client registrant leads every run forever and the boutique carrying
+  // both sides of the actual fight is twenty rows down. These fixtures are
+  // that exact situation in miniature.
+  {
+    // MEGA files for 30 clients; two of them happen to be your subjects.
+    // BOUTIQUE files for 3; two of them are your subjects, on two threads.
+    const megaRows = [];
+    for (let i = 0; i < 28; i++) megaRows.push([`Unrelated Client ${i} LLC`, 'MEGA GROUP LLC']);
+    megaRows.push(['AEP Ohio', 'MEGA GROUP LLC']);
+    megaRows.push(['Amazon Data Services', 'MEGA GROUP LLC']);
+
+    const dir = fixture({
+      'live_capture_senatelda_AEP_Ohio_2026-09-03T10-00-00-000Z.json':
+        lda([...megaRows.filter((r) => r[0] === 'AEP Ohio'),
+             ['AEP Ohio', 'BOUTIQUE STRATEGIES LLC'],
+             ['Some Other Co LLC', 'BOUTIQUE STRATEGIES LLC']]),
+      'live_capture_senatelda_Amazon_Data_Services_2026-09-03T10-01-00-000Z.json':
+        lda([...megaRows.filter((r) => r[0] === 'Amazon Data Services'),
+             ['Amazon Data Services', 'BOUTIQUE STRATEGIES LLC']]),
+      'live_capture_senatelda_filler_2026-09-03T10-02-00-000Z.json':
+        lda(megaRows.filter((r) => !/AEP|Amazon/.test(r[0]))),
+    });
+
+    const { edges } = X.index(X.readCaptures(dir));
+    const bySize = X.sharedRegistrants(edges, { minClients: 2 });
+    const byOdds = X.concentrated(edges, { minClients: 2, minSubjects: 2 });
+
+    check('by size, the mega-firm leads — the behaviour being corrected',
+      bySize[0] && /MEGA/.test(bySize[0].registrant), bySize[0] && bySize[0].registrant);
+    check('by improbability, the boutique leads instead',
+      byOdds[0] && /BOUTIQUE/.test(byOdds[0].registrant),
+      byOdds.map((x) => x.registrant).join(' | '));
+    check('and the mega-firm still appears, just lower',
+      byOdds.some((x) => /MEGA/.test(x.registrant)));
+
+    const b = byOdds.find((x) => /BOUTIQUE/.test(x.registrant));
+    const m = byOdds.find((x) => /MEGA/.test(x.registrant));
+    check('the boutique scores far higher than the mega-firm',
+      b.concentration > m.concentration * 5,
+      `boutique ${b.concentration.toFixed(3)} vs mega ${m.concentration.toFixed(3)}`);
+    check('the row names which clients put it there',
+      b.matched.some((x) => /AEP/.test(x.client))
+      && b.matched.some((x) => /Amazon/.test(x.client)),
+      JSON.stringify(b.matched.map((x) => x.client)));
+    check('and which of your subjects each client came from',
+      b.subjects.length === 2, b.subjects.join(', '));
+  }
+
+  // ══ one client under two subjects is NOT a concentrated book ══════════
+  //
+  // AEP Ohio sits in both the `energy` and `ratepayers` subject sets, so a
+  // registrant with that ONE client scores 2 subjects / 1 client = 2.0 and
+  // would top the list — measuring the operator's duplicate searching rather
+  // than anything about the firm. Two distinct clients is the floor.
+  {
+    const dir = fixture({
+      'live_capture_senatelda_AEP_Ohio_2026-09-03T10-00-00-000Z.json':
+        lda([['AEP Ohio', 'ONE CLIENT SHOP LLC']]),
+      'live_capture_senatelda_Ohio_Power_Company_2026-09-03T10-01-00-000Z.json':
+        lda([['AEP Ohio', 'ONE CLIENT SHOP LLC']]),
+    });
+    const { edges } = X.index(X.readCaptures(dir));
+    const byOdds = X.concentrated(edges, { minClients: 2, minSubjects: 2 });
+    check('a single client found under two searches does not rank',
+      !byOdds.some((x) => /ONE CLIENT SHOP/.test(x.registrant)),
+      byOdds.map((x) => `${x.registrant} ${x.concentration}`).join(' | '));
+  }
+
+  // ══ ties resolve by something, not by read order ══════════════════════
+  {
+    const dir = fixture({
+      'live_capture_senatelda_A_2026-09-03T10-00-00-000Z.json':
+        lda([['Client One', 'FIRM A LLC'], ['Client Two', 'FIRM A LLC'],
+             ['Client One', 'FIRM B LLC'], ['Client Two', 'FIRM B LLC']]),
+      'live_capture_senatelda_B_2026-09-03T10-01-00-000Z.json':
+        lda([['Client Three', 'FIRM A LLC'], ['Client Three', 'FIRM B LLC'],
+             ['Client Four', 'FIRM B LLC']]),
+    });
+    const { edges } = X.index(X.readCaptures(dir));
+    const byOdds = X.concentrated(edges, { minClients: 2, minSubjects: 2 });
+    check('equal ratios are ordered by threads then filings, deterministically',
+      byOdds.length >= 2
+      && byOdds.every((x, i) => i === 0 || byOdds[i - 1].concentration >= x.concentration),
+      byOdds.map((x) => `${x.registrant}:${x.concentration.toFixed(2)}`).join(' | '));
+  }
+
   // ══ the disclaimer is not optional ════════════════════════════════════
   {
     const cli = fs.readFileSync(require.resolve('./cli.js'), 'utf8');

@@ -310,7 +310,110 @@ function sharedRegistrants(edges, opts = {}) {
   return out.sort((a, b) => b.client_count - a.client_count);
 }
 
+/**
+ * The same filings, ranked by how UNLIKELY the overlap is instead of how big
+ * the firm is.
+ *
+ * ─────────────────────────────────────────────────────────────────────────
+ * WHY THIS EXISTS
+ *
+ * `sharedRegistrants` sorts by client_count, so ALPINE GROUP PARTNERS — 398
+ * clients — is first, and will be first forever, on every investigation, no
+ * matter what the subject list is. Then Harbinger with 118. Twenty rows of
+ * mega-firms before anything specific to the question being asked.
+ *
+ * That ordering is exactly backwards. A firm that represents four hundred
+ * clients carrying two of your subjects is the LEAST surprising thing in the
+ * data — it carries almost everyone, so it carries these too. The interesting
+ * row is the six-client boutique that happens to file for both a distribution
+ * utility and a data-center operator. That is a firm whose whole book is this
+ * fight, and it is currently buried.
+ *
+ * This module's own header promises results "ranked by how unlikely the
+ * overlap is". Nothing implemented that. This does.
+ *
+ * ─────────────────────────────────────────────────────────────────────────
+ * THE MEASURE, AND WHY IT IS THIS ONE
+ *
+ *     concentration = subjects_covered / client_count
+ *
+ * How much of a firm's book sits on your threads. Alpine: 12/398 = 0.03.
+ * A boutique carrying two of your subjects across three clients: 2/3 = 0.67.
+ *
+ * TWO GUARDS, both learned from what the naive version surfaces:
+ *
+ *  1. `clients_on_subjects >= 2`. Without it, a registrant with ONE client
+ *     scores 2.0 when that single client happens to appear under two of your
+ *     search terms — which measures your duplicate searching (AEP Ohio is in
+ *     both `energy` and `ratepayers`), not the firm's book. Two DISTINCT
+ *     clients on two DISTINCT threads is the claim worth making.
+ *
+ *  2. client_count is the firm's WHOLE book as far as the library knows it,
+ *     not just the matched clients — otherwise every firm scores 1.0 and the
+ *     ranking says nothing.
+ *
+ * ─────────────────────────────────────────────────────────────────────────
+ * WHAT THIS STILL IS NOT
+ *
+ * A high score is a REGISTRANT WORTH READING, not a finding. The filings are
+ * sworn under 2 U.S.C. 1603-1604, so the firm-client link is real — but "this
+ * firm lobbies for both sides" is an inference about motive that no filing
+ * states, and the library's client counts are floors (truncated captures mean
+ * a firm shown with three clients may have thirty, which would collapse its
+ * score). Pull the filings and read them.
+ */
+function concentrated(edges, opts = {}) {
+  const minClients = opts.minClients || 2;
+  const minSubjects = opts.minSubjects || 2;
+
+  const byReg = new Map();
+  for (const e of edges) {
+    if (!byReg.has(e.registrant_key)) {
+      byReg.set(e.registrant_key, { registrant: e.registrant, clients: new Map() });
+    }
+    const g = byReg.get(e.registrant_key);
+    if (!g.clients.has(e.client_key)) {
+      g.clients.set(e.client_key, { client: e.client, subjects: new Set(), filings: 0 });
+    }
+    const c = g.clients.get(e.client_key);
+    c.filings++;
+    if (e.subject) c.subjects.add(e.subject);
+  }
+
+  const out = [];
+  for (const g of byReg.values()) {
+    const clients = [...g.clients.values()];
+    const onSubjects = clients.filter((c) => c.subjects.size > 0);
+    const subjects = new Set();
+    for (const c of onSubjects) for (const s of c.subjects) subjects.add(s);
+
+    if (onSubjects.length < minClients) continue;
+    if (subjects.size < minSubjects) continue;
+
+    out.push({
+      registrant: g.registrant,
+      client_count: clients.length,
+      clients_on_subjects: onSubjects.length,
+      subjects: [...subjects],
+      concentration: subjects.size / clients.length,
+      // What actually links them, so the row can be read without a second query.
+      matched: onSubjects
+        .map((c) => ({ client: c.client, filings: c.filings, subjects: [...c.subjects] }))
+        .sort((a, b) => b.filings - a.filings),
+    });
+  }
+
+  return out.sort((a, b) => {
+    if (b.concentration !== a.concentration) return b.concentration - a.concentration;
+    // Tie on ratio: more threads covered is the stronger row, then more filings
+    // behind it. Without this, ties come out in Map insertion order, which is
+    // capture-read order — an ordering with no meaning that looks like one.
+    if (b.subjects.length !== a.subjects.length) return b.subjects.length - a.subjects.length;
+    return b.clients_on_subjects - a.clients_on_subjects;
+  });
+}
+
 module.exports = {
-  readCaptures, index, crossSubject, sharedRegistrants,
+  readCaptures, index, crossSubject, sharedRegistrants, concentrated,
   normalise, tooGeneric, splitParties,
 };

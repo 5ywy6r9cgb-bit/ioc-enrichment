@@ -461,6 +461,41 @@ function cmdCrosslink(opts) {
 
   const { byName, edges } = X.index(captures);
 
+  // ---- the improbable overlaps, before the big ones ---------------------
+  //
+  // Ordered FIRST and deliberately. `sharedRegistrants` below sorts by client
+  // count, so ALPINE GROUP PARTNERS (398 clients) heads it on every run of
+  // every investigation forever, followed by twenty more mega-firms. A firm
+  // that represents four hundred clients carrying two of your subjects is the
+  // least surprising row in the data; the six-client shop carrying both a
+  // utility and a data-center operator is the story, and it was on page three.
+  const conc = X.concentrated(edges, { minClients: 2, minSubjects: 2 });
+  if (conc.length) {
+    console.log(`  ${C.b('CONCENTRATED — small books, several of your threads')}`);
+    console.log(C.dim('  How much of a firm\'s known book sits on subjects you are working.'));
+    console.log(C.dim('  A boutique carrying two sides is a thread. A firm with four hundred'));
+    console.log(C.dim('  clients carrying two of them is arithmetic.\n'));
+    for (const g of conc.slice(0, opts.verbose ? 999 : 10)) {
+      const pct = (g.concentration * 100).toFixed(0);
+      console.log(`    ${C.b(g.registrant)}`);
+      console.log(C.dim(`      ${g.clients_on_subjects} of ${g.client_count} known clients`
+        + ` on ${g.subjects.length} of your subjects  ·  concentration ${pct}%`));
+      for (const m of g.matched.slice(0, opts.verbose ? 999 : 5)) {
+        console.log(`      ${m.client.slice(0, 50).padEnd(52)}`
+          + C.dim(`${m.filings} filing(s) · ${m.subjects.join(', ')}`));
+      }
+      console.log('');
+    }
+    if (!opts.verbose && conc.length > 10) {
+      console.log(C.dim(`    …and ${conc.length - 10} more (--verbose for all)\n`));
+    }
+    // Said here rather than only in the closing block, because this section is
+    // the one that looks most like a finding and is read first.
+    console.log(C.dim('  Client counts are FLOORS — a truncated capture means a firm shown'));
+    console.log(C.dim('  with three clients may have thirty, which would collapse its score.'));
+    console.log(C.dim('  "Lobbies for both sides" is an inference no filing states.\n'));
+  }
+
   // ---- lobbying edges: an asserted relationship, not a coincidence ------
   const shared = X.sharedRegistrants(edges, { minClients: 2 });
   if (shared.length) {
