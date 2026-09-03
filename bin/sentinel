@@ -25,6 +25,10 @@
 #   sentinel desk                   open the research desk in a browser
 #   sentinel sdesk ...              the Python desk: claims, gates, dossiers
 #
+#   sentinel foia                   records desk: what needs you, most urgent first
+#   sentinel foia dash              every request on one screen, then open it
+#   sentinel home                   build the Sentinel folder on your Desktop
+#
 #   sentinel case new ID "..."      start a case file
 #   sentinel case add ID EX FILE    add an exhibit  (--kind financial --pages 44)
 #   sentinel case read ID EX N      record pages read
@@ -88,11 +92,15 @@ WHAT THIS IS NOT
   runs SEARCHES against named sources and RUNS CLOCKS on records requests. The
   thinking stays yours.
 
+START HERE
+  sentinel home                         build the Desktop folder — every surface,
+                                        double-clickable, with a plain README
+
 THE FIVE YOU WILL ACTUALLY USE
-  sentinel pra foia                     what records requests need you today
+  sentinel foia                         what records requests need you today
+  sentinel foia dash                    all of them on one screen
   sentinel connect all "SUBJECT"        search every source at once
   sentinel case status ID               can this be published, and what blocks it
-  sentinel dash                         the dashboard over every case
   sentinel watch run --all              force the overnight run now
 
 FULL GUIDES
@@ -189,6 +197,9 @@ PYSTATUS
     echo "== crosslink =="
     node "$ROOT/modules/connectors/test_crosslink.js" || FAILED=1
     echo ""
+    echo "== the front door =="
+    node "$ROOT/modules/home/test_home.js" || FAILED=1
+    echo ""
     echo "== capture recency =="
     node "$ROOT/modules/connectors/test_recency.js" || FAILED=1
     echo ""
@@ -252,13 +263,35 @@ PYSTATUS
       seed)    node scripts/load_seeds.js "$@" ;;
       brief)   node scripts/daily_brief.js "$@" ;;
       foia)    node scripts/foia.js "$@" ;;
+      dash)    node scripts/foia_dash.js "$@" ;;
       mail)    node scripts/mail.js "$@" ;;
       portals) node scripts/check_portals.js "$@" ;;
       backup)  ./scripts/backup.sh "$@" ;;
       verify)  ./scripts/verify_integrity.sh "$@" ;;
       test)    node tests/run_all.js ;;
-      *)       echo "pra subcommands: setup seed brief foia mail portals backup verify test" ;;
+      *)       echo "pra subcommands: setup seed brief foia dash mail portals backup verify test" ;;
     esac
+    ;;
+
+  # `sentinel foia` — the records desk, promoted to the top level.
+  #
+  # It was reachable only as `sentinel pra foia`, which puts the thing used
+  # daily behind the name of the module that happens to house it. Nobody
+  # thinks "public records atlas" at 11pm; they think "my FOIAs".
+  #
+  #   sentinel foia            what needs you, most urgent first
+  #   sentinel foia dash       build the screen and open it
+  #   sentinel foia <rest>     anything `pra foia` takes
+  foia)
+    cd "$ROOT/modules/pra"
+    if [ "${1:-}" = "dash" ]; then
+      shift
+      # --open by default here: someone typing `foia dash` wants to LOOK at
+      # it. `pra dash` stays quiet for scripting.
+      node scripts/foia_dash.js --open "$@"
+    else
+      node scripts/foia.js "$@"
+    fi
     ;;
 
   montage)
@@ -272,6 +305,18 @@ PYSTATUS
   desk)
     open "$ROOT/modules/research-desk/app/desk.html" 2>/dev/null \
       || echo "open modules/research-desk/app/desk.html in your browser"
+    ;;
+
+  # `sentinel home` — build the Desktop folder.
+  #
+  # Everything in this system is reachable and almost none of it is findable.
+  # This writes one folder of double-clickable launchers and a README that
+  # says, in plain language, what each one is for and what it cannot tell you.
+  #
+  # It copies no evidence: the Desktop is the least protected place on the
+  # machine, and a copy would go stale anyway.
+  home)
+    node "$ROOT/modules/home/build_home.js" "$@"
     ;;
 
   case)

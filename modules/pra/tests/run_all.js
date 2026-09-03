@@ -29,6 +29,7 @@ const SUITES = [
   ['foia_tracker',              require('./foia_tracker.test.js')],
   ['foia_store',                require('./foia_store.test.js')],
   ['foia_db_adapter',           require('./foia_db_adapter.test.js')],
+  ['foia_dashboard',            require('./foia_dashboard.test.js')],
   ['outbox',                    require('./outbox.test.js')],
   ['mail',                      require('./mail.test.js')],
 ];

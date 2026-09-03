@@ -22,13 +22,17 @@ writes it out every time so a copied line always works.
 
 | Command | What it does |
 |---|---|
-| `bin/sentinel pra foia` | Which records requests need you today, most urgent first |
+| `bin/sentinel foia` | Which records requests need you today, most urgent first |
+| `bin/sentinel foia dash` | All of them on one screen, then open it |
 | `bin/sentinel connect all "<subject>"` | Search every source at once |
 | `bin/sentinel case status <CASE-ID>` | Can this be published, and what is blocking it |
-| `bin/sentinel dash` | Dashboard across every case |
 | `bin/sentinel watch run --all` | Force the overnight run right now |
 
 Everything else on this page exists for a reason, but those five are the day.
+
+**Before any of them, once:** `bin/sentinel home` builds a folder on your
+Desktop with a double-clickable launcher for each surface and a README that
+says what each one is for. See §2a.
 
 ---
 
@@ -85,6 +89,36 @@ are.
 
 ---
 
+## 2a. The front door — `sentinel home`
+
+```bash
+bin/sentinel home                  # builds ~/Desktop/Sentinel
+bin/sentinel home --dest PATH      # somewhere else
+```
+
+Eleven modules, four browser surfaces and roughly sixty commands are all
+reachable and almost none of them are findable. This writes one folder of
+double-clickable `.command` launchers — records requests, today's triage, the
+case desk, the research desk, the connectors, the integrity check, the repo
+itself — plus a `READ ME FIRST.md` that says in plain language what each one
+is for **and what it cannot tell you**.
+
+Three properties worth knowing:
+
+- **It copies nothing.** Every launcher runs a command in the repo. No
+  evidence, no case file, no FOIA store is written to the Desktop — that is
+  the least protected folder on the machine, it gets screen-shared and
+  cloud-synced, and a copy would go stale the moment you file the next
+  request.
+- **A failing launcher stays open.** A terminal window that closes on exit is
+  useless when the output was the point, and worse than useless when the
+  output was an error nobody got to read.
+- **Re-running is safe**, and is how you refresh after moving the repo. The
+  launchers hard-code the repo path; if you move it, they tell you to re-run
+  `sentinel home` rather than failing silently.
+
+---
+
 ## 3. The records desk — `sentinel pra`
 
 Subcommands, from the dispatcher:
@@ -99,7 +133,51 @@ bin/sentinel pra portals     # check agency portals
 bin/sentinel pra backup      # back up the store
 bin/sentinel pra verify      # verify store integrity
 bin/sentinel pra test        # PRA suite only
+bin/sentinel pra dash        # build the records screen (quiet; no browser)
 ```
+
+**`sentinel foia` is the same records desk, promoted to the top level**, because
+nobody thinks "public records atlas" at 11pm — they think "my FOIAs":
+
+```bash
+bin/sentinel foia            # identical to `pra foia`
+bin/sentinel foia dash       # build the screen AND open it
+```
+
+### 3.0 `foia dash` — every request on one screen
+
+```bash
+bin/sentinel foia dash                 # build, then open in the browser
+bin/sentinel pra dash                  # build only, print the path (for scripts)
+bin/sentinel pra dash --out PATH       # write somewhere else
+```
+
+Reads the same store `pra foia` reads (`evidence/foia_requests.json`, or
+`PRA_FOIA_STORE`) and runs the same tracker, so **the screen and the terminal
+cannot disagree**. No database is involved.
+
+It writes to `evidence/foia_dashboard.html` — inside the gitignored evidence
+tree, because a page listing which agencies you are pressing and what you are
+looking for is working material, not source.
+
+What the page is careful about, and why:
+
+- It is **headed with the moment it was generated**, and says it is a snapshot.
+  The page this replaced was headed "Live view of your database", was a
+  three-week-old build artifact committed to git, and told you to refresh it by
+  running a script that is not in the repo. A stale number under a confident
+  heading is worse than no dashboard, because it gets consulted instead of the
+  truth.
+- **No Ohio request is ever labelled overdue.** R.C. 149.43(B)(1) requires
+  inspection "promptly" and copies "within a reasonable period of time" and
+  sets no day count. The thresholds on the page are your own follow-up cadence
+  and say so. Federal FOIA's 20-business-day determination period is statutory
+  and is labelled separately.
+- **A denial outranks a long silence**, because a denial is the moment the
+  agency's stated exemption becomes something you can test.
+- **No damages figure appears** unless the R.C. 149.43(C)(2) predicates are
+  recorded as true. Where it declines, it prints why.
+- **It phones nobody**: no scripts, no external fonts, no images.
 
 ### 3.1 `pra foia` — requests and their clocks
 
