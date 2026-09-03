@@ -1,5 +1,5 @@
 {
-  "//": "Named subject sets for `sentinel connect sweep <set>`. Edit this file as you learn names — every abatement agreement and utility filing names the actual contracting entity, and that name is the one worth searching. A subject here is a SEARCH STRING, not a claim that the entity is involved in anything.",
+  "//": "Named subject sets for `sentinel connect sweep <set>`. Edit this file as you learn names \u2014 every abatement agreement and utility filing names the actual contracting entity, and that name is the one worth searching. A subject here is a SEARCH STRING, not a claim that the entity is involved in anything.",
   "datacenters": {
     "into": "datacenters",
     "note": "Operators and the single-purpose entities they file under.",
@@ -139,6 +139,21 @@
       "Juan Cespedes",
       "Neil Clark",
       "Jeff Longstreth"
+    ]
+  },
+  "datacenter_policy": {
+    "into": "datacenter-policy",
+    "note": "The policy vehicles, found in Akin Gump's own client list rather than guessed at. The DATA CENTER COALITION self-files (in-house expenses) AND retains outside firms, and OpenCorporates shows STATE-LEVEL coalitions incorporating separately -- Arizona 2014, Wisconsin Aug 2025, Mississippi Mar 2026. A state chapter is the vehicle for state tax-abatement and tariff fights, which is the Ohio question. A name here is a SEARCH STRING, not a claim that any of these operate in Ohio.",
+    "subjects": [
+      "Data Center Coalition",
+      "Ohio Data Center Coalition",
+      "Crossroads Strategies",
+      "Stack Infrastructure",
+      "Vertiv Group",
+      "Global Laser Enrichment",
+      "Fervo Energy",
+      "Excelsior Energy Capital",
+      "Enhanced Geothermal Systems Deployment Coalition"
     ]
   }
 }
