@@ -15,6 +15,7 @@
 const fs = require('fs');
 const path = require('path');
 const R = require('./registry.js');
+const RECENCY = require('./recency.js');
 
 const C = {
   b: (s) => `\x1b[1m${s}\x1b[0m`,
@@ -1066,6 +1067,13 @@ async function cmdExpand(opts) {
  * A SUBJECT IS A SEARCH STRING.
  *   Putting a name in the list asserts nothing about it. It says only that
  *   the name is worth asking about, which is what a library is for.
+ *
+ * --new-only SKIPS SUBJECTS ALREADY CAPTURED IN THE LAST 24 HOURS.
+ *   Off by default, and it must stay off by default. Re-asking is how you
+ *   find out something changed, and a sweep that silently declined to search
+ *   would leave "asked, found nothing" indistinguishable from "never asked" —
+ *   the one confusion this desk cannot afford. The plan therefore always
+ *   REPORTS what would repeat, and only skips when the operator says to.
  */
 async function cmdSweep(setName, opts) {
   const file = path.join(__dirname, 'subjects.json');
@@ -1122,15 +1130,53 @@ async function cmdSweep(setName, opts) {
     runnable.push(name);
   }
   const perSubject = runnable.length;
-  const totalCalls = perSubject * set.subjects.length;
+
+  // ---- what of this plan has already been paid for ---------------------
+  //
+  // The plan used to state the call count and stop there, which is the truth
+  // but not the whole of it: re-running a set an hour later announced the same
+  // hundred calls and gave no hint that ninety of them would fetch bytes the
+  // library already holds. Worse, the duplicates land as separate captures,
+  // and a subject with two identical captures reads later as a subject with
+  // corroboration.
+  //
+  // A subject counts as fresh if ANY runnable connector has not answered it
+  // inside the window. Requiring all of them would suppress a subject whose
+  // one new connector has never been asked.
+  const now = new Date();
+  const lib = RECENCY.load(R.CAPTURES);
+  const WINDOW_H = 24;
+  const repeats = new Map();          // subject -> hours since the newest capture
+  for (const sub of set.subjects) {
+    const ages = runnable.map((n) => lib.ageHours(n, sub, now));
+    if (ages.every((a) => a !== null && a < WINDOW_H)) {
+      repeats.set(sub, Math.min(...ages));
+    }
+  }
+  const willRun = opts.newOnly
+    ? set.subjects.filter((s) => !repeats.has(s))
+    : set.subjects;
+  const totalCalls = perSubject * willRun.length;
 
   console.log('\n' + C.b(`Sweep — ${setName}`));
   console.log(`  ${C.dim(set.note)}`);
   console.log(`  subjects    ${set.subjects.length}`);
   console.log(`  filing to   evidence/investigations/${set.into}/`);
-  console.log(`  ${C.b('live calls')}  ${C.b(String(totalCalls))}  ${C.dim(`${set.subjects.length} subjects × ${perSubject} calls`)}`);
-  console.log('  boundary    every hit lands as a LEAD requiring a primary source\n');
-  for (const sub of set.subjects) console.log(`    ${sub}`);
+  console.log(`  ${C.b('live calls')}  ${C.b(String(totalCalls))}  ${C.dim(`${willRun.length} subjects × ${perSubject} calls`)}`);
+  console.log('  boundary    every hit lands as a LEAD requiring a primary source');
+  if (repeats.size) {
+    console.log(`  ${C.y('repeats')}     ${repeats.size} of ${set.subjects.length} subjects were fully captured in the last ${WINDOW_H}h`);
+    console.log(`  ${' '.repeat(11)} ${C.dim(opts.newOnly
+      ? 'skipped, because you asked for --new-only'
+      : 'they will be asked again — pass --new-only to skip them')}`);
+  }
+  console.log('');
+  for (const sub of set.subjects) {
+    const age = repeats.get(sub);
+    if (age === undefined) { console.log(`    ${sub}`); continue; }
+    const note = opts.newOnly ? 'skipping' : 'repeat';
+    console.log(`    ${C.dim(sub)}  ${C.y(`(${note} — asked ${RECENCY.describeAge(age)})`)}`);
+  }
   if (skipped.length) {
     console.log('');
     for (const [name, why] of skipped) console.log(C.y(`    ${name.padEnd(18)} SKIPPED — ${why}`));
@@ -1143,11 +1189,20 @@ async function cmdSweep(setName, opts) {
     return;
   }
 
+  // --new-only can empty the plan. Say that, rather than printing "Sweep
+  // complete" over zero calls, which reads as a run that found nothing.
+  if (!willRun.length) {
+    console.log(`\n  ${C.y('Nothing to run.')} ${C.dim(`Every subject in this set was captured in the last ${WINDOW_H}h.`)}`);
+    console.log(C.dim('  Drop --new-only to ask them again, or read what you already have:'));
+    console.log(C.dim('    sentinel connect crosslink\n'));
+    return;
+  }
+
   console.log('');
   let done = 0;
-  for (const sub of set.subjects) {
+  for (const sub of willRun) {
     done++;
-    console.log(C.b(`\n  [${done}/${set.subjects.length}] ${sub}`));
+    console.log(C.b(`\n  [${done}/${willRun.length}] ${sub}`));
     await cmdAll(sub, { into: set.into });
   }
   console.log(`\n  ${C.g('Sweep complete.')} ${C.dim('Fold it in with:')}`);
@@ -1346,6 +1401,21 @@ async function cmdSearch(name, query, opts) {
       : (c.keyVar ? C.y('none (anonymous)') : C.dim('none needed')))}`);
   console.log('  boundary    every hit lands as a LEAD requiring a primary source');
 
+  // Say so if this exact question was already answered today. Announced BEFORE
+  // the call, not after, so the operator can still decide not to make it — a
+  // note printed alongside the results is a receipt, not a choice.
+  //
+  // It reports and does not refuse. A deliberate re-run is legitimate (the
+  // source may have moved, and re-asking is how you find out), and a command
+  // that quietly declined to search would leave "asked, found nothing" and
+  // "never asked" looking identical in the library. Only `sweep --new-only`
+  // skips, and only because the operator typed the flag.
+  const priorAge = RECENCY.load(R.CAPTURES).ageHours(name, query);
+  if (priorAge !== null && priorAge < 24) {
+    console.log(`  ${C.y('repeat')}      asked ${RECENCY.describeAge(priorAge)}`
+      + C.dim(' — the library already holds an answer to this'));
+  }
+
   if (opts.dryRun) {
     console.log('\n  ' + C.y('DRY RUN — no network call made, nothing written.'));
     if (keyMissing) console.log('  ' + C.dim(`A live run needs ${c.keyVar}.`));
@@ -1450,7 +1520,10 @@ async function main() {
   // for" rather than "who filed for this company".
   if (action === 'brief') return cmdBrief(args.slice(1).join(' '), {});
   if (action === 'sweep') {
-    return cmdSweep(args[1], { go: argv.includes('--go') });
+    return cmdSweep(args[1], {
+      go: argv.includes('--go'),
+      newOnly: argv.includes('--new-only'),
+    });
   }
   if (action === 'expand') {
     const li = argv.indexOf('--limit');

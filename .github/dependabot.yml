@@ -1,0 +1,33 @@
+# Dependabot watches the two ecosystems this repo actually has, and no more.
+#
+# The test suites install nothing and CI asserts it, so the surface here is
+# small on purpose: pinned Action versions, and the runtime manifests for the
+# PRA local service and the connectors module.
+#
+# Monthly rather than weekly. A desk with one operator does not benefit from a
+# dependency PR every Monday; it benefits from a small batch that gets read.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "ci"
+
+  - package-ecosystem: npm
+    directory: /modules/pra
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "deps"
+
+  - package-ecosystem: npm
+    directory: /modules/connectors
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "deps"

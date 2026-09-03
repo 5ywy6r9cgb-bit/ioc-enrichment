@@ -1,0 +1,24 @@
+# Every change to this repository is reviewed by the operator.
+#
+# This is not a formality. The desk's guarantees — the publish gate, the
+# provenance chain, the notification content rule, the evidence exclusions —
+# are properties of the whole system, and a change to any one file can void
+# one of them without the diff looking dangerous. So one person who holds the
+# whole picture signs off on all of it.
+#
+# Enable "Require review from Code Owners" in branch protection for main, or
+# this file is documentation rather than a rule.
+
+*       @5ywy6r9cgb-bit
+
+# Called out separately so a review of these is never a skim. Each is load
+# bearing for a guarantee stated in SECURITY.md or CONTRIBUTING.md.
+/.github/workflows/                     @5ywy6r9cgb-bit
+/.gitignore                             @5ywy6r9cgb-bit
+/SECURITY.md                            @5ywy6r9cgb-bit
+/core/provenance/                       @5ywy6r9cgb-bit
+/modules/connectors/registry.js         @5ywy6r9cgb-bit
+/modules/research-desk/case.py          @5ywy6r9cgb-bit
+/modules/sentinel-desk/sentinel/gates.py    @5ywy6r9cgb-bit
+/modules/sentinel-desk/sentinel/guard.py    @5ywy6r9cgb-bit
+/modules/watch/notify.js                @5ywy6r9cgb-bit

@@ -174,6 +174,21 @@ investigative case store is a subpoena target and a breach target at once.
 
 ---
 
+## Working on this repository
+
+| | |
+|---|---|
+| [`docs/WORKFLOW.md`](docs/WORKFLOW.md) | the two loops — the investigation you run, and the watch that runs itself |
+| [`docs/ARCHITECTURE_MAP.md`](docs/ARCHITECTURE_MAP.md) | what each layer already is, what is next, and what this desk deliberately will not build |
+| [`CONTRIBUTING.md`](CONTRIBUTING.md) | the four laws, the test rules, how to add a connector |
+| [`SECURITY.md`](SECURITY.md) | what must never enter git, and how that is enforced three ways |
+
+Read `ARCHITECTURE_MAP.md` before adding a module. The most expensive mistake
+available here is building a second, weaker version of something that already
+exists under a different name.
+
+---
+
 ## Credits and standard
 
 Built by Mark Rosenburg — The Sentinel Report.

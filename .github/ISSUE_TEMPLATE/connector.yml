@@ -1,0 +1,54 @@
+name: Connector request
+description: A source the desk should be able to ask
+title: "connector: "
+labels: ["connector"]
+body:
+  - type: input
+    id: source
+    attributes:
+      label: The source
+      placeholder: "Ohio Secretary of State business search"
+    validations:
+      required: true
+
+  - type: textarea
+    id: why
+    attributes:
+      label: What question it answers that nothing here answers now
+      description: See docs/ARCHITECTURE_MAP.md for what the nine existing connectors cover.
+    validations:
+      required: true
+
+  - type: input
+    id: endpoint
+    attributes:
+      label: API endpoint, or "HTML only"
+      description: If it is HTML only, say so — that is a different and harder job.
+
+  - type: dropdown
+    id: auth
+    attributes:
+      label: Credentials
+      options:
+        - none — anonymous
+        - free API key
+        - paid or account-gated
+    validations:
+      required: true
+
+  - type: textarea
+    id: identify
+    attributes:
+      label: The stable id in a result
+      description: >
+        The field that makes a hit the same hit next week — opinion id,
+        document number, entity id. The watch runner needs it, and getting it
+        wrong makes a watch either silent or a firehose.
+    validations:
+      required: true
+
+  - type: input
+    id: limits
+    attributes:
+      label: Rate limits and terms
+      description: Requests per minute, and anything in the terms of use worth knowing before we pace it.

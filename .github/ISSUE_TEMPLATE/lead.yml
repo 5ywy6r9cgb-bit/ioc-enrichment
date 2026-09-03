@@ -1,0 +1,62 @@
+name: Investigative lead
+description: A thread worth pulling — not a finding
+title: "lead: "
+labels: ["lead"]
+body:
+  - type: markdown
+    attributes:
+      value: >
+        A lead is a place to look. Filing one asserts nothing about anyone
+        named in it. If you are tempted to write a conclusion here, that is
+        the signal that this belongs on a case file with a citation instead.
+
+  - type: textarea
+    id: observation
+    attributes:
+      label: What was observed
+      description: The literal thing. A registrant filing for two sides, a name in two dockets, a date that does not fit.
+      placeholder: "crosslink shows REGISTRANT X filing for both A and B (7 and 33 filings)."
+    validations:
+      required: true
+
+  - type: dropdown
+    id: grade
+    attributes:
+      label: What kind of thing is this
+      options:
+        - a capture (bytes a source returned)
+        - a co-occurrence (a name under two subjects)
+        - an asserted relationship (a filing, docket, registration)
+        - a primary document (fetched and hashed)
+    validations:
+      required: true
+
+  - type: textarea
+    id: how
+    attributes:
+      label: How to reproduce it from the library
+      description: The exact command. A lead nobody can re-derive is a memory.
+      render: shell
+      placeholder: "sentinel connect brief \"NAME\""
+    validations:
+      required: true
+
+  - type: textarea
+    id: closes
+    attributes:
+      label: What document would settle it
+      description: >
+        Name the record, and the office or system that holds it. This is the
+        difference between a lead and an intuition.
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: hygiene
+    attributes:
+      label: Before filing
+      options:
+        - label: Same-entity is NOT assumed — a name match is not an identification
+          required: true
+        - label: No real key, no capture contents, and no private individual's details are in this issue
+          required: true

@@ -1,9 +1,140 @@
 # The workflow
 
-How the standing watch, the filing cabinet, and the notifications fit together —
-and the reasoning behind each choice, so you can change any of it deliberately.
+Two loops run on this desk, and they are not the same loop.
+
+**The investigation loop** is you, working: you ask sources a question, read
+what came back, decide what it means, and file it. It is deliberate, it costs
+API calls, and every step of it is a judgement.
+
+**The standing watch** is the machine, waiting: the same questions asked on a
+schedule, reporting only what changed. It is unattended, it costs nothing to
+leave running, and it makes no judgement at all.
+
+The investigation loop is documented first because it is the one you run, and
+because the watch only makes sense as the automated tail of it.
 
 ---
+
+# 1 · The investigation loop
+
+```
+  sentinel case new CASE "..."          open the file first, not last
+        │
+        ├─ sentinel case add CASE EX-01 FILE     what you already hold
+        │
+  sentinel connect sweep SET            ask the sources  (--new-only skips today's)
+  sentinel connect NAME "QUERY"         or ask one, once
+        │                                 ↓ writes evidence/captures/*.json
+        │                                 ↓ hashes into provenance.jsonl
+        │
+  sentinel connect crosslink            what appears under more than one subject
+  sentinel connect brief "NAME"         everything the library holds on one name
+        │
+  sentinel draft CASE --apply           file the survivors as OPEN QUESTIONS
+        │
+  sentinel doc get URL                  fetch the ACTUAL document, hashed
+        │
+  you       confirm same-entity, read the document, write the claim,
+            cite the document — not the search result
+        │
+  sentinel case status CASE             what is still blocking publication
+```
+
+## What each step is allowed to assert
+
+This is the part that matters, and it is the part a diagram cannot carry.
+
+| Step | Produces | May be called |
+|---|---|---|
+| `connect` | a capture: the verbatim bytes a source returned | a **lead** |
+| `crosslink` | names appearing under more than one subject | a **place to look** |
+| `brief` | everything the library holds on one string | a **reading list** |
+| `draft` | RED open questions on the desk | a **question** |
+| `doc get` | the primary document, hashed and text-extracted | a **source** |
+| you | a claim citing that document | a **finding** |
+
+Nothing in the first four rows is a finding, and no command in this repo can
+promote one into a finding. That promotion costs three deliberate human acts —
+fetch the document, ingest it, cite it — and the desk schema enforces it: a
+citation takes a `doc_id` into `documents`, and there is no way to cite a URL.
+
+## Why the case file is opened first
+
+Because a case opened at the end is a case built to fit what you found.
+
+`sentinel case new` costs nothing and takes a subject line. Opening it before
+the first search means the exhibits, the open questions and the contradictions
+accumulate against a stated question rather than being assembled afterwards
+into a story. `case status` will refuse to call an empty case publishable —
+0 exhibits reads as 100% of nothing — and it will keep refusing while any
+question is open or any conflict unresolved.
+
+There is no `--force`. CI asserts there is no `--force`.
+
+## The cost of asking
+
+A sweep is subjects × connectors. Thirty subjects is over a hundred requests
+to public services, so:
+
+```bash
+sentinel connect sweep hb6                 # the plan. Nothing runs.
+sentinel connect sweep hb6 --go            # the calls, one at a time
+sentinel connect sweep hb6 --go --new-only # skip subjects already captured today
+```
+
+The plan states the real call count and names any subject the library already
+answered in the last 24 hours. `--new-only` skips those; without it they are
+asked again, which is often what you want — re-asking is how you find out
+something changed.
+
+**Prefer `sweep` over a shell loop.** A `for s in ...; do sentinel connect ...`
+loop works, but it re-runs a list you cannot re-run identically, it makes one
+call per connector per subject with no plan step in front of it, and pressing
+up-arrow on it an hour later silently pays for the same bytes twice. Duplicate
+captures are not harmless: they both land in the library, both get counted by
+`crosslink`, and a subject with two identical captures reads later like a
+subject with corroboration. A single `connect` now says `repeat — asked 20
+minutes ago` before it dials, for exactly that reason.
+
+If a subject list is worth running twice, it belongs in
+`modules/connectors/subjects.json` as a named set.
+
+## Where things land
+
+```
+evidence/
+├── captures/live_capture_<connector>_<query>_<stamp>.json   verbatim bytes
+├── documents/                                               primary sources
+├── manifests/provenance.jsonl                               the hash ledger
+├── investigations/<name>/                                   watch filing
+└── watch/state.json                                         the seen-set
+```
+
+Captures all live in **one** directory. `--into` tags a capture with an
+investigation; it does not move it, because `crosslink`, `brief`, `lobby` and
+`graph` all read one directory and filing by folder would hide captures from
+the tools that read them back.
+
+The whole of `evidence/` is gitignored, and CI fails the build if anything
+under it becomes tracked. That is case material, not source.
+
+## Checking the library has not been edited
+
+```bash
+sentinel prov verify evidence/manifests/provenance.jsonl
+sentinel prov ingest evidence/manifests/provenance.jsonl
+```
+
+Every capture is hashed at the moment it arrives, before anything is derived
+from the bytes. `verify` re-hashes and compares. A capture whose bytes no
+longer match its ledger line is not a corrupted file — it is a file that
+cannot be cited.
+
+---
+
+# 2 · The standing watch
+
+The same questions, asked on a schedule, reporting only what changed.
 
 ## The shape of a day
 

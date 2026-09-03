@@ -1,0 +1,47 @@
+name: Defect
+description: Something reports the wrong thing, or reports nothing when it should report
+title: "fix: "
+labels: ["defect"]
+body:
+  - type: markdown
+    attributes:
+      value: >
+        The defects that matter most on this desk are the quiet ones: output
+        that is wrong but plausible, and silence that looks like a clean
+        result. Say which of those this is if you can.
+
+  - type: textarea
+    id: command
+    attributes:
+      label: The command
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What it should have said
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: What it said
+      description: >
+        Paste output, but redact subject names and anything from a capture
+        first. `X_____` is fine — the shape of the output is what matters here.
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: severity
+    attributes:
+      label: Does this touch a guarantee
+      options:
+        - label: It could let an unverified claim reach publishable state
+        - label: It could put capture content into a notification
+        - label: It makes an unasked question look like an answered-empty one
+        - label: It could write a key or evidence somewhere it does not belong
+        - label: None of these

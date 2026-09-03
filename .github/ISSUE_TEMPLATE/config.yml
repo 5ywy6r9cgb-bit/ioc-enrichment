@@ -1,0 +1,7 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security or evidence exposure
+    url: https://github.com/5ywy6r9cgb-bit/ioc-enrichment/security/advisories/new
+    about: >-
+      Anything involving a real key, a real subject name, or real case
+      material. Report privately — never in a public issue. See SECURITY.md.

@@ -80,6 +80,28 @@ jobs:
       - name: Run every suite
         run: bin/sentinel test
 
+      # Source files are text. A tracked .js/.py/.sh/.md holding a NUL byte is
+      # always a mistake, and it is an invisible one: the file reads correctly
+      # in a terminal and in a diff viewer, the interpreter may well run it,
+      # and the only outward sign is git quietly calling it binary — which
+      # then hides every future diff of that file from review.
+      #
+      # Caught in the wild: three intended spaces in a Map key were written as
+      # 0x00. The tests passed, because the separator was at least consistent.
+      - name: Source files are text
+        run: |
+          # `-s` first: grep -qI exits nonzero for an EMPTY file too, and an
+          # empty __init__.py is both legal and common. Without this the guard
+          # fires on a correct repo, which is how a guard gets deleted.
+          bad=$(git ls-files -z -- '*.js' '*.py' '*.sh' '*.md' '*.json' '*.yml' \
+                | xargs -0 -I{} sh -c '[ -s "{}" ] && ! grep -qI . "{}" && echo "{}"' || true)
+          if [ -n "$bad" ]; then
+            echo "::error::These tracked source files are not plain text (NUL bytes?):"
+            echo "$bad"
+            exit 1
+          fi
+          echo "All tracked source files are text. Good."
+
       # These two guards match CODE, not prose. Both files explain at length
       # why the thing being guarded against is wrong, so a naive grep for the
       # phrase matches the explanation and fails on every clean run — a guard
@@ -142,6 +164,16 @@ jobs:
           if git ls-files evidence/ \
                | grep -vE '^evidence/(README\.md|\.gitkeep)$' | grep .; then
             echo "::error::Something under evidence/ is tracked. That is case material."; fail=1
+          fi
+
+          # The list of names a desk is asking about is sensitive BEFORE any
+          # answer comes back, which is why watchlist.json is gitignored. The
+          # ignore rule stops the ordinary mistake; this stops `git add -f`
+          # and a rule someone loosened. Named subject SETS in
+          # modules/connectors/subjects.json are tracked on purpose — that is
+          # research scope for a published project. A watchlist is not.
+          if git ls-files | grep -E '(^|/)watchlist\.json$'; then
+            echo "::error::watchlist.json is tracked. Subjects of interest do not go to a remote."; fail=1
           fi
 
           # Real key shapes, not the word "key". The variable names are all
