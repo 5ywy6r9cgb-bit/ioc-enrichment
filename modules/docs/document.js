@@ -375,7 +375,83 @@ function rewriteForMachines(url, env) {
   };
 }
 
+/**
+ * A URL that was never meant to be fetched.
+ *
+ * ─────────────────────────────────────────────────────────────────────────
+ * WHAT HAPPENED
+ *
+ * A command block said:
+ *   doc get "https://www.federalregister.gov/documents/2024/04/22/..."
+ * with `...` standing in for "the rest of the path, which you look up".
+ * It was pasted verbatim. The server answered with an error page, and this
+ * desk saved 10KB of it, hashed it, wrote a provenance row, and offered to
+ * file it as an exhibit.
+ *
+ * Six months later that is a hashed document in the evidence tree, with a
+ * ledger entry, that says nothing — and nothing on its face distinguishes it
+ * from a real record that happens to be short. That is worse than a failed
+ * fetch by a wide margin: a failure is visible, a hashed error page is
+ * camouflage.
+ *
+ * Same class as the trailing `#` that once wrote a file called "#": a
+ * placeholder in an instruction is not an argument, and the tool that
+ * receives one should say so rather than doing its best with it.
+ */
+const PLACEHOLDERS = [
+  /\.\.\./,                    // .../... — "the rest goes here"
+  /[<>]/,                      // <URL>, <the-file.pdf>
+  /\bYOUR[_-]/i,
+  /%3C|%3E/i,                  // the same, url-encoded by a shell
+  /\bFIRM[_ ]NAME\b/i,
+];
+// NOT on that list, deliberately: /example/ and /todo/. `example.gov` and
+// `example.com` are reserved, legitimate hosts that appear in real fixtures
+// and real documentation, and refusing them costs more than the placeholder
+// it would catch. A guard that blocks valid input gets switched off.
+
+function looksLikePlaceholder(url) {
+  const hit = PLACEHOLDERS.find((re) => re.test(String(url || '')));
+  return hit ? String(hit) : null;
+}
+
+/**
+ * Does this response look like the site's "not found" page rather than a
+ * document?
+ *
+ * Servers routinely answer a bad path with HTTP 200 and a friendly error
+ * page, so the status code cannot be trusted alone. A short HTML body
+ * carrying the usual apologies is not a record, and saving it as one puts a
+ * hashed nothing into the evidence tree.
+ *
+ * Deliberately conservative: it FLAGS, never refuses. A genuinely short page
+ * that happens to contain the word "not found" is possible, and the operator
+ * decides. What must not happen is silence.
+ */
+function looksLikeErrorPage(bytes, contentType) {
+  if (!/html/i.test(contentType || '')) return null;
+  const text = bytes.toString('utf8', 0, Math.min(bytes.length, 20000)).toLowerCase();
+  if (bytes.length > 40000) return null;          // a real page, whatever it says
+  const signals = [
+    ['page not found', /page not found|page you requested|page cannot be found/],
+    ['404', /\b404\b/],
+    ['no longer available', /no longer available|has been removed/],
+    ['error', /<title>[^<]*\berror\b[^<]*<\/title>/],
+  ];
+  const found = signals.filter(([, re]) => re.test(text)).map(([name]) => name);
+  return found.length ? found : null;
+}
+
 async function fetchDocument(url, request, opts = {}) {
+  const ph = looksLikePlaceholder(url);
+  if (ph) {
+    return {
+      ok: false,
+      placeholder: true,
+      error: 'that URL still contains a placeholder — it was never a real address',
+    };
+  }
+
   let u;
   try { u = new URL(url); }
   catch { return { ok: false, error: `not a url: ${url}` }; }
@@ -432,6 +508,7 @@ async function fetchDocument(url, request, opts = {}) {
 module.exports = {
   explainTlsError,
   rewriteForMachines,
+  looksLikePlaceholder, looksLikeErrorPage,
   fetchDocument, extractText, extractHtmlText, pageCount, nameFor, sha256,
   haveTool, sniff,
   SCAN_THRESHOLD_CHARS_PER_PAGE, HTML_MIN_CHARS,

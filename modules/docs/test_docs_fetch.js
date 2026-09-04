@@ -382,6 +382,53 @@ module.exports = async function run() {
       /COURTLISTENER_API_TOKEN is not set/.test(cliSrc));
   }
 
+  // ══ A PLACEHOLDER IS NOT AN ADDRESS ═══════════════════════════════════
+  //
+  // A command block said `doc get ".../documents/2024/04/22/..."` with `...`
+  // meaning "the rest, which you look up". It was pasted verbatim, the server
+  // answered with an error page, and this desk saved 10KB of it, hashed it,
+  // wrote a provenance row and offered to file it as an exhibit.
+  //
+  // Six months on that is a hashed document in the evidence tree, with a
+  // ledger entry, that says nothing — and nothing on its face separates it
+  // from a real record that is merely short. A failed fetch is visible. A
+  // hashed error page is camouflage.
+  {
+    check('an ellipsis placeholder is refused',
+      !!D.looksLikePlaceholder('https://www.federalregister.gov/documents/2024/04/22/...'));
+    check('angle brackets are refused',
+      !!D.looksLikePlaceholder('https://x.gov/<the-file>.pdf'));
+    check('and their url-encoded form too, since a shell may encode them',
+      !!D.looksLikePlaceholder('https://x.gov/%3Cfile%3E.pdf'));
+    check('YOUR_KEY style placeholders are refused',
+      !!D.looksLikePlaceholder('https://api.x.gov/v1?key=YOUR_KEY'));
+    check('a real URL is not refused',
+      D.looksLikePlaceholder('https://lda.gov/filings/public/filing/abc/print/') === null);
+    check('a URL with legitimate dots is not mistaken for one',
+      D.looksLikePlaceholder('https://www.courtlistener.com/opinion/1/x/') === null);
+
+    const src = fs.readFileSync(path.join(__dirname, 'document.js'), 'utf8');
+    check('the refusal happens BEFORE any request is made',
+      src.indexOf('looksLikePlaceholder(url)') < src.indexOf("await request('GET'"));
+  }
+
+  // ══ HTTP 200 IS NOT A DOCUMENT ════════════════════════════════════════
+  {
+    const page = Buffer.from('<html><head><title>Page not found</title></head>'
+      + '<body>Error 404. The page you requested is not here.</body></html>');
+    const flags = D.looksLikeErrorPage(page, 'text/html; charset=utf-8');
+    check('a friendly 404 served as HTTP 200 is flagged', !!flags && flags.length >= 1, String(flags));
+    check('and the signals are named, so the operator can judge',
+      flags.includes('404') || flags.includes('page not found'), String(flags));
+    check('a long real page is not flagged for containing the word error',
+      D.looksLikeErrorPage(Buffer.from('<html>' + 'x'.repeat(60000) + ' error </html>'),
+        'text/html') === null);
+    check('a PDF is never checked as an HTML error page',
+      D.looksLikeErrorPage(Buffer.from('%PDF-1.4 404 not found'), 'application/pdf') === null);
+    check('it FLAGS rather than refusing — the operator decides',
+      /THIS LOOKS LIKE THE SITE/.test(fs.readFileSync(path.join(__dirname, 'cli.js'), 'utf8')));
+  }
+
   console.log(`\n  ${FAIL ? 'FAIL' : 'PASS'} — ${PASS}/${PASS + FAIL} checks\n`);
   if (FAIL) process.exitCode = 1;
   return { pass: PASS, fail: FAIL };

@@ -66,6 +66,16 @@ async function cmdGet(url, opts) {
 
     // A TLS code with no explanation sends the operator to a search engine,
     // and the top answer there is the one that destroys the evidence chain.
+    if (got.placeholder) {
+      console.error('');
+      console.error(`  ${C.y('That URL still has a placeholder in it.')}`);
+      console.error(C.dim('  Something like `...`, `<file.pdf>` or `YOUR_KEY` was left in the'));
+      console.error(C.dim('  command — it stands for "look this up", not for an address.'));
+      console.error(C.dim('  Find the real link and fetch that.'));
+      console.error('');
+      process.exit(1);
+    }
+
     const tls = D.explainTlsError(got.error);
     if (tls) {
       const host = (() => { try { return new URL(url).host; } catch { return ''; } })();
@@ -97,6 +107,20 @@ async function cmdGet(url, opts) {
     }
     console.error('');
     process.exit(1);
+  }
+
+  // A server that answers a bad path with HTTP 200 and a friendly error page
+  // puts a hashed nothing into the evidence tree — indistinguishable, later,
+  // from a real record that happens to be short.
+  const errish = D.looksLikeErrorPage(fs.readFileSync(got.file), got.contentType);
+  if (errish) {
+    console.log('');
+    console.log(`  ${C.y('THIS LOOKS LIKE THE SITE\'S ERROR PAGE, NOT A DOCUMENT.')}`);
+    console.log(C.dim(`  Signals: ${errish.join(', ')}. The server returned HTTP 200 anyway,`));
+    console.log(C.dim('  which is normal and is why the status code cannot be trusted.'));
+    console.log(C.dim('  It is saved and hashed — read it before filing it as anything.'));
+    console.log(C.dim(`    rm "${got.file}"    if it is what it looks like`));
+    console.log('');
   }
 
   console.log(`  ${C.g('saved')}   ${path.relative(process.cwd(), got.file)}`);
