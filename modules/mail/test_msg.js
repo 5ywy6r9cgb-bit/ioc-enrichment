@@ -209,6 +209,52 @@ module.exports = function run() {
       !/file:\s*path\.relative\(process\.cwd\(\), f\)/.test(src));
   }
 
+  // ══ THE ATTACHMENT IS THE RECORD; THE BODY IS THE COVERING NOTE ═══════
+  //
+  // A message whose entire text is "FYI" carried
+  // `Bid Responsiveness Protest Ltr 110920.pdf` — the document that explains
+  // why a public project went back out to bid. Until this worked, the desk
+  // printed the filename and nothing else, and reasoning from a filename is
+  // the exact error the whole system exists to prevent.
+  {
+    const dirEntries = M.Cfb.prototype.childrenOf && M.Cfb.prototype.attachmentStorages;
+    ok('the compound-file directory can be walked as a tree, not just listed',
+      typeof dirEntries === 'function' || (typeof M.Cfb.prototype.childrenOf === 'function'
+        && typeof M.Cfb.prototype.attachmentStorages === 'function'));
+    ok('attachment extraction is exported', typeof M.extractAttachments === 'function');
+  }
+
+  // ══ A FILENAME FROM OUTSIDE CANNOT ESCAPE THE OUTPUT FOLDER ═══════════
+  //
+  // The name comes from the message, which came from whoever sent it. A
+  // records production is exactly where a hostile or merely broken name
+  // arrives.
+  {
+    ok('a path traversal in an attachment name is flattened',
+      !M.safeName('../../etc/passwd').includes('/')
+      && !M.safeName('..\\..\\windows\\system32').includes('\\'));
+    ok('a leading dot cannot make a hidden file',
+      !M.safeName('...hidden').startsWith('.'));
+    ok('control characters are stripped',
+      !/[\0-\x1f]/.test(M.safeName('bad\u0000name\u0007.pdf')));
+    ok('an empty name still yields something writable',
+      M.safeName('') === 'attachment' && M.safeName(null) === 'attachment');
+    ok('an ordinary name survives intact',
+      M.safeName('Bid Responsiveness Protest Ltr 110920.pdf')
+        === 'Bid Responsiveness Protest Ltr 110920.pdf');
+  }
+
+  // ══ SIGNATURE LOGOS MUST NOT BURY THE DOCUMENTS ═══════════════════════
+  {
+    ok('a corporate signature graphic is treated as inline',
+      CLI.looksInline({ name: 'image001.gif', bytes: 5000 })
+      && CLI.looksInline({ name: 'image003.png', bytes: 6334 }));
+    ok('a real document is never treated as inline',
+      !CLI.looksInline({ name: 'Bid Responsiveness Protest Ltr 110920.pdf', bytes: 90000 }));
+    ok('and neither is a large image, which may be a scanned exhibit',
+      !CLI.looksInline({ name: 'image001.png', bytes: 4 * 1024 * 1024 }));
+  }
+
   console.log(`\n  ${FAIL ? 'FAIL' : 'PASS'} — ${PASS}/${PASS + FAIL} checks\n`);
   return FAIL;
 };

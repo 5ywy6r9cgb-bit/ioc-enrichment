@@ -972,6 +972,30 @@ step** — a name added the day a problem escalates is a fact the bodies rarely
 state outright. `--body` prints the new text of each message only; the quoted
 history below it is the previous message repeated.
 
+```bash
+bin/sentinel mail attachments
+```
+
+**The body is the covering note; the attachment is the record.** A message
+whose entire text is "FYI" carried
+`724-0 LOT - Bonsai JV - Bid Responsiveness Protest Ltr 110920.pdf` — the
+document explaining why a public project went back out to bid. Reading the
+filename and reasoning from it is the error this desk exists to prevent: a
+filename is a claim about a document, not the document.
+
+Each file is written as `<sha16>__<name>`, the same convention the PDF corpus
+uses, so an attachment can be cited and re-verified. The same file forwarded
+to three custodians is written once — three copies of one document look like
+a pattern of documents. Inline signature graphics (`image001.gif` and friends)
+are skipped unless you pass `--all`.
+
+Then inventory them like any other records folder:
+
+```bash
+bin/sentinel corpus inventory evidence/mail_attachments \
+  --out evidence/mail_docs --save-text evidence/mail_docs/text
+```
+
 It reports correspondents by organisation, the longest threads, and one thing
 that is otherwise invisible: **messages with no transport headers**. Those are
 sent-items copies from a sender's own mailbox rather than received copies —

@@ -344,6 +344,79 @@ function cmdRead(file) {
   console.log('');
 }
 
+/**
+ * An inline signature graphic, not a record.
+ *
+ * A corporate signature block carries image001.gif on every message. Across
+ * 194 messages that is hundreds of files, and they bury the four or five
+ * attachments that are actually documents. Skipped by default, never by
+ * force — `--all` takes everything, because "probably a logo" is a guess and
+ * the operator is entitled to overrule it.
+ */
+function looksInline(a) {
+  return /^image\d{3}\.(png|gif|jpe?g)$/i.test(a.name) && a.bytes < 200 * 1024;
+}
+
+/**
+ * `mail attachments` — get the documents out of the messages.
+ *
+ * The body is the covering note; the attachment is the record. A message
+ * whose entire text is "FYI" can carry the one document that explains a
+ * project. Reading the filename and reasoning from it is the error this desk
+ * exists to prevent — a filename is a claim about a document, not the
+ * document.
+ */
+function cmdAttachments(opts = {}) {
+  const idx = loadIndex(opts.index);
+  const outDir = path.resolve(opts.out || path.join('evidence', 'mail_attachments'));
+
+  const carrying = idx.messages.filter((m) => (m.attachments || []).length);
+  console.log('\n' + C.b('Extract attachments'));
+  console.log(C.dim(`  ${carrying.length} message(s) carry files → ${outDir}\n`));
+
+  let wrote = 0, skipped = 0, failed = 0;
+  const seen = new Map();               // sha256 -> first name, for dedupe
+
+  for (const m of carrying.sort(byDate)) {
+    let got;
+    try { got = M.extractAttachments(m.file, null, { listOnly: true }); }
+    catch { failed++; continue; }
+
+    const keep = opts.all ? got : got.filter((a) => !looksInline(a));
+    skipped += got.length - keep.length;
+    if (!keep.length) continue;
+
+    let printedHeader = false;
+    for (const a of keep) {
+      // The same PDF forwarded to three custodians is one document. Writing
+      // it three times inflates the corpus and makes a single record look
+      // like a pattern of records.
+      if (seen.has(a.sha256)) continue;
+      seen.set(a.sha256, a.name);
+      try {
+        const [rec] = M.extractAttachments(m.file, outDir)
+          .filter((x) => x.sha256 === a.sha256);
+        if (!rec) continue;
+        if (!printedHeader) {
+          console.log(`  ${C.dim((m.date || '(no date)').slice(0, 25))}  ${m.subject.slice(0, 60)}`);
+          printedHeader = true;
+        }
+        console.log(`    ${C.g(a.name)}  ${C.dim(`${Math.round(a.bytes / 1024)}KB  ${a.sha256.slice(0, 16)}`)}`);
+        wrote++;
+      } catch { failed++; }
+    }
+    if (printedHeader) console.log('');
+  }
+
+  console.log(`  ${C.g('wrote')}     ${wrote} file(s), named by the hash of their own bytes`);
+  if (skipped) console.log(`  ${C.dim('skipped')}   ${skipped} inline signature image(s) — use --all to keep them`);
+  if (failed) console.log(`  ${C.y('failed')}    ${failed}`);
+  console.log('');
+  console.log(C.dim('  Next: inventory them like any other records folder —'));
+  console.log(C.dim(`    bin/sentinel corpus inventory "${outDir}" --out evidence/mail_docs \\`));
+  console.log(C.dim('      --save-text evidence/mail_docs/text\n'));
+}
+
 function main() {
   const argv = process.argv.slice(2);
   const action = argv[0];
@@ -353,6 +426,9 @@ function main() {
   if (action === 'scan') return cmdScan(positional[1], { out: val('--out') });
   if (action === 'read') return cmdRead(positional[1]);
   if (action === 'find') return cmdFind(positional.slice(1).join(' '), { index: val('--index') });
+  if (action === 'attachments') {
+    return cmdAttachments({ index: val('--index'), out: val('--out'), all: argv.includes('--all') });
+  }
   if (action === 'thread') {
     return cmdThread(positional.slice(1).join(' '),
       { index: val('--index'), body: argv.includes('--body') });
@@ -360,10 +436,11 @@ function main() {
   console.error('\n  usage: sentinel mail scan DIR [--out FILE]'
     + '\n         sentinel mail find TERM'
     + '\n         sentinel mail thread SUBJECT [--body]'
+    + '\n         sentinel mail attachments [--out DIR] [--all]'
     + '\n         sentinel mail read FILE.msg\n');
   process.exit(2);
 }
 
-module.exports = { cmdScan, cmdRead, cmdFind, cmdThread, walk, addresses,
-  threadKey, domainOf, isSidecar, byDate, loadIndex };
+module.exports = { cmdScan, cmdRead, cmdFind, cmdThread, cmdAttachments, walk,
+  addresses, threadKey, domainOf, isSidecar, byDate, loadIndex, looksInline };
 if (require.main === module) main();

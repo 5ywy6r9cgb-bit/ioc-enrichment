@@ -37,6 +37,7 @@
  */
 
 const fs = require('fs');
+const path = require('path');
 
 const SIG = Buffer.from([0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1]);
 const FREESECT = 0xFFFFFFFF;
@@ -155,21 +156,55 @@ class Cfb {
 
   _readDir() {
     const raw = this._readChainRawDir();
-    const entries = [];
+    // Keep the raw slots INDEXED. The directory is a red-black tree whose
+    // left/right/child pointers are slot numbers, so compacting the array
+    // (as this used to, filtering out empties) renumbers every pointer and
+    // makes the tree unwalkable — which is why attachments were invisible.
+    const slots = [];
     for (let off = 0; off + 128 <= raw.length; off += 128) {
       const nameLen = raw.readUInt16LE(off + 64);
-      if (nameLen === 0 || nameLen > 64) { entries.push(null); continue; }
-      const name = raw.subarray(off, off + Math.max(0, nameLen - 2)).toString('utf16le');
       const type = raw.readUInt8(off + 66);
-      if (type === 0) { entries.push(null); continue; }
-      entries.push({
-        name,
+      if (nameLen === 0 || nameLen > 64 || type === 0) { slots.push(null); continue; }
+      slots.push({
+        name: raw.subarray(off, off + Math.max(0, nameLen - 2)).toString('utf16le'),
         type,                                   // 1 storage, 2 stream, 5 root
+        left: raw.readInt32LE(off + 68),
+        right: raw.readInt32LE(off + 72),
+        child: raw.readInt32LE(off + 76),
         start: raw.readUInt32LE(off + 116),
         size: Number(raw.readBigUInt64LE(off + 120)),
       });
     }
-    return entries.filter(Boolean);
+    this.slots = slots;
+    return slots.filter(Boolean);
+  }
+
+  /** The entries directly under one storage slot, via its red-black tree. */
+  childrenOf(slotIndex) {
+    const root = this.slots[slotIndex];
+    if (!root || root.child < 0) return [];
+    const out = [];
+    const seen = new Set();
+    const walk = (i) => {
+      if (i < 0 || i >= this.slots.length || seen.has(i)) return;
+      seen.add(i);
+      const e = this.slots[i];
+      if (!e) return;
+      walk(e.left);
+      out.push({ index: i, entry: e });
+      walk(e.right);
+    };
+    walk(root.child);
+    return out;
+  }
+
+  /** Attachment storages hang off the root: __attach_version1.0_#00000000 */
+  attachmentStorages() {
+    const out = [];
+    this.slots.forEach((e, i) => {
+      if (e && e.type === 1 && /^__attach_version1\.0_/.test(e.name)) out.push(i);
+    });
+    return out;
   }
 
   _readChainRawDir() {
@@ -210,6 +245,71 @@ function readMsg(file) {
     // Attachment filenames repeat across attachment storages; keep them all.
     if (key === 'attach_long_filename') out.attachments.push(val);
     else if (out.props[key] === undefined) out.props[key] = val;
+  }
+  return out;
+}
+
+/**
+ * Get the attachments OUT of a .msg and onto disk.
+ *
+ * ─────────────────────────────────────────────────────────────────────────
+ * WHY THIS IS NOT A CONVENIENCE
+ *
+ * The message body is the covering note. The attachment is the record.
+ *
+ * A folder of project email will report an attachment called
+ * `Bid Responsiveness Protest Ltr.pdf` in a message whose entire body is
+ * "FYI" — and the name is all you get. Reading the name and reasoning from
+ * it is exactly the error this desk exists to prevent: a filename is a
+ * claim about a document, not the document.
+ *
+ * Each file is written as <sha16>__<name>, the same convention the PDF
+ * corpus uses, so an attachment can be cited and re-verified like anything
+ * else that was fetched rather than assumed.
+ *
+ * ─────────────────────────────────────────────────────────────────────────
+ * SAFETY
+ *
+ * The filename comes from the message, which came from outside. It is
+ * reduced to a basename and stripped of anything that could climb out of
+ * the output directory — a records production is precisely where a hostile
+ * or merely broken name would arrive.
+ */
+function safeName(name) {
+  const base = String(name || 'attachment').replace(/[\\/]/g, '_');
+  return base.replace(/^\.+/, '_').replace(/[\0-\x1f]/g, '').slice(0, 120) || 'attachment';
+}
+
+function extractAttachments(file, outDir, opts = {}) {
+  const crypto = require('crypto');
+  const cfb = new Cfb(fs.readFileSync(file));
+  const out = [];
+
+  for (const slot of cfb.attachmentStorages()) {
+    const kids = cfb.childrenOf(slot);
+    const byTag = {};
+    for (const k of kids) {
+      const m = /^__substg1\.0_([0-9A-F]{4})([0-9A-F]{4})$/.exec(k.entry.name);
+      if (m) byTag[m[1] + m[2]] = k.entry;
+    }
+    const dataEntry = byTag['37010102'];              // PR_ATTACH_DATA_BIN
+    const nameEntry = byTag['3707001F'] || byTag['3704001F'];   // long / short
+    if (!dataEntry) continue;
+
+    const bytes = cfb.stream(dataEntry);
+    const name = nameEntry
+      ? cfb.stream(nameEntry).toString('utf16le').replace(/\0+$/, '')
+      : 'attachment';
+    const sha256 = crypto.createHash('sha256').update(bytes).digest('hex');
+
+    const rec = { name, sha256, bytes: bytes.length };
+    if (outDir && !opts.listOnly) {
+      fs.mkdirSync(outDir, { recursive: true });
+      const dest = path.join(outDir, `${sha256.slice(0, 16)}__${safeName(name)}`);
+      fs.writeFileSync(dest, bytes);
+      rec.file = dest;
+    }
+    out.push(rec);
   }
   return out;
 }
@@ -266,4 +366,4 @@ function read(file) {
   };
 }
 
-module.exports = { read, readMsg, parseHeaders, Cfb, PROPS };
+module.exports = { read, readMsg, parseHeaders, extractAttachments, safeName, Cfb, PROPS };

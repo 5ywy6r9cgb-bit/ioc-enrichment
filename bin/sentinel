@@ -52,6 +52,7 @@
 #   sentinel mail scan DIR          read a folder of Outlook .msg files in place
 #   sentinel mail find TERM         which messages mention this, by subject or person
 #   sentinel mail thread SUBJECT    one exchange, in the order it happened
+#   sentinel mail attachments       get the documents out of the messages
 #   sentinel mail read FILE         one message: headers, body, hash
 #   sentinel corpus inventory DIR   what a folder of records ACTUALLY holds
 #   sentinel corpus ocr DIR --out DIR  read the bundles that only look like PDFs
