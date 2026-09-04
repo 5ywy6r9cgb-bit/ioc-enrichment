@@ -1739,6 +1739,49 @@ function cmdFaraLayers(opts = {}) {
     }
   }
 
+  if (opts.byConduit) {
+    // Flip the rollup: rank the CONDUITS by how many separate foreign
+    // clients and separate registrants each one sits between. A conduit that
+    // appears once is a contract; one that appears across several unrelated
+    // registrants is a structural position in the market.
+    const hubs = new Map();
+    for (const r of out.rows) {
+      if (r.contested) continue;                 // direction unknown, so the
+                                                 // conduit is unknown too
+      const k = r.conduit.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+      const h = hubs.get(k) || { name: r.conduit, clients: new Set(),
+        registrants: new Set(), docs: 0, first: r.first, last: r.last };
+      h.clients.add(r.party);
+      h.registrants.add(r.regNumber);
+      h.docs += r.docs;
+      if (r.first && r.first < h.first) h.first = r.first;
+      if (r.last && r.last > h.last) h.last = r.last;
+      if (r.conduit.length > h.name.length) h.name = r.conduit;
+      hubs.set(k, h);
+    }
+    const ranked = [...hubs.values()]
+      .sort((a, b) => (b.registrants.size - a.registrants.size)
+        || (b.clients.size - a.clients.size) || (b.docs - a.docs));
+
+    console.log(`\n  ${C.b('BY CONDUIT')}  ${C.dim(`${ranked.length} distinct intermediaries`)}`);
+    console.log(C.dim('  Ranked by how many SEPARATE REGISTRANTS route through them. One'));
+    console.log(C.dim('  registrant is a contract; several unrelated ones is a position.'));
+    console.log(C.dim('  Contested rows are excluded — an unknown direction means an'));
+    console.log(C.dim('  unknown conduit.\n'));
+    for (const h of ranked.slice(0, opts.verbose ? 9999 : 25)) {
+      if (h.registrants.size < 2 && !opts.verbose) continue;
+      console.log(`    ${C.b(h.name)}`);
+      console.log(C.dim(`      ${h.registrants.size} registrant(s)  ·  ${h.clients.size} foreign client(s)`
+        + `  ·  ${h.docs} doc(s)  ·  ${String(h.first).slice(0, 10)}..${String(h.last).slice(0, 10)}`));
+      for (const c of [...h.clients].slice(0, 8)) console.log(C.dim(`        ${c}`));
+      if (h.clients.size > 8) console.log(C.dim(`        …and ${h.clients.size - 8} more`));
+      console.log('');
+    }
+    if (!opts.verbose) {
+      console.log(C.dim('  Conduits used by only one registrant are hidden; --verbose shows all.'));
+    }
+  }
+
   console.log('\n  ' + C.y('The split is an INTERPRETATION OF WORDING, not a field on the form.'));
   console.log(C.dim('  FARA never asks which side is the conduit. "X through Y" and "X on'));
   console.log(C.dim('  behalf of Y" put the client on opposite sides, so the raw string is'));
@@ -1814,7 +1857,10 @@ async function main() {
     };
     const num = (v) => (v === null ? undefined : parseInt(v, 10));
     if (argv.includes('--intermediaries') || argv.includes('--layers')) {
-      return cmdFaraLayers({ verbose: argv.includes('--verbose') });
+      return cmdFaraLayers({
+        verbose: argv.includes('--verbose'),
+        byConduit: argv.includes('--by-conduit'),
+      });
     }
     return cmdFaraScan(flagVal('--match') || args.slice(1).join(' '), {
       limit: num(flagVal('--limit')),

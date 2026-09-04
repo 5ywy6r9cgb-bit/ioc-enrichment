@@ -394,6 +394,13 @@ the form, and the raw string is printed under every row so the reading can be
 checked. Names carrying more than one layer are flagged rather than
 truncated.
 
+Add `--by-conduit` to flip the rollup: instead of ranking foreign clients, it
+ranks the **intermediaries** by how many separate registrants and separate
+foreign clients each one sits between. A conduit appearing at one registrant
+is a contract; one appearing across several unrelated registrants is a
+structural position. Contested rows are excluded — an unknown direction means
+an unknown conduit.
+
 Rows whose grammar puts a **law firm in the client position and a sovereign
 body in the conduit position** are printed under `DIRECTION UNRESOLVED` with
 no direction asserted. That happens in the live register — one filing reads
