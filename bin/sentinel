@@ -50,6 +50,8 @@
 #   sentinel doc bills              which bills appear in more than one filing
 #   sentinel doc chain HOST         why a TLS handshake failed, and a PEM that fixes it
 #   sentinel mail scan DIR          read a folder of Outlook .msg files in place
+#   sentinel mail find TERM         which messages mention this, by subject or person
+#   sentinel mail thread SUBJECT    one exchange, in the order it happened
 #   sentinel mail read FILE         one message: headers, body, hash
 #   sentinel corpus inventory DIR   what a folder of records ACTUALLY holds
 #   sentinel corpus ocr DIR --out DIR  read the bundles that only look like PDFs

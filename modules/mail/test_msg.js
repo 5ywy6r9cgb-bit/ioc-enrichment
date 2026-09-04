@@ -177,6 +177,38 @@ module.exports = function run() {
       CLI.addresses('someone@localhost').length === 0);
   }
 
+  // ══ A TIMELINE PUTS THE REPLY AFTER THE THING IT REPLIED TO ═══════════
+  //
+  // Sent-items copies carry no transport headers and therefore no date. If an
+  // unparseable date sorted as zero, every one of them would land at the top
+  // of the thread — and a reply printed above the message it answers is a
+  // timeline that argues the opposite of the record.
+  {
+    const rows = [
+      { date: 'Tue, 26 May 2020 20:59:21 +0000', id: 'second' },
+      { date: '', id: 'nodate' },
+      { date: 'Tue, 26 May 2020 20:48:01 +0000', id: 'first' },
+    ];
+    const order = rows.slice().sort(CLI.byDate).map((r) => r.id);
+    ok('oldest first', order[0] === 'first', order.join(' '));
+    ok('then the later message', order[1] === 'second', order.join(' '));
+    ok('and an undated message sorts LAST, never to the epoch',
+      order[2] === 'nodate', order.join(' '));
+    ok('two undated messages keep their order rather than throwing',
+      [{ date: '' }, { date: '' }].sort(CLI.byDate).length === 2);
+  }
+
+  // ══ THE INDEX MUST STILL RESOLVE FROM ANOTHER DIRECTORY ═══════════════
+  //
+  // The mail usually sits on an external drive. A path stored relative to
+  // wherever the scan happened to run stops resolving the moment you cd, and
+  // the failure looks like a missing message rather than a bad path.
+  {
+    const src = fs.readFileSync(path.join(__dirname, 'cli.js'), 'utf8');
+    ok('message paths are recorded absolute, not relative to the scan cwd',
+      !/file:\s*path\.relative\(process\.cwd\(\), f\)/.test(src));
+  }
+
   console.log(`\n  ${FAIL ? 'FAIL' : 'PASS'} — ${PASS}/${PASS + FAIL} checks\n`);
   return FAIL;
 };

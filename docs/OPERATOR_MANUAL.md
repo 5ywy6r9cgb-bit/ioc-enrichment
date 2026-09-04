@@ -914,6 +914,20 @@ every file, and writes `evidence/mail_index.json` owner-only. It **reads in
 place**: nothing is copied, nothing is uploaded, and the module makes no
 network call and spawns no process. Tests hold it there.
 
+Once scanned, work from the index rather than from filenames:
+
+```bash
+bin/sentinel mail find "RE-Bid"
+bin/sentinel mail thread "Notice: Columbus to RE-Bid LOT" --body
+```
+
+`find` lists every message whose subject or participants match, oldest first.
+`thread` prints one exchange in the order it happened, folding `Re:`/`FW:`
+together, and marks **who was added to or dropped from the copy list at each
+step** — a name added the day a problem escalates is a fact the bodies rarely
+state outright. `--body` prints the new text of each message only; the quoted
+history below it is the previous message repeated.
+
 It reports correspondents by organisation, the longest threads, and one thing
 that is otherwise invisible: **messages with no transport headers**. Those are
 sent-items copies from a sender's own mailbox rather than received copies —

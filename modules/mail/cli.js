@@ -145,7 +145,7 @@ function cmdScan(dir, opts = {}) {
     threads.set(key, t);
 
     rows.push({
-      file: path.relative(process.cwd(), f),
+      file: f,                              // absolute: the source is often an external drive
       sha256,
       bytes: bytes.length,
       subject: r.subject,
@@ -208,6 +208,121 @@ function cmdScan(dir, opts = {}) {
   console.log(C.dim('  they said so on the date in the headers — not that it happened.\n'));
 }
 
+/** The index written by the last scan. */
+function loadIndex(file) {
+  const p = file || path.join('evidence', 'mail_index.json');
+  if (!fs.existsSync(p)) {
+    console.error(`\n  ${C.r('no index at')} ${p}`);
+    console.error(C.dim('  Run a scan first:  bin/sentinel mail scan DIR\n'));
+    process.exit(1);
+  }
+  return JSON.parse(fs.readFileSync(p, 'utf8'));
+}
+
+/**
+ * Sort by the date the mail systems recorded, oldest first.
+ *
+ * A message with no parseable date sorts LAST rather than to the epoch. Those
+ * are the sent-items copies with no transport headers, and dropping them at
+ * the top of a timeline would put the reply above the thing it replied to.
+ */
+function byDate(a, b) {
+  const ta = Date.parse(a.date || '');
+  const tb = Date.parse(b.date || '');
+  if (Number.isNaN(ta) && Number.isNaN(tb)) return 0;
+  if (Number.isNaN(ta)) return 1;
+  if (Number.isNaN(tb)) return -1;
+  return ta - tb;
+}
+
+function shortAddr(list) {
+  if (!list || !list.length) return '';
+  return list.length <= 3 ? list.join(', ') : `${list.slice(0, 3).join(', ')} +${list.length - 3}`;
+}
+
+/** `mail find TERM` — which messages mention this, by subject or by person. */
+function cmdFind(term, opts = {}) {
+  if (!term) { console.error('\n  usage: sentinel mail find TERM\n'); process.exit(2); }
+  const idx = loadIndex(opts.index);
+  const q = term.toLowerCase();
+  const hits = idx.messages.filter((m) => (m.subject || '').toLowerCase().includes(q)
+    || [...(m.from || []), ...(m.to || []), ...(m.cc || [])].some((a) => a.includes(q)));
+
+  console.log('\n' + C.b(`Messages matching "${term}"`));
+  console.log(C.dim(`  ${hits.length} of ${idx.messages.length}\n`));
+  for (const m of hits.sort(byDate)) {
+    console.log(`  ${C.dim((m.date || '(no date)').slice(0, 25).padEnd(25))} ${m.subject.slice(0, 72)}`);
+    console.log(C.dim(`    ${shortAddr(m.from)} → ${shortAddr(m.to)}`));
+  }
+  console.log('');
+  if (hits.length) {
+    console.log(C.dim('  Read the whole exchange:  bin/sentinel mail thread "<part of the subject>"\n'));
+  }
+}
+
+/**
+ * `mail thread SUBJECT` — one exchange, in the order it happened.
+ *
+ * Reply prefixes are folded away, so `Re:`, `RE:` and `FW:` of the same
+ * subject are one thread rather than three. This is the view a folder cannot
+ * give you: who said what, in sequence, and who was added or dropped from the
+ * copy list along the way.
+ */
+function cmdThread(fragment, opts = {}) {
+  if (!fragment) { console.error('\n  usage: sentinel mail thread SUBJECT [--body]\n'); process.exit(2); }
+  const idx = loadIndex(opts.index);
+  const q = threadKey(fragment);
+  let hits = idx.messages.filter((m) => (m.thread || '').includes(q));
+  if (!hits.length) {
+    hits = idx.messages.filter((m) => (m.subject || '').toLowerCase().includes(fragment.toLowerCase()));
+  }
+  if (!hits.length) {
+    console.error(`\n  ${C.y('Nothing matches')} "${fragment}"`);
+    console.error(C.dim('  List what is there:  bin/sentinel mail find LOT\n'));
+    process.exit(1);
+  }
+
+  hits.sort(byDate);
+  console.log('\n' + C.b(hits[0].subject));
+  console.log(C.dim(`  ${hits.length} message(s)\n`));
+
+  // Who joins or leaves the copy list is often the finding. A name added the
+  // day a problem escalates, or dropped the day it is settled, is a fact the
+  // bodies rarely state outright.
+  let previous = null;
+  for (const m of hits) {
+    const people = [...new Set([...(m.to || []), ...(m.cc || [])])].sort();
+    console.log(`  ${C.b((m.date || '(no date — sent-items copy)'))}`);
+    console.log(`    ${C.dim('from')}  ${shortAddr(m.from)}`);
+    console.log(`    ${C.dim('to')}    ${shortAddr(m.to)}`);
+    if (m.cc && m.cc.length) console.log(`    ${C.dim('cc')}    ${shortAddr(m.cc)}`);
+    if (previous) {
+      const added = people.filter((a) => !previous.includes(a));
+      const gone = previous.filter((a) => !people.includes(a));
+      if (added.length) console.log(`    ${C.g('+ added')} ${added.join(', ')}`);
+      if (gone.length) console.log(`    ${C.y('- dropped')} ${gone.join(', ')}`);
+    }
+    previous = people;
+    if (m.attachments && m.attachments.length) {
+      console.log(`    ${C.dim('files')} ${m.attachments.join(', ')}`);
+    }
+    if (opts.body) {
+      let body = '';
+      try { body = M.read(m.file).body || ''; } catch { body = '(could not re-read this file)'; }
+      // Only the new text: everything from the first quoted header down is
+      // the previous message repeated, and printing it turns a ten-message
+      // thread into the same paragraph ten times.
+      const cut = body.search(/\n\s*(From|On .{0,60}wrote):/);
+      const fresh = (cut > 0 ? body.slice(0, cut) : body).trim();
+      console.log('');
+      for (const line of fresh.split(/\n/).slice(0, 40)) console.log(`      ${line}`);
+    }
+    console.log(`    ${C.dim(m.file)}`);
+    console.log('');
+  }
+  console.log(C.dim('  Full text of any one:  bin/sentinel mail read "<path above>"\n'));
+}
+
 function cmdRead(file) {
   if (!file) { console.error('\n  usage: sentinel mail read FILE.msg\n'); process.exit(2); }
   let r;
@@ -237,9 +352,18 @@ function main() {
 
   if (action === 'scan') return cmdScan(positional[1], { out: val('--out') });
   if (action === 'read') return cmdRead(positional[1]);
-  console.error('\n  usage: sentinel mail scan DIR [--out FILE]\n         sentinel mail read FILE.msg\n');
+  if (action === 'find') return cmdFind(positional.slice(1).join(' '), { index: val('--index') });
+  if (action === 'thread') {
+    return cmdThread(positional.slice(1).join(' '),
+      { index: val('--index'), body: argv.includes('--body') });
+  }
+  console.error('\n  usage: sentinel mail scan DIR [--out FILE]'
+    + '\n         sentinel mail find TERM'
+    + '\n         sentinel mail thread SUBJECT [--body]'
+    + '\n         sentinel mail read FILE.msg\n');
   process.exit(2);
 }
 
-module.exports = { cmdScan, cmdRead, walk, addresses, threadKey, domainOf, isSidecar };
+module.exports = { cmdScan, cmdRead, cmdFind, cmdThread, walk, addresses,
+  threadKey, domainOf, isSidecar, byDate, loadIndex };
 if (require.main === module) main();
