@@ -964,8 +964,12 @@ const CONNECTORS = {
         return {
           external_id: pick(/registration.?number|reg.?num/i) || pick(/^id$/i),
           name: pick(/registrant.?name|^name$/i) || '(see fields)',
-          // The foreign principal is the whole point of the record.
-          principal: pick(/foreign.?principal|principal/i),
+          // NOT the foreign principal. The active-registrant list does not
+          // carry one — DOJ keeps principals in the registrant's DOCUMENTS,
+          // which is what `faradocs` fetches by registration number. This
+          // used to advertise a `principal` field that was always empty,
+          // which reads as "registered, but no principal on file" and is the
+          // opposite of true.
           state: pick(/^state$|jurisdiction/i),
           registered: pick(/registration.?date|date/i),
           address: '',                       // deliberately NOT collected
@@ -1001,6 +1005,68 @@ const CONNECTORS = {
       const keys = Object.keys(rows[0] || {});
       return `${rows.length} record(s) read, none matching. `
         + `Columns: ${keys.join(', ').slice(0, 200)}`;
+    },
+  },
+  /**
+   * FARA documents — WHO paid the registered agent.
+   *
+   * The active-registrant list answers "is this firm a registered foreign
+   * agent". It does not say for whom: DOJ keeps the foreign principals, the
+   * contracts and the money in the registrant's filed DOCUMENTS, addressed by
+   * registration number.
+   *
+   * So the query here is a REGISTRATION NUMBER, not a name — the number that
+   * `fara` prints as external_id. That is deliberate. Guessing a firm's
+   * registration number would be the same error as guessing a schema: it
+   * would return a clean, confident answer about the wrong entity.
+   */
+  faradocs: {
+    label: 'FARA documents (who the principal is)',
+    keyVar: null,
+    keyRequired: false,
+    calls: 1,
+    takesFreeText: false,        // it takes a registration number
+    describe: (q) => `GET https://efile.fara.gov/api/v1/RegDocs/json/${encodeURIComponent(q)}`
+      + '  (documents filed BY that registration number)',
+    probe: () => ({
+      method: 'GET',
+      url: 'https://efile.fara.gov/api/v1/Registrants/json/Active',
+      headers: { Accept: 'application/json' },
+    }),
+    run: (q) => ({
+      method: 'GET',
+      url: `https://efile.fara.gov/api/v1/RegDocs/json/${encodeURIComponent(String(q).trim())}`,
+      headers: { Accept: 'application/json' },
+    }),
+    parse: (json) => {
+      const rows = findRecordArray(json);
+      return rows.slice(0, 25).map((r) => {
+        const k = Object.keys(r);
+        const pick = (re) => {
+          const key = k.find((n) => re.test(n));
+          return key ? String(r[key]) : '';
+        };
+        return {
+          external_id: pick(/document.?id|^id$/i) || pick(/url/i),
+          // The principal is the point of the whole exercise.
+          name: pick(/foreign.?principal|principal/i)
+            || pick(/registrant.?name|^name$/i) || '(see fields)',
+          document: pick(/document.?type|^type$/i),
+          filed: pick(/date.?stamped|filed|date/i),
+          url: pick(/url|link/i),
+          fields: k.join(', ').slice(0, 200),
+        };
+      });
+    },
+    identify: (r) => r.external_id || r.name,
+    diagnose: (json) => {
+      const rows = findRecordArray(json);
+      if (!rows.length) {
+        return 'NO RECORDS READ. Either that registration number filed nothing, '
+          + 'or the response shape was not recognised. Check the capture.';
+      }
+      return `${rows.length} document(s) read, none parsed into a row. `
+        + `Columns: ${Object.keys(rows[0] || {}).join(', ').slice(0, 200)}`;
     },
   },
   federalgrants: {

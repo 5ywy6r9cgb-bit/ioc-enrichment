@@ -563,8 +563,14 @@ module.exports = function run() {
     check('the record array is found inside a wrapper it was not told about',
       hits.length === 1, String(hits.length));
     check('the registrant name is picked out', hits[0].name === 'ACME PUBLIC AFFAIRS LLC');
-    check('and the FOREIGN PRINCIPAL, which is the point of the record',
-      hits[0].principal === 'Ministry of X');
+    // Written before DOJ's real schema was known, this asserted a principal
+    // field on the registrant list. The live list carries none — principals
+    // live in the registrant's DOCUMENTS — so extracting one here produced a
+    // field that was always empty, which reads as "no principal on file".
+    check('the registrant list does NOT claim to carry a foreign principal',
+      !('principal' in hits[0]), Object.keys(hits[0]).join(','));
+    check('the registration number is carried instead, since it addresses them',
+      hits[0].external_id === '1234', hits[0].external_id);
     check('the record reports its OWN column names, so a mismatch is visible',
       /Registrant_Name/.test(hits[0].fields), hits[0].fields);
 
@@ -624,6 +630,50 @@ module.exports = function run() {
       /typeof conn\.diagnose === 'function'/.test(cli));
     check('and a connector without one still prints the plain no-hits line',
       /No hits\. A clean result is not proof of absence/.test(cli));
+  }
+
+  // ══ THE REGISTER SAYS "AGENT"; THE DOCUMENTS SAY "FOR WHOM" ═══════════
+  //
+  // The live active-registrant list turned out to carry
+  // Zip, Address_1, State, Registration_Date, City, Registration_Number, Name
+  // — and no principal at all. The first version advertised a `principal`
+  // field that was therefore always empty, which reads as "registered, but no
+  // foreign principal on file" and is the opposite of true.
+  {
+    const F = R.CONNECTORS.fara;
+    const live = { REGISTRANTS_ACTIVE: { ROW: [{
+      Zip: '20005', Address_1: '1 K St', State: 'DC',
+      Registration_Date: '05/14/2013', City: 'Washington',
+      Registration_Number: '6170', Name: 'Mercury Public Affairs, LLC',
+    }] } };
+    const hit = F.parse(live, 'mercury')[0];
+    check('the real DOJ schema parses', hit && hit.name === 'Mercury Public Affairs, LLC');
+    check('the registration number is carried, since it addresses the documents',
+      hit.external_id === '6170', hit.external_id);
+    check('no empty principal field is advertised on a list that has none',
+      !('principal' in hit), Object.keys(hit).join(','));
+
+    const D = R.CONNECTORS.faradocs;
+    check('the documents connector is addressed by registration number',
+      D.run('6170').url.endsWith('/RegDocs/json/6170'), D.run('6170').url);
+    check('and declares it does not take free text, so a sweep skips it',
+      D.takesFreeText === false);
+    check('a number with stray whitespace still addresses the right record',
+      D.run('  6170 ').url.endsWith('/RegDocs/json/6170'));
+    check('a value needing encoding is encoded, not interpolated raw',
+      D.run('a/b').url.endsWith('%2Fb'), D.run('a/b').url);
+
+    const docs = { REGDOCS: { ROW: [{
+      Document_ID: '9', Foreign_Principal: 'Kingdom of X',
+      Document_Type: 'Supplemental Statement', Date_Stamped: '2025-06-01',
+      URL: 'https://efile.fara.gov/d/9',
+    }] } };
+    const d = D.parse(docs)[0];
+    check('the FOREIGN PRINCIPAL is what the row is named for', d.name === 'Kingdom of X');
+    check('the document type is kept', d.document === 'Supplemental Statement');
+    check('and a link to the filing itself', /efile\.fara\.gov/.test(d.url));
+    check('an unreadable shape is diagnosed, not reported as no principals',
+      /NO RECORDS READ/.test(D.diagnose({ nope: 1 })));
   }
 
   console.log(`\n  ${FAIL === 0 ? 'PASS' : 'FAIL'} — ${PASS}/${PASS + FAIL} checks\n`);
