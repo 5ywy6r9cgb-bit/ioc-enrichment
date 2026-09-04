@@ -56,6 +56,10 @@ async function cmdGet(url, opts) {
     if (alt.needsKey) {
       console.log(`    ${C.y('COURTLISTENER_API_TOKEN is not set — this will likely be refused.')}`);
     }
+    // Some rewrites reach a RECORD ABOUT a document rather than the document.
+    // Saying so at fetch time is the only place it can be said before the
+    // file is hashed and starts looking like evidence of something it isn't.
+    if (alt.note) console.log(`    ${C.y(alt.note)}`);
     target = alt.url;
     extraHeaders = alt.headers;
   }

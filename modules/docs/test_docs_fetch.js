@@ -366,8 +366,26 @@ module.exports = async function run() {
       D.rewriteForMachines('https://evilcourtlistener.com/opinion/1/x/', {}) === null);
     check('a subdomain of the real host still is',
       !!D.rewriteForMachines('https://www.courtlistener.com/opinion/1/x/', {}));
-    check('a CourtListener page that is not an opinion is left alone',
-      D.rewriteForMachines('https://www.courtlistener.com/docket/123/x/', {}) === null);
+    // This test used to assert that a docket URL was LEFT ALONE, which was
+    // right while nothing produced them. `connect courtlistener --dockets`
+    // now hands the operator docket URLs by the dozen — that is where
+    // indictments, affidavits and seizure warrants live — and every one of
+    // them fetched a JavaScript shell. The old assertion had become a guard
+    // protecting the bug.
+    const d = D.rewriteForMachines(
+      'https://www.courtlistener.com/docket/69127499/united-states-v-certain-domains/',
+      { COURTLISTENER_API_TOKEN: 'secret-token' });
+    check('a docket URL is rewritten to the docket API record',
+      d && d.url === 'https://www.courtlistener.com/api/rest/v4/dockets/69127499/',
+      d && d.url);
+    check('the docket rewrite carries the key in the header too',
+      d.headers.Authorization === 'Token secret-token' && !d.url.includes('secret-token'));
+    check('and it SAYS that a docket record is not the charging document',
+      /NOT the filings/.test(d.note || ''), d.note);
+    check('it also points at where the filings are listed',
+      /docket-entries/.test(d.why), d.why);
+    check('a CourtListener page that is neither opinion nor docket is left alone',
+      D.rewriteForMachines('https://www.courtlistener.com/person/123/x/', {}) === null);
     check('an unrelated host is left alone',
       D.rewriteForMachines('https://lda.gov/filings/public/filing/abc/print/', {}) === null);
     check('a malformed url does not throw',

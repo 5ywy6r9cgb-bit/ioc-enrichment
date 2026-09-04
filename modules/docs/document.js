@@ -361,18 +361,46 @@ function rewriteForMachines(url, env) {
   try { u = new URL(url); } catch { return null; }
   if (!/(^|\.)courtlistener\.com$/i.test(u.hostname)) return null;
 
+  const key = (env && env.COURTLISTENER_API_TOKEN) || '';
+  const auth = key ? { Authorization: `Token ${key}` } : {};
+
   // /opinion/<clusterId>/<slug>/ — the id in the path is the CLUSTER, which is
   // what the search results link to.
-  const m = /^\/opinion\/(\d+)\//.exec(u.pathname);
-  if (!m) return null;
+  const op = /^\/opinion\/(\d+)\//.exec(u.pathname);
+  if (op) {
+    return {
+      url: `https://www.courtlistener.com/api/rest/v4/clusters/${op[1]}/`,
+      headers: auth,
+      why: 'the opinion page renders from JavaScript; this is the same record as JSON',
+      needsKey: !key,
+    };
+  }
 
-  const key = (env && env.COURTLISTENER_API_TOKEN) || '';
-  return {
-    url: `https://www.courtlistener.com/api/rest/v4/clusters/${m[1]}/`,
-    headers: key ? { Authorization: `Token ${key}` } : {},
-    why: 'the opinion page renders from JavaScript; this is the same record as JSON',
-    needsKey: !key,
-  };
+  // /docket/<id>/ — where charging documents, affidavits and seizure warrant
+  // applications actually live. `--dockets` returns these URLs, and without
+  // this branch every one of them fetched a JavaScript shell: the same
+  // failure the opinion rewrite was written for, one route over.
+  //
+  // This returns the DOCKET RECORD — caption, court, dates, parties. The
+  // filings themselves are separate objects, and the fetch says so rather
+  // than letting an operator think a 3KB docket header is the affidavit.
+  const dk = /^\/docket\/(\d+)\//.exec(u.pathname);
+  if (dk) {
+    return {
+      url: `https://www.courtlistener.com/api/rest/v4/dockets/${dk[1]}/`,
+      headers: auth,
+      why: 'the docket page renders from JavaScript; this is the docket RECORD as JSON'
+        + ` — the filings on it are listed separately at`
+        + ` /api/rest/v4/docket-entries/?docket=${dk[1]}`,
+      needsKey: !key,
+      note: 'This is the docket header, NOT the filings. An indictment or '
+        + 'affidavit is a document ON this docket and has to be fetched '
+        + 'separately — do not read a docket record as though it were the '
+        + 'charging document.',
+    };
+  }
+
+  return null;
 }
 
 /**
