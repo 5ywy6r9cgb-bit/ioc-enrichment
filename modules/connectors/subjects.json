@@ -179,5 +179,23 @@
       "SB Energy",
       "Bloom Energy"
     ]
+  },
+  "police_oversight": {
+    "into": "police-oversight",
+    "note": "Vendors and oversight bodies in the police-accountability thread. NOT a list of suspects and NOT officers: every entry is an ORGANISATION whose contracts, filings, grants or certifications are public records. A name here is a SEARCH STRING. No natural person belongs in a sweep — an officer is checked deliberately, one query at a time, against a named database, never fanned out across nine sources including a sanctions list.",
+    "subjects": [
+      "Flock Safety",
+      "Axon Enterprise",
+      "Motorola Solutions",
+      "SoundThinking",
+      "Cellebrite",
+      "Magnet Forensics",
+      "Peregrine Technologies",
+      "Ohio Peace Officer Training Commission",
+      "Ohio Collaborative Community-Police Advisory Board",
+      "Fraternal Order of Police Ohio Labor Council",
+      "City of Gahanna",
+      "Franklin County Sheriff"
+    ]
   }
 }
