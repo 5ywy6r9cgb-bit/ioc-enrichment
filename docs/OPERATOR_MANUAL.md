@@ -897,6 +897,39 @@ readable — an error page, a cookie banner and a JavaScript shell all produce
 one, and filing one as a record is how "the filing does not mention that"
 gets written about a filing nobody could read.
 
+### `mail scan` / `mail read` — a records production of email
+
+```bash
+bin/sentinel mail scan ~/Documents/LOT-records
+bin/sentinel mail read "~/Documents/LOT-records/RE__DBE_Questions___LOT.msg"
+```
+
+A public-records request for project correspondence comes back as thousands
+of Outlook `.msg` files. Opening them one at a time is data entry, and the
+thing you most need — who was told what, on what date, and who was copied —
+is exactly what a folder listing cannot show.
+
+`scan` walks the folder (nested exports included), reads every message, hashes
+every file, and writes `evidence/mail_index.json` owner-only. It **reads in
+place**: nothing is copied, nothing is uploaded, and the module makes no
+network call and spawns no process. Tests hold it there.
+
+It reports correspondents by organisation, the longest threads, and one thing
+that is otherwise invisible: **messages with no transport headers**. Those are
+sent-items copies from a sender's own mailbox rather than received copies —
+which tells you *whose mailbox the agency actually produced*, and therefore
+what the production is missing.
+
+Headers come from MAPI property `0x007D`, the RFC-822 block as it arrived,
+rather than from Outlook's own From/To rendering. Outlook rewrites display
+names against the local address book, so its idea of a sender can differ from
+the address that actually sent the message.
+
+> **An email is a statement by its sender.** It is the strongest kind of
+> contemporaneous record and it is still a statement. That a project manager
+> wrote "the power was cut on Tuesday" establishes that they said so on the
+> date the headers carry — not that it happened.
+
 ### `doc chain` — when the handshake fails, not the document
 
 ```bash

@@ -49,6 +49,8 @@
 #   sentinel doc get URL            fetch a primary source, hashed + text-extracted
 #   sentinel doc bills              which bills appear in more than one filing
 #   sentinel doc chain HOST         why a TLS handshake failed, and a PEM that fixes it
+#   sentinel mail scan DIR          read a folder of Outlook .msg files in place
+#   sentinel mail read FILE         one message: headers, body, hash
 #   sentinel corpus inventory DIR   what a folder of records ACTUALLY holds
 #   sentinel corpus ocr DIR --out DIR  read the bundles that only look like PDFs
 #
@@ -215,6 +217,9 @@ PYSTATUS
 
     echo "== bill correlation =="
     node "$ROOT/modules/docs/test_bills.js" || FAILED=1
+
+    echo "== outlook .msg =="
+    node "$ROOT/modules/mail/test_msg.js" || FAILED=1
     echo ""
     echo "== records desk (overnight stage) =="
     node "$ROOT/modules/watch/test_records_desk.js" || FAILED=1
@@ -453,6 +458,11 @@ PYSTATUS
   doc)
     # Fetch a primary source, hash it, and find out if it is readable.
     node "$ROOT/modules/docs/cli.js" "$@"
+    ;;
+
+  mail)
+    # Read a records production of Outlook .msg files, in place.
+    node "$ROOT/modules/mail/cli.js" "$@"
     ;;
 
   prov)
