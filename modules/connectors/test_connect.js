@@ -674,6 +674,43 @@ module.exports = function run() {
     check('and a link to the filing itself', /efile\.fara\.gov/.test(d.url));
     check('an unreadable shape is diagnosed, not reported as no principals',
       /NO RECORDS READ/.test(D.diagnose({ nope: 1 })));
+
+    // A COUNTRY IS NOT A PRINCIPAL.
+    //
+    // The live RegDocs schema puts FOREIGN_PRINCIPAL_COUNTRY ahead of
+    // FOREIGN_PRINCIPAL_NAME in key order, so a loose /principal/ match named
+    // every row after a country: "SAUDI ARABIA", "TURKEY", "HAITI". That is a
+    // different claim from the one the record makes. The kingdom is not the
+    // counterparty on the contract; the named principal is.
+    const real = { REGDOCS: { ROW: [{
+      DATE_STAMPED: '2026-08-21', REGISTRATION_NUMBER: '7070',
+      FOREIGN_PRINCIPAL_COUNTRY: 'TURKEY', DOCUMENT_TYPE: 'Exhibit AB',
+      REGISTRANT_NAME: 'Ballard Partners', URL: 'https://efile.fara.gov/d/1',
+      SHORT_FORM_NAME: '', FOREIGN_PRINCIPAL_NAME: 'Republic of Turkiye',
+    }] } };
+    const t = D.parse(real)[0];
+    check('the NAMED principal wins over the country that sorts before it',
+      t.name === 'Republic of Turkiye', t.name);
+    check('and the country is carried as its own fact, not as the name',
+      t.country === 'TURKEY', t.country);
+    check('the registrant is kept separately, so both parties are on the row',
+      t.registrant === 'Ballard Partners', t.registrant);
+
+    // An empty principal must not borrow the registrant's name. "Ballard
+    // Partners" in the principal column reads as a firm that filed for
+    // itself; a blank FOREIGN_PRINCIPAL_NAME means no principal is named on
+    // THIS document, which is a routine and different thing.
+    const bare = { REGDOCS: { ROW: [{
+      DATE_STAMPED: '2026-08-21', REGISTRATION_NUMBER: '7070',
+      FOREIGN_PRINCIPAL_COUNTRY: '', DOCUMENT_TYPE: 'Amendment',
+      REGISTRANT_NAME: 'Ballard Partners', URL: 'https://efile.fara.gov/d/2',
+      FOREIGN_PRINCIPAL_NAME: '',
+    }] } };
+    const b = D.parse(bare)[0];
+    check('a document naming no principal says so instead of echoing the firm',
+      /no foreign principal named/i.test(b.name), b.name);
+    check('and the firm is still visible in its own column',
+      b.registrant === 'Ballard Partners');
   }
 
   console.log(`\n  ${FAIL === 0 ? 'PASS' : 'FAIL'} — ${PASS}/${PASS + FAIL} checks\n`);

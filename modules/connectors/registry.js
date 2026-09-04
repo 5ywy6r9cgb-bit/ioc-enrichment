@@ -1044,13 +1044,34 @@ const CONNECTORS = {
         const k = Object.keys(r);
         const pick = (re) => {
           const key = k.find((n) => re.test(n));
-          return key ? String(r[key]) : '';
+          return key ? String(r[key]).trim() : '';
         };
+        // The live schema is
+        //   DATE_STAMPED, REGISTRATION_NUMBER, FOREIGN_PRINCIPAL_COUNTRY,
+        //   DOCUMENT_TYPE, REGISTRANT_NAME, URL, SHORT_FORM_NAME,
+        //   FOREIGN_PRINCIPAL_NAME
+        // and COUNTRY comes back from Object.keys() BEFORE NAME. A loose
+        // /principal/ match therefore returned "SAUDI ARABIA" where the row
+        // was supposed to name an entity. A country is not a principal; the
+        // Kingdom of Saudi Arabia and a PR firm retained by it are different
+        // facts, and only one of them is a party to a contract.
+        const principal = pick(/foreign.?principal.?name/i)
+          || pick(/principal.?name/i)
+          || pick(/^foreign.?principal$/i);
+        const country = pick(/foreign.?principal.?country/i)
+          || pick(/^country$/i);
+        const registrant = pick(/registrant.?name|^name$/i);
         return {
           external_id: pick(/document.?id|^id$/i) || pick(/url/i),
-          // The principal is the point of the whole exercise.
-          name: pick(/foreign.?principal|principal/i)
-            || pick(/registrant.?name|^name$/i) || '(see fields)',
+          // The principal is the point of the whole exercise, so an absent
+          // one says so. It does NOT fall back to the registrant's own name:
+          // printing "Ballard Partners" in the principal column would read as
+          // a firm that filed for itself, which is not what an empty
+          // FOREIGN_PRINCIPAL_NAME means. Some document types (registration
+          // amendments, short-form filings) genuinely name no principal.
+          name: principal || '(no foreign principal named on this document)',
+          country,
+          registrant,
           document: pick(/document.?type|^type$/i),
           filed: pick(/date.?stamped|filed|date/i),
           url: pick(/url|link/i),
