@@ -1151,7 +1151,7 @@ async function cmdExpand(opts) {
  * cannot re-run identically is not a library, it is a memory.
  *
  * NOTHING RUNS WITHOUT --go.
- *   A sweep is connectors × subjects. Twelve subjects across nine connectors
+ *   A sweep is connectors × subjects. Twelve subjects across ten connectors
  *   is over a hundred live calls to public services, and that is not a thing
  *   to set off by typing a word slightly wrong. The default prints the plan
  *   and the exact call count; --go performs it.

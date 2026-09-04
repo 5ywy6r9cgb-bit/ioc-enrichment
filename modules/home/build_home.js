@@ -6,7 +6,7 @@
  * ─────────────────────────────────────────────────────────────────────────
  * THE PROBLEM
  *
- * This system has eleven modules, four browser surfaces, nine connectors and
+ * This system has eleven modules, four browser surfaces, ten connectors and
  * roughly sixty commands, and no way in. Everything is reachable and nothing
  * is findable. At 11pm the question is not "what is the architecture", it is
  * "where do I click to see my FOIAs" — and the honest answer was to remember
@@ -77,7 +77,7 @@ function entries(root) {
     },
     {
       file: '5 — Search the sources.command',
-      title: 'Ask the nine connectors',
+      title: 'Ask the connectors',
       cmd: `"${root}/bin/sentinel" connect test`,
       blurb: 'Checks which sources are reachable and which keys are set. From there: '
            + '`sentinel connect sweep SET` to run a whole subject list.',

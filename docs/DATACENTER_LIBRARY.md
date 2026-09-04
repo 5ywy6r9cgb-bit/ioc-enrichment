@@ -7,7 +7,7 @@ they consume.
 
 ## Read this part first
 
-**Your nine connectors are almost all FEDERAL.** They will find company
+**Your ten connectors are almost all FEDERAL.** They will find company
 registrations, federal contracts, federal lobbying, federal litigation, and
 federal rulemaking. They are genuinely useful for the corporate skeleton.
 

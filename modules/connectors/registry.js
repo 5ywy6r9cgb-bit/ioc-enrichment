@@ -770,7 +770,8 @@ const CONNECTORS = {
     keyVar: null,        // no key at all
     keyRequired: false,
     calls: 1,
-    describe: (q) => `POST https://api.usaspending.gov/api/v2/search/spending_by_award/  (recipient: ${q})`,
+    describe: (q) => 'POST https://api.usaspending.gov/api/v2/search/spending_by_award/'
+      + `  (recipient: ${q} — PROCUREMENT CONTRACTS ONLY)`,
     probe: () => ({
       method: 'GET',
       url: 'https://api.usaspending.gov/api/v2/references/toptier_agencies/',
@@ -783,7 +784,87 @@ const CONNECTORS = {
       body: JSON.stringify({
         filters: {
           recipient_search_text: [q],
-          award_type_codes: ['A', 'B', 'C', 'D'],   // contracts
+          // Codes A-D are procurement contracts and NOTHING else. A grant, a
+          // cooperative agreement and a loan are different award groups with
+          // different codes, and this filter has never seen any of them.
+          //
+          // That matters more than it sounds. The connector is labelled "who
+          // received federal money", the operator reads a null as "no federal
+          // money", and for a developer, a university or a non-profit the
+          // money is almost never a procurement contract. Searching contracts
+          // for a renewables developer and reporting nothing is a library
+          // artifact, not a finding -- the same shape as reading "4 of 4
+          // clients, 100%" off a 25-row slice of a 20,001-filing library.
+          //
+          // The API validates `fields` against the award GROUP, so contracts
+          // and assistance cannot be asked for in one request. Grants get
+          // their own connector below; see the gap noted there.
+          award_type_codes: ['A', 'B', 'C', 'D'],
+        },
+        fields: ['Award ID', 'Recipient Name', 'Award Amount', 'Awarding Agency',
+                 'Start Date', 'End Date', 'Description'],
+        sort: 'Award Amount',
+        order: 'desc',
+        limit: 25,
+        page: 1,
+      }),
+    }),
+    parse: (json) => (json.results || []).map((r) => ({
+      external_id: r.generated_internal_id || r['Award ID'] || '',
+      name: r['Recipient Name'] || '(unnamed recipient)',
+      award_id: r['Award ID'] || '',
+      amount: r['Award Amount'] != null ? `$${Number(r['Award Amount']).toLocaleString()}` : '',
+      agency: r['Awarding Agency'] || '',
+      period: [r['Start Date'], r['End Date']].filter(Boolean).join(' → '),
+      description: (r.Description || '').slice(0, 140),
+      url: r.generated_internal_id ? `https://www.usaspending.gov/award/${r.generated_internal_id}` : '',
+    })),
+    identify: (r) => r.external_id,
+  },
+  /**
+   * The other half of "who received federal money".
+   *
+   * A separate connector rather than a flag on the one above, for one
+   * reason: a flag is a thing you have to remember. This appears in
+   * `connect test`, in `connect all`, and in every sweep, so the question
+   * gets asked whether or not anyone remembered to ask it.
+   *
+   * NAMED `federalgrants`, not `usaspending_grants`, and the reason is not
+   * taste. Captures are filed as `live_capture_<connector>_<slug>_<stamp>`,
+   * and the connector is read back off the FRONT of that name -- so a
+   * connector whose name starts with another connector's name silently
+   * re-files its captures under the shorter one. test_recency.js asserts no
+   * two connector names collide that way, and it caught this on the first
+   * run under the original name.
+   *
+   * KNOWN GAP, stated here rather than discovered later: this covers grants
+   * and cooperative agreements (02-05). DIRECT LOANS AND LOAN GUARANTEES
+   * (07, 08) ARE NOT COVERED -- they are a different award group again, and
+   * a DOE Loan Programs Office loan is exactly the kind of thing that would
+   * hide in that gap. A null from this connector does not rule out a federal
+   * loan. Check the LPO's own portfolio page for that.
+   */
+  federalgrants: {
+    label: 'USAspending (grants & cooperative agreements)',
+    keyVar: null,
+    keyRequired: false,
+    calls: 1,
+    describe: (q) => 'POST https://api.usaspending.gov/api/v2/search/spending_by_award/'
+      + `  (recipient: ${q} — GRANTS & COOPERATIVE AGREEMENTS)`,
+    probe: () => ({
+      method: 'GET',
+      url: 'https://api.usaspending.gov/api/v2/references/toptier_agencies/',
+      headers: {},
+    }),
+    run: (q) => ({
+      method: 'POST',
+      url: 'https://api.usaspending.gov/api/v2/search/spending_by_award/',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        filters: {
+          recipient_search_text: [q],
+          // 02 block · 03 formula · 04 project · 05 cooperative agreement
+          award_type_codes: ['02', '03', '04', '05'],
         },
         fields: ['Award ID', 'Recipient Name', 'Award Amount', 'Awarding Agency',
                  'Start Date', 'End Date', 'Description'],
