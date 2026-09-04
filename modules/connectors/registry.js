@@ -44,11 +44,46 @@ const VERSION = '0.4.0';
  * Quoting makes it the search the operator actually asked for. A phrase that
  * genuinely appears nowhere now returns nothing, which is a real answer.
  */
-function phrase(q) {
+/**
+ * ── And the correction to that, which the register forced ───────────────
+ *
+ * Quoting EVERYTHING was too blunt. "Entity List additions Xinjiang iFLYTEK
+ * Hikvision Dahua" became a demand for that exact string as a phrase, which
+ * appears in no document ever written, and the search returned a confident
+ * zero over a subject the Federal Register covers extensively. Fixing the
+ * OR'd-junk problem created a false-null problem, which is worse: junk is
+ * visible and a wrong zero is not.
+ *
+ * A short query is an entity name and wants to be a phrase. A long one is a
+ * list of search terms and wants to be terms. Five words is the line — it
+ * keeps "Ohio Peace Officer Training Commission" whole and lets a six-term
+ * subject search behave like one — and it is a HEURISTIC, not a rule: a
+ * longer proper name will fall the wrong side of it. `--exact` and `--any`
+ * are the real answer, and the CHOICE IS ALWAYS REPORTED in the announced
+ * request line, because a search that silently changes the question is the
+ * whole problem this function exists to solve.
+ */
+const PHRASE_WORD_LIMIT = 5;
+
+function phrase(q, opts = {}) {
   const s = String(q == null ? '' : q).trim();
-  if (!s || /\s/.test(s) === false) return s;      // one word needs no quotes
+  if (!s) return s;
   if (/^".*"$/.test(s)) return s;                  // already quoted
+  const words = s.split(/\s+/).length;
+  if (words === 1) return s;                       // one word needs no quotes
+  if (opts.any) return s;
+  if (!opts.exact && words > PHRASE_WORD_LIMIT) return s;
   return `"${s.replace(/"/g, '')}"`;
+}
+
+/** How the query was actually sent, for the announced request line. */
+function phraseMode(q, opts = {}) {
+  const sent = phrase(q, opts);
+  const s = String(q == null ? '' : q).trim();
+  if (!s || s.split(/\s+/).length === 1) return 'single term';
+  return /^".*"$/.test(sent)
+    ? 'as an EXACT PHRASE — a document must contain these words together'
+    : 'as SEPARATE TERMS — documents matching any of them can come back';
 }
 
 /**
@@ -568,16 +603,17 @@ const CONNECTORS = {
     keyVar: null,          // no key required — documented divergence
     keyRequired: false,
     calls: 1,
-    describe: (q) => `GET https://www.federalregister.gov/api/v1/documents.json  (term: ${q})`,
+    describe: (q, o = {}) => 'GET https://www.federalregister.gov/api/v1/documents.json'
+      + `  (term: ${q} — sent ${phraseMode(q, o)})`,
     probe: () => ({
       method: 'GET',
       url: 'https://www.federalregister.gov/api/v1/documents.json?per_page=1',
       headers: {},
     }),
-    run: (q) => ({
+    run: (q, key, o = {}) => ({
       method: 'GET',
       url: 'https://www.federalregister.gov/api/v1/documents.json'
-         + `?per_page=25&order=newest&conditions%5Bterm%5D=${encodeURIComponent(phrase(q))}`,
+         + `?per_page=25&order=newest&conditions%5Bterm%5D=${encodeURIComponent(phrase(q, o))}`,
       headers: {},
     }),
     parse: (json) => (json.results || []).map((r) => ({
@@ -726,16 +762,17 @@ const CONNECTORS = {
     keyVar: 'DATA_GOV_API_KEY',
     keyRequired: true,   // free at api.data.gov/signup; DEMO_KEY works for a trial
     calls: 1,
-    describe: (q) => `GET https://api.regulations.gov/v4/documents  (searchTerm: ${q})`,
+    describe: (q, o = {}) => 'GET https://api.regulations.gov/v4/documents'
+      + `  (searchTerm: ${q} — sent ${phraseMode(q, o)})`,
     probe: (key) => ({
       method: 'GET',
       url: 'https://api.regulations.gov/v4/documents?page[size]=5',
       headers: { 'X-Api-Key': key || 'DEMO_KEY' },
     }),
-    run: (q, key) => ({
+    run: (q, key, o = {}) => ({
       method: 'GET',
       url: 'https://api.regulations.gov/v4/documents'
-         + `?filter[searchTerm]=${encodeURIComponent(phrase(q))}`
+         + `?filter[searchTerm]=${encodeURIComponent(phrase(q, o))}`
          + '&sort=-postedDate&page[size]=25',
       headers: { 'X-Api-Key': key },
     }),
@@ -1217,10 +1254,13 @@ async function runConnector(name, query, opts = {}) {
     return { ok: false, error: `${names} is not set`, keyMissing: true, results: [] };
   }
 
-  const spec = c.run(query, key, { mode: opts.mode, page: opts.page });
+  const spec = c.run(query, key,
+    { mode: opts.mode, page: opts.page, exact: opts.exact, any: opts.any });
 
   if (opts.dryRun) {
-    return { ok: true, dryRun: true, announced: c.describe(query), url: spec.url, results: [] };
+    return { ok: true, dryRun: true,
+      announced: c.describe(query, { exact: opts.exact, any: opts.any }),
+      url: spec.url, results: [] };
   }
 
   // ---- capture ---------------------------------------------------------
@@ -1305,7 +1345,7 @@ async function runConnector(name, query, opts = {}) {
 }
 
 module.exports = {
-  phrase, findRecordArray, decodeBody,
+  phrase, phraseMode, PHRASE_WORD_LIMIT, findRecordArray, decodeBody,
   explainHttpError, looksLikeSubstringMatch,
   checkKeyShape, KEY_SHAPES,
   stripAuth, AUTH_HEADERS, MAX_REDIRECTS,

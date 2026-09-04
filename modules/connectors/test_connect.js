@@ -525,9 +525,20 @@ module.exports = function run() {
     check('empty and null do not throw',
       R.phrase('') === '' && R.phrase(null) === '' && R.phrase(undefined) === '');
 
-    const fr = R.CONNECTORS.federalregister.run('Ohio Peace Officer Training Commission');
-    check('Federal Register sends the quoted phrase',
+    // Five words, and an entity name — it stays a phrase. The word limit is
+    // a heuristic, and a longer proper name WILL fall the wrong side of it;
+    // that is what --exact is for, and the request line says which happened.
+    const fr = R.CONNECTORS.federalregister.run('Ohio Peace Officer Training Commission', null, {});
+    check('Federal Register sends a five-word entity name as a phrase',
       fr.url.includes('%22Ohio%20Peace%20Officer%20Training%20Commission%22'), fr.url);
+    const frLong = R.CONNECTORS.federalregister.run(
+      'Entity List additions Xinjiang iFLYTEK Hikvision Dahua', null, {});
+    check('but a six-term subject search is sent as terms, not as one dead phrase',
+      !frLong.url.includes('%22'), frLong.url);
+    const frForced = R.CONNECTORS.federalregister.run(
+      'Entity List additions Xinjiang iFLYTEK Hikvision Dahua', null, { exact: true });
+    check('and --exact overrides the heuristic when the operator means a phrase',
+      frForced.url.includes('%22'), frForced.url);
     const rg = R.CONNECTORS.regulationsgov.run('Magnet Forensics', 'k');
     check('Regulations.gov sends the quoted phrase',
       /%22Magnet(%20|\+)Forensics%22/.test(rg.url), rg.url);
@@ -630,6 +641,44 @@ module.exports = function run() {
       /typeof conn\.diagnose === 'function'/.test(cli));
     check('and a connector without one still prints the plain no-hits line',
       /No hits\. A clean result is not proof of absence/.test(cli));
+  }
+
+  // ══ QUOTING EVERYTHING TRADED ONE FAILURE FOR A WORSE ONE ════════════
+  //
+  // Quoting fixed OR'd junk: "Magnet Forensics" had been returning EPA
+  // glyphosate notices. But quoting EVERYTHING turned a list of search terms
+  // into a demand for one exact string. "Entity List additions Xinjiang
+  // iFLYTEK Hikvision Dahua" appears in no document ever written, so the
+  // search returned a confident zero over a subject the Federal Register
+  // covers extensively. Junk is visible; a wrong zero is not.
+  {
+    check('a two-word entity name is still sent as a phrase',
+      R.phrase('Flock Safety') === '"Flock Safety"', R.phrase('Flock Safety'));
+    check('a single word is never quoted', R.phrase('iFLYTEK') === 'iFLYTEK');
+    check('a long list of terms is NOT forced into one impossible phrase',
+      R.phrase('Entity List additions Xinjiang iFLYTEK Hikvision Dahua')
+        === 'Entity List additions Xinjiang iFLYTEK Hikvision Dahua');
+    check('--exact quotes a long query when the operator means a phrase',
+      R.phrase('a b c d e f', { exact: true }) === '"a b c d e f"');
+    check('a five-word proper name stays a phrase',
+      R.phrase('Ohio Peace Officer Training Commission')
+        === '"Ohio Peace Officer Training Commission"');
+    check('--any un-quotes a short one', R.phrase('Flock Safety', { any: true }) === 'Flock Safety');
+    check('an already-quoted query is left alone',
+      R.phrase('"Q Cyber"') === '"Q Cyber"');
+
+    // The choice must never be silent: a search that quietly changes the
+    // question is exactly the failure this whole mechanism exists to catch.
+    check('the announced request says when it sent an exact phrase',
+      /EXACT PHRASE/.test(R.phraseMode('Flock Safety')), R.phraseMode('Flock Safety'));
+    check('and says when it sent separate terms instead',
+      /SEPARATE TERMS/.test(R.phraseMode('a b c d e f')), R.phraseMode('a b c d e f'));
+    check('the federalregister request line carries that decision',
+      /SEPARATE TERMS/.test(R.CONNECTORS.federalregister.describe('a b c d e f', {})),
+      R.CONNECTORS.federalregister.describe('a b c d e f', {}));
+    check('and the URL actually matches what the line claims',
+      !/%22/.test(R.CONNECTORS.federalregister.run('a b c d e f', null, {}).url)
+      && /%22/.test(R.CONNECTORS.federalregister.run('Flock Safety', null, {}).url));
   }
 
   // ══ THE REGISTER SAYS "AGENT"; THE DOCUMENTS SAY "FOR WHOM" ═══════════

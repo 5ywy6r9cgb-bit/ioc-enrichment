@@ -335,7 +335,24 @@ bin/sentinel connect graph --push            # write it into Neo4j
 bin/sentinel connect graph --dashboard       # → evidence/graph-dashboard.html
 bin/sentinel connect graph --dashboard --side-a "ENERGY|POWER|GAS" --side-b "AWS|META|MICROSOFT"
 bin/sentinel connect <connector> "<query>"   # one source only
+bin/sentinel connect federalregister "<query>" --exact   # force a phrase search
+bin/sentinel connect federalregister "<query>" --any      # force separate terms
 ```
+
+### Phrase vs. terms on the full-text sources
+
+`federalregister` and `regulationsgov` OR their words together, so an
+unquoted `Magnet Forensics` used to return EPA glyphosate notices. Quoting
+fixed that — and then quoting *everything* broke the opposite way: `Entity
+List additions Xinjiang iFLYTEK Hikvision Dahua` became a demand for that
+exact string, which appears in no document ever written, and returned a
+confident zero over a subject the Federal Register covers heavily. **Junk is
+visible; a wrong zero is not.**
+
+Now: five words or fewer is sent as a phrase (an entity name), longer is sent
+as separate terms (a subject search). It is a heuristic — a longer proper
+name falls the wrong side of it — so `--exact` and `--any` override it, and
+**the announced request line always states which happened.**
 
 ### `connect farascan` — read the register, not your own shortlist
 
