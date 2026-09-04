@@ -27,17 +27,37 @@ const C = {
   r: (s) => `\x1b[31m${s}\x1b[0m`,
 };
 
+/**
+ * A macOS sidecar, not a message.
+ *
+ * Copy files to a FAT32 or exFAT stick and macOS writes an AppleDouble
+ * companion for every one of them: `._Whatever.msg`, holding the resource
+ * fork and extended attributes. It carries the .msg extension and no message.
+ *
+ * Counting those as unreadable messages is not a cosmetic bug. It reports a
+ * folder of 194 messages as 388 files with a 50% failure rate — so the
+ * operator believes half the production would not open, when in truth every
+ * message read fine. On evidence, a false gap is worse than a real one:
+ * you go hunting for records that were never missing, or you decide the
+ * production was incomplete when it was not.
+ */
+function isSidecar(name) {
+  return name.startsWith('._') || name === '.DS_Store' || name === 'Thumbs.db';
+}
+
 /** Every .msg under a root, however deep the export nested them. */
-function walk(root, out = [], depth = 0) {
+function walk(root, out = [], depth = 0, sidecars = []) {
   if (depth > 12) return out;
   let names;
   try { names = fs.readdirSync(root, { withFileTypes: true }); }
   catch { return out; }
   for (const d of names) {
     const p = path.join(root, d.name);
-    if (d.isDirectory()) walk(p, out, depth + 1);
+    if (d.isDirectory()) walk(p, out, depth + 1, sidecars);
+    else if (isSidecar(d.name)) sidecars.push(p);
     else if (/\.msg$/i.test(d.name)) out.push(p);
   }
+  out.sidecars = sidecars;
   return out;
 }
 
@@ -46,8 +66,15 @@ function addresses(field) {
   if (!field) return [];
   const out = [];
   for (const m of String(field).matchAll(/<([^>@\s]+@[^>\s]+)>|([^\s,;<>"]+@[^\s,;<>"]+)/g)) {
-    const a = (m[1] || m[2] || '').toLowerCase().replace(/[.,;]+$/, '');
-    if (a.includes('@')) out.push(a);
+    // Strip the punctuation an address collects from the header around it.
+    // `'Nathan Dickman' <n@dlz.com>` and `(n@dlz.com)` both leave a trailing
+    // mark attached, and epa.ohio.gov, epa.ohio.gov' and epa.ohio.gov) then
+    // report as three organisations instead of one — which quietly splits
+    // every count that matters.
+    const a = (m[1] || m[2] || '').toLowerCase()
+      .replace(/^[\s'"(<[]+/, '')
+      .replace(/[\s'"),.;:>\]]+$/, '');
+    if (a.includes('@') && /^[^@]+@[^@]+\.[a-z]{2,}$/i.test(a)) out.push(a);
   }
   return [...new Set(out)];
 }
@@ -71,9 +98,15 @@ function cmdScan(dir, opts = {}) {
   if (!fs.existsSync(dir)) { console.error(`\n  ${C.r('no such folder:')} ${dir}\n`); process.exit(1); }
 
   const files = walk(path.resolve(dir));
+  const sidecars = files.sidecars || [];
   console.log('\n' + C.b('Scan a folder of Outlook messages'));
   console.log(C.dim(`  ${path.resolve(dir)}`));
-  console.log(C.dim(`  ${files.length} .msg file(s) — read in place, nothing copied, no network call\n`));
+  console.log(C.dim(`  ${files.length} .msg file(s) — read in place, nothing copied, no network call`));
+  if (sidecars.length) {
+    console.log(C.dim(`  ${sidecars.length} macOS sidecar file(s) skipped `
+      + `(._ AppleDouble / .DS_Store) — not messages`));
+  }
+  console.log('');
 
   const rows = [];
   const failed = [];
@@ -136,6 +169,7 @@ function cmdScan(dir, opts = {}) {
     scanned: path.resolve(dir),
     generated: new Date().toISOString(),
     files: files.length,
+    sidecars_skipped: sidecars.length,
     read: rows.length,
     failed,
     messages: rows,
@@ -207,5 +241,5 @@ function main() {
   process.exit(2);
 }
 
-module.exports = { cmdScan, cmdRead, walk, addresses, threadKey, domainOf };
+module.exports = { cmdScan, cmdRead, walk, addresses, threadKey, domainOf, isSidecar };
 if (require.main === module) main();

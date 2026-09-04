@@ -133,6 +133,50 @@ module.exports = function run() {
       !CLI.walk(dir).some((f) => f.endsWith('.pdf')));
   }
 
+  // ══ A macOS SIDECAR IS NOT A FAILED MESSAGE ══════════════════════════
+  //
+  // Copy a folder to a FAT32/exFAT stick and macOS writes `._Name.msg` beside
+  // every file. Counted as messages, a 194-message production reports as 388
+  // files with a 50% failure rate — and the operator goes looking for records
+  // that were never missing. On evidence a FALSE gap is worse than a real one.
+  {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'msgsc-'));
+    fs.writeFileSync(path.join(dir, 'Real Message.msg'), 'x');
+    fs.writeFileSync(path.join(dir, '._Real Message.msg'), 'x');
+    fs.writeFileSync(path.join(dir, '.DS_Store'), 'x');
+
+    const found = CLI.walk(dir);
+    ok('the AppleDouble twin is not counted as a message',
+      found.length === 1, found.map((f) => path.basename(f)).join(', '));
+    ok('but it IS recorded as skipped, not silently dropped',
+      (found.sidecars || []).length === 2, String((found.sidecars || []).length));
+    ok('the real message is the one kept',
+      path.basename(found[0]) === 'Real Message.msg');
+    ok('a leading dot alone does not make a file a sidecar',
+      CLI.isSidecar('._x.msg') && CLI.isSidecar('.DS_Store') && !CLI.isSidecar('x.msg'));
+  }
+
+  // ══ ONE ORGANISATION IS ONE ORGANISATION ══════════════════════════════
+  //
+  // An address picks up whatever punctuation surrounds it in the header, and
+  // epa.ohio.gov / epa.ohio.gov' / epa.ohio.gov) then report as three bodies
+  // instead of one — splitting every count built on the domain.
+  {
+    const a = CLI.addresses("'Nathan Dickman' <ndickman@dlz.com>, "
+      + '(RCHerr@columbus.gov), "J" <JCoffey@DLZ.com>; more@epa.ohio.gov.');
+    ok('a quote-wrapped display name leaves no apostrophe on the address',
+      a.includes('ndickman@dlz.com'), a.join(' '));
+    ok('a parenthesised address loses the bracket',
+      a.includes('rcherr@columbus.gov'), a.join(' '));
+    ok('a trailing sentence period is not part of the domain',
+      a.includes('more@epa.ohio.gov'), a.join(' '));
+    ok('so all four resolve to two organisations, not five',
+      new Set(a.map(CLI.domainOf)).size === 3,
+      [...new Set(a.map(CLI.domainOf))].join(' '));
+    ok('a fragment with no dotted domain is not accepted as an address',
+      CLI.addresses('someone@localhost').length === 0);
+  }
+
   console.log(`\n  ${FAIL ? 'FAIL' : 'PASS'} — ${PASS}/${PASS + FAIL} checks\n`);
   return FAIL;
 };
