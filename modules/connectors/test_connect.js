@@ -591,6 +591,41 @@ module.exports = function run() {
     check('no address is carried into a result row', hits[0].address === '');
   }
 
+  // ══ A ZERO MUST SAY WHICH KIND OF ZERO IT IS ══════════════════════════
+  //
+  // "No hits" has two causes that look identical: the source really holds
+  // nothing, or the parser missed the schema and matched nothing it was
+  // handed. The second reports a confident, wrong absence — "no foreign-agent
+  // registration" for a firm that may have several.
+  //
+  // The fields line was built to expose exactly that and only printed on a
+  // HIT, which is the one case where nobody needs it.
+  {
+    const F = R.CONNECTORS.fara;
+    check('the connector can explain its own zero', typeof F.diagnose === 'function');
+
+    const wrong = F.diagnose({ SOMETHING_ELSE: { NOT_ROWS: 'x' } });
+    check('a shape it could not read is NOT reported as a null result',
+      /NO RECORDS WERE READ AT ALL/.test(wrong), wrong);
+    check('and it says the capture is on disk so the parser can be fixed',
+      /capture is on disk/.test(wrong));
+
+    const real = F.diagnose({ REGISTRANTS_ACTIVE: { ROW: [
+      { Registration_Number: '1', Registrant_Name: 'X CORP', Foreign_Principal: 'Y' },
+      { Registration_Number: '2', Registrant_Name: 'Z LLC', Foreign_Principal: 'W' },
+    ] } });
+    check('a genuine null reports how many records were actually read',
+      /2 record\(s\) read, none matching/.test(real), real);
+    check('and names the columns, so a mismatch is visible next time',
+      /Registrant_Name/.test(real), real);
+
+    const cli = require('fs').readFileSync(require.resolve('./cli.js'), 'utf8');
+    check('the CLI calls diagnose() on an empty result',
+      /typeof conn\.diagnose === 'function'/.test(cli));
+    check('and a connector without one still prints the plain no-hits line',
+      /No hits\. A clean result is not proof of absence/.test(cli));
+  }
+
   console.log(`\n  ${FAIL === 0 ? 'PASS' : 'FAIL'} — ${PASS}/${PASS + FAIL} checks\n`);
   return FAIL;
 };

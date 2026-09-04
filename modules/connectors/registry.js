@@ -976,6 +976,32 @@ const CONNECTORS = {
       });
     },
     identify: (r) => r.external_id || r.name,
+    /**
+     * What to say when nothing matched.
+     *
+     * A zero from a connector has two completely different causes and they
+     * look identical: the source really holds nothing, or the parser missed
+     * the schema and matched nothing it was handed. The second is the more
+     * dangerous by far — it reports "no foreign-agent registration" for a
+     * firm that may have several.
+     *
+     * The `fields` line was meant to expose that, and it only printed on a
+     * HIT, which is precisely the case where you do not need it. So: on an
+     * empty result, say how many records were actually read and what the
+     * first one calls its columns. Thousands of records and no match is a
+     * real null. Zero records read is a bug in this file.
+     */
+    diagnose: (json) => {
+      const rows = findRecordArray(json);
+      if (!rows.length) {
+        return 'NO RECORDS WERE READ AT ALL. That is not a null result — the '
+          + 'response arrived in a shape this parser did not find. The capture '
+          + 'is on disk; send its top-level keys and this can be fixed.';
+      }
+      const keys = Object.keys(rows[0] || {});
+      return `${rows.length} record(s) read, none matching. `
+        + `Columns: ${keys.join(', ').slice(0, 200)}`;
+    },
   },
   federalgrants: {
     label: 'USAspending (grants & cooperative agreements)',

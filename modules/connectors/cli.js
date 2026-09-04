@@ -1540,7 +1540,21 @@ async function cmdSearch(name, query, opts) {
 
   console.log('\n  ' + C.b(`${out.results.length} candidate lead(s)`));
   if (!out.results.length) {
-    console.log(C.dim('  No hits. A clean result is not proof of absence — it is one source saying nothing.\n'));
+    console.log(C.dim('  No hits. A clean result is not proof of absence — it is one source saying nothing.'));
+
+    // A zero has two causes that look identical from here: the source really
+    // holds nothing, or the parser missed the schema and matched nothing it
+    // was handed. The second reports a confident, wrong absence. A connector
+    // that can tell them apart says so.
+    const conn = R.CONNECTORS[out.connector || name];
+    if (conn && typeof conn.diagnose === 'function' && out.capturePath) {
+      try {
+        const body = JSON.parse(fs.readFileSync(out.capturePath, 'utf8'));
+        const note = conn.diagnose(body, query);
+        if (note) console.log(C.dim(`  ${note}`));
+      } catch { /* the capture is on disk either way */ }
+    }
+    console.log('');
     return;
   }
   for (const r of out.results.slice(0, 15)) {
