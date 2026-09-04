@@ -386,6 +386,39 @@ module.exports = async function run() {
       /docket-entries/.test(d.why), d.why);
     check('a CourtListener page that is neither opinion nor docket is left alone',
       D.rewriteForMachines('https://www.courtlistener.com/person/123/x/', {}) === null);
+
+    // The docket rewrite tells the operator to go to /api/rest/v4/docket-entries/
+    // for the filings. Pasting that URL back in has to work: with no token it
+    // is refused, and the refusal reads as "the filings are not available"
+    // rather than "you did not send your key".
+    const api = D.rewriteForMachines(
+      'https://www.courtlistener.com/api/rest/v4/docket-entries/?docket=69127499',
+      { COURTLISTENER_API_TOKEN: 'secret-token' });
+    check('an API URL pasted directly still gets the key attached',
+      api && api.headers.Authorization === 'Token secret-token', JSON.stringify(api));
+    check('and its URL is passed through unchanged, not rewritten again',
+      api.url === 'https://www.courtlistener.com/api/rest/v4/docket-entries/?docket=69127499');
+    check('with no key it is flagged rather than sent bare into a refusal',
+      D.rewriteForMachines('https://www.courtlistener.com/api/rest/v4/dockets/1/', {}).needsKey === true);
+  }
+
+  // ══ AN API RECORD IS A FILE TYPE ═════════════════════════════════════
+  //
+  // The docket rewrite returns JSON. Sniffed as 'unknown' it was saved with
+  // no extension at all — a file called "69127499" that nothing downstream
+  // can open by type, and that reads in a folder listing as a mistake.
+  {
+    check('a JSON object body is recognised',
+      D.sniff(Buffer.from('{"id": 69127499, "case_name": "US v. CERTAIN DOMAINS"}')) === 'json');
+    check('a JSON array body is recognised too',
+      D.sniff(Buffer.from('[{"a":1}]')) === 'json');
+    check('a brace that does not parse is NOT called json',
+      D.sniff(Buffer.from('{ this is not json at all, really')) === 'unknown');
+    check('and a PDF is still a PDF', D.sniff(Buffer.from('%PDF-1.7 ...')) === 'pdf');
+    check('a JSON response is saved with a .json extension, not as a bare id',
+      D.nameFor('https://www.courtlistener.com/api/rest/v4/dockets/69127499/',
+        'application/json') === '69127499.json',
+      D.nameFor('https://www.courtlistener.com/api/rest/v4/dockets/69127499/', 'application/json'));
     check('an unrelated host is left alone',
       D.rewriteForMachines('https://lda.gov/filings/public/filing/abc/print/', {}) === null);
     check('a malformed url does not throw',

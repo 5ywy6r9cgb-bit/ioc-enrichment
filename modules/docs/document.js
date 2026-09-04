@@ -63,6 +63,13 @@ function sniff(buf) {
   if (head.slice(0, 8).toString('latin1') === '\x89PNG\r\n\x1a\n') return 'png';
   if (head.slice(0, 5).toString('latin1').toLowerCase() === '<html'
       || buf.slice(0, 200).toString('latin1').toLowerCase().includes('<!doctype html')) return 'html';
+  // An API record is a legitimate primary source and lands here often — the
+  // CourtListener docket rewrite returns one. Saved as 'unknown' it got a
+  // filename with no extension, which nothing downstream can open by type.
+  const lead = buf.slice(0, 64).toString('latin1').trimStart()[0];
+  if (lead === '{' || lead === '[') {
+    try { JSON.parse(buf.toString('utf8')); return 'json'; } catch { /* not json */ }
+  }
   return 'unknown';
 }
 
@@ -84,6 +91,9 @@ function nameFor(url, contentType) {
   let ext = '';
   if (/pdf/i.test(ct)) ext = '.pdf';
   else if (/html/i.test(ct)) ext = '.html';
+  // An API record saved as a bare id — "69127499" — is a file nothing can
+  // open by type and that reads in a folder listing as a mistake.
+  else if (/json/i.test(ct)) ext = '.json';
   else if (/plain/i.test(ct)) ext = '.txt';
   if (ext && !base.toLowerCase().endsWith(ext)) base += ext;
   return base;
@@ -384,6 +394,25 @@ function rewriteForMachines(url, env) {
   // This returns the DOCKET RECORD — caption, court, dates, parties. The
   // filings themselves are separate objects, and the fetch says so rather
   // than letting an operator think a 3KB docket header is the affidavit.
+  // An API URL the operator pasted straight in — most often the
+  // docket-entries listing this rewrite's own `why` line points them at.
+  // There is nothing to rewrite, but without the key it is refused, and the
+  // refusal reads as "the filings are not available" rather than "you did
+  // not send your token". Sending a URL somewhere it cannot be read is not
+  // help.
+  if (/^\/api\/rest\/v\d+\//.test(u.pathname)) {
+    if (!key) {
+      return { url, headers: {}, needsKey: true,
+        why: 'this is the CourtListener API and it requires a token' };
+    }
+    return {
+      url,
+      headers: auth,
+      why: 'already an API URL — sending your COURTLISTENER_API_TOKEN with it',
+      needsKey: false,
+    };
+  }
+
   const dk = /^\/docket\/(\d+)\//.exec(u.pathname);
   if (dk) {
     return {
