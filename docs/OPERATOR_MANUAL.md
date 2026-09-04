@@ -897,6 +897,41 @@ readable — an error page, a cookie banner and a JavaScript shell all produce
 one, and filing one as a record is how "the filing does not mention that"
 gets written about a filing nobody could read.
 
+### `doc chain` — when the handshake fails, not the document
+
+```bash
+bin/sentinel doc chain www.legislature.ohio.gov
+```
+
+`UNABLE_TO_VERIFY_LEAF_SIGNATURE` on a government site usually means the
+server sent its own certificate without the intermediate that signs it.
+Browsers hide this by fetching the missing certificate from the URL inside the
+one they were given. Node does not, so the chain dead-ends and it refuses.
+
+This command reads what the server actually presented, says whether the
+intermediate is missing, fetches the certificate the server should have sent,
+and writes the completed chain to `evidence/chains/<host>.pem`. Then:
+
+```bash
+NODE_EXTRA_CA_CERTS="evidence/chains/www.legislature.ohio.gov.pem" \
+  bin/sentinel doc get "https://www.legislature.ohio.gov/legislation/136/hb15"
+```
+
+**Verification stays on.** You have supplied the certificate the server should
+have sent — what a browser does — and bypassed nothing. If the fetch still
+fails, the chain genuinely does not reach a trusted root, which is an answer
+rather than an obstacle.
+
+> **Never set `NODE_TLS_REJECT_UNAUTHORIZED=0`.** It is the first result for
+> that error and it works instantly. It also turns every later fetch into a
+> file you cannot cite, silently, with nothing in the ledger to record that
+> anything changed. A document pulled over an unverified connection has no
+> established provenance no matter how careful you were.
+
+If no completion can be built, save the document from a browser and file it
+with its hash. A hand-saved file with a recorded hash is worth more than an
+automated one with no verified connection.
+
 ### `doc bills` — the step that turns a roster into a position
 
 ```bash

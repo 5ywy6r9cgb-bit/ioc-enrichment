@@ -44,7 +44,40 @@ async function cmdGet(url, opts) {
 
   const got = await D.fetchDocument(url, R.request, { dir });
   if (!got.ok) {
-    console.error(`  ${C.r('failed:')} ${got.error}\n`);
+    console.error(`  ${C.r('failed:')} ${got.error}`);
+
+    // A TLS code with no explanation sends the operator to a search engine,
+    // and the top answer there is the one that destroys the evidence chain.
+    const tls = D.explainTlsError(got.error);
+    if (tls) {
+      const host = (() => { try { return new URL(url).host; } catch { return ''; } })();
+      console.error('');
+      console.error(`  ${C.y('This is a certificate problem, not a missing document.')}`);
+      console.error(`  ${C.dim(tls.cause)}`);
+      console.error(C.dim(`  ${tls.detail.replace(/\s+/g, ' ')}`));
+      console.error('');
+      console.error(`  ${C.b('Do NOT set NODE_TLS_REJECT_UNAUTHORIZED=0.')}`);
+      console.error(C.dim('  It is the first answer you will find and it works instantly.'));
+      console.error(C.dim('  It also turns every later fetch into a file you cannot cite —'));
+      console.error(C.dim('  silently, with nothing in the ledger to say so.'));
+      console.error('');
+      console.error(`  ${C.b('Try these, in order:')}`);
+      console.error(C.dim('  1. The same document on another host. Ohio publishes bills on'));
+      console.error(C.dim('     ohiohouse.gov and ohiosenate.gov as well as legislature.ohio.gov.'));
+      console.error(C.dim('  2. Diagnose the chain, and complete it if that is all it needs:'));
+      console.error(`       ${C.g(`bin/sentinel doc chain ${host}`)}`);
+      console.error(C.dim('     That writes a PEM of the real chain. Then re-run with it'));
+      console.error(C.dim('     trusted — verification stays ON, you have only supplied the'));
+      console.error(C.dim('     certificate the server should have sent:'));
+      console.error(`       ${C.g('NODE_EXTRA_CA_CERTS=evidence/chains/' + (host || 'HOST') + '.pem \\')}`);
+      console.error(`         ${C.g('bin/sentinel doc get "' + url + '"')}`);
+      console.error('');
+      console.error(C.dim('  If the chain cannot be completed, the honest outcome is that this'));
+      console.error(C.dim('  document is not fetchable by this desk. Save it from a browser and'));
+      console.error(C.dim('  file it with `doc add` — a hand-saved file with a recorded hash is'));
+      console.error(C.dim('  worth more than an automated one with no verified connection.'));
+    }
+    console.error('');
     process.exit(1);
   }
 
@@ -268,6 +301,74 @@ function cmdBills(opts) {
   console.log(C.dim('  false out of accurate records.\n'));
 }
 
+/**
+ * `sentinel doc chain HOST` — why the handshake failed, and a PEM that fixes
+ * it without switching verification off.
+ */
+async function cmdChain(host) {
+  if (!host) {
+    console.error('\n  usage: sentinel doc chain HOST     (e.g. www.legislature.ohio.gov)\n');
+    process.exit(2);
+  }
+  const CH = require('./chain.js');
+  const dir = path.join(R.EVIDENCE, 'chains');
+
+  console.log('\n' + C.b('Certificate chain'));
+  console.log(`  ${host}\n`);
+
+  const r = await CH.complete(host, { dir });
+  if (!r.ok) {
+    console.error(`  ${C.r('could not connect:')} ${r.error}\n`);
+    process.exit(1);
+  }
+
+  console.log(`  ${C.dim('subject')}   ${r.subject}`);
+  console.log(`  ${C.dim('issuer')}    ${r.issuer}`);
+  console.log(`  ${C.dim('expires')}   ${r.validTo}`);
+  console.log(`  ${C.dim('served')}    ${r.served} certificate(s)`);
+  console.log('');
+
+  if (r.authorized) {
+    console.log(`  ${C.g('This chain already verifies.')}`);
+    console.log(C.dim('  Whatever failed was not this host\'s certificate. Re-read the error.'));
+    console.log('');
+    return;
+  }
+
+  console.log(`  ${C.y('NOT verified:')} ${r.reason || 'unknown'}`);
+  if (r.intermediateMissing) {
+    console.log(C.dim('  The server sent its own certificate and nothing else, and that'));
+    console.log(C.dim('  certificate did not sign itself. The intermediate is missing —'));
+    console.log(C.dim('  a server misconfiguration, and a common one on records portals.'));
+  }
+  console.log('');
+
+  if (r.fetched.length) {
+    console.log(`  ${C.g('Fetched the missing certificate(s) the server should have sent:')}`);
+    for (const f of r.fetched) console.log(C.dim(`    ${f.url}`));
+    console.log('');
+  }
+
+  if (r.written) {
+    console.log(`  ${C.dim('wrote')}     ${path.relative(process.cwd(), r.written)}  ${C.dim(`${r.certificates} certificate(s)`)}`);
+    console.log('');
+    console.log(`  ${C.b('Re-run the fetch with that chain trusted:')}`);
+    console.log(`    ${C.g(`NODE_EXTRA_CA_CERTS="${r.written}" \\`)}`);
+    console.log(`      ${C.g('bin/sentinel doc get "https://' + host + '/..."')}`);
+    console.log('');
+    console.log(C.dim('  Verification stays ON. You have supplied the certificate the server'));
+    console.log(C.dim('  should have sent — exactly what a browser does — and nothing is'));
+    console.log(C.dim('  bypassed. If the fetch still fails, the chain genuinely does not'));
+    console.log(C.dim('  reach a trusted root, and that is a real answer rather than a'));
+    console.log(C.dim('  problem to route around.'));
+  } else {
+    console.log(`  ${C.y('No completion could be built.')}`);
+    console.log(C.dim('  The certificate publishes no issuer URL, or it could not be fetched.'));
+    console.log(C.dim('  Save the document from a browser and file it with its hash instead.'));
+  }
+  console.log('');
+}
+
 async function main() {
   const argv = process.argv.slice(2);
   const action = argv[0];
@@ -287,8 +388,13 @@ async function main() {
   if (action === 'bills') {
     return cmdBills({});
   }
+  if (action === 'chain') {
+    return cmdChain(positional[1]);
+  }
 
-  console.error('\n  usage: sentinel doc get URL [--case CASE-ID] [--as EX-01]\n         sentinel doc bills\n');
+  console.error('\n  usage: sentinel doc get URL [--case CASE-ID] [--as EX-01]'
+    + '\n         sentinel doc bills'
+    + '\n         sentinel doc chain HOST\n');
   process.exit(2);
 }
 
@@ -296,4 +402,4 @@ if (require.main === module) {
   main().catch((e) => { console.error(e); process.exit(1); });
 }
 
-module.exports = { cmdGet };
+module.exports = { cmdGet, cmdChain };

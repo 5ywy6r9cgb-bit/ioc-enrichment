@@ -262,6 +262,80 @@ module.exports = async function run() {
       !D.haveTool('') && !D.haveTool(null) && !D.haveTool(undefined));
   }
 
+  // ══ THE CHAIN FIXER MUST NOT BECOME THE CHAIN BYPASS ══════════════════
+  //
+  // `doc chain` exists so nobody reaches for NODE_TLS_REJECT_UNAUTHORIZED=0.
+  // It earns that only if the one unverified connection it makes stays a
+  // DIAGNOSTIC — certificates in, no document out, nothing in the ledger.
+  // If verification ever slips into the fetch path, this desk would be
+  // recording provenance for bytes whose origin was never established, and
+  // the ledger would say GREEN about them.
+  {
+    const CH = require('./chain.js');
+    const chainSrc = fs.readFileSync(path.join(__dirname, 'chain.js'), 'utf8');
+    const docSrc = fs.readFileSync(path.join(__dirname, 'document.js'), 'utf8');
+    const regSrc = fs.readFileSync(
+      path.join(__dirname, '..', 'connectors', 'registry.js'), 'utf8');
+
+    const strip = (t) => t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+
+    check('the document fetcher never disables certificate verification',
+      !/rejectUnauthorized\s*:\s*false/.test(strip(docSrc)));
+    check('and neither does the connector request layer',
+      !/rejectUnauthorized\s*:\s*false/.test(strip(regSrc)));
+
+    // Exactly one, in the diagnostic connect. Two would mean it spread.
+    const relaxed = (strip(chainSrc).match(/rejectUnauthorized\s*:\s*false/g) || []).length;
+    check('the chain module relaxes verification in exactly one place',
+      relaxed === 1, `${relaxed} occurrences`);
+    check('and that place is a tls.connect, not an https request for content',
+      /tls\.connect\(\{[\s\S]{0,300}rejectUnauthorized:\s*false/.test(strip(chainSrc)));
+    check('the chain module never writes into the documents tree',
+      !/documents/.test(strip(chainSrc)));
+    check('nor touches the provenance ledger',
+      !/Ledger|provenance/i.test(strip(chainSrc)));
+
+    // DER -> PEM, because a wrong conversion produces a file Node silently
+    // ignores: the fetch still fails and the operator blames the host.
+    const pem = CH.derToPem(Buffer.from('hello world, not really a cert'));
+    check('a PEM is produced with both armour lines',
+      /^-----BEGIN CERTIFICATE-----\n/.test(pem) && /-----END CERTIFICATE-----\n$/.test(pem));
+    check('and its base64 is wrapped at 64 columns',
+      pem.split('\n').slice(1, -2).every((l) => l.length <= 64));
+
+    // AIA parsing. A missed issuer URL means no completion is even attempted.
+    const urls = CH.issuerUrls({ infoAccess: {
+      'CA Issuers - URI': ['http://cert.example.gov/ca.crt'],
+      'OCSP - URI': ['http://ocsp.example.gov'],
+    } });
+    check('the CA Issuers URL is read out of the certificate',
+      urls.length === 1 && urls[0] === 'http://cert.example.gov/ca.crt', urls.join(','));
+    check('and the OCSP responder is not mistaken for one',
+      !urls.some((u) => /ocsp/.test(u)));
+    check('a certificate publishing no issuer URL yields none, not a crash',
+      CH.issuerUrls({}).length === 0 && CH.issuerUrls(null).length === 0);
+    check('a non-http scheme in AIA is refused',
+      CH.issuerUrls({ infoAccess: { 'CA Issuers - URI': ['ldap://x/cn=CA'] } }).length === 0);
+
+    // The explanation the operator reads instead of a search engine.
+    const tls = require('./document.js').explainTlsError(
+      'Error: unable to verify the first certificate UNABLE_TO_VERIFY_LEAF_SIGNATURE');
+    check('the leaf-signature error is explained as a server misconfiguration',
+      tls && /intermediate/.test(tls.cause));
+    check('an expired certificate is not confused with a missing intermediate',
+      require('./document.js').explainTlsError('CERT_HAS_EXPIRED').code === 'CERT_HAS_EXPIRED');
+    check('a non-TLS failure gets no certificate advice',
+      require('./document.js').explainTlsError('HTTP 404') === null);
+
+    // The advice itself. If this string ever drifts out, the operator is one
+    // search away from the thing that quietly voids the evidence chain.
+    const cliSrc = fs.readFileSync(path.join(__dirname, 'cli.js'), 'utf8');
+    check('doc get warns against NODE_TLS_REJECT_UNAUTHORIZED by name',
+      /NODE_TLS_REJECT_UNAUTHORIZED=0/.test(cliSrc) && /Do NOT set/.test(cliSrc));
+    check('and offers NODE_EXTRA_CA_CERTS as the safe route instead',
+      /NODE_EXTRA_CA_CERTS/.test(cliSrc));
+  }
+
   console.log(`\n  ${FAIL ? 'FAIL' : 'PASS'} — ${PASS}/${PASS + FAIL} checks\n`);
   if (FAIL) process.exitCode = 1;
   return { pass: PASS, fail: FAIL };

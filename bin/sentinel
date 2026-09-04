@@ -48,6 +48,7 @@
 #
 #   sentinel doc get URL            fetch a primary source, hashed + text-extracted
 #   sentinel doc bills              which bills appear in more than one filing
+#   sentinel doc chain HOST         why a TLS handshake failed, and a PEM that fixes it
 #   sentinel corpus inventory DIR   what a folder of records ACTUALLY holds
 #   sentinel corpus ocr DIR --out DIR  read the bundles that only look like PDFs
 #

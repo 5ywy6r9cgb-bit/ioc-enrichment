@@ -269,6 +269,66 @@ const HTML_MIN_CHARS = 400;
  * reuses the connector layer's redirect handling and https-only rule rather
  * than growing a second, subtly different one.
  */
+/**
+ * TLS failures, explained at the point of failure.
+ *
+ * ─────────────────────────────────────────────────────────────────────────
+ * WHY THIS FUNCTION EXISTS AT ALL
+ *
+ * The bare error is `UNABLE_TO_VERIFY_LEAF_SIGNATURE`, and the first result
+ * for that string is `NODE_TLS_REJECT_UNAUTHORIZED=0`. That "fix" works
+ * instantly, prints nothing, and quietly turns every subsequent fetch into a
+ * document that cannot be cited -- because a file pulled over an unverified
+ * connection has no established provenance, however honest the operator was.
+ * It is the single most damaging thing anyone could do to this evidence
+ * chain, it is one environment variable away at all times, and the internet
+ * recommends it.
+ *
+ * So the desk names the real cause and the safe remedies here, rather than
+ * emitting a code and letting a search engine answer.
+ *
+ * The usual real cause is not an untrustworthy site. It is a server that
+ * serves its leaf certificate without the intermediate that signs it.
+ * Browsers hide this by fetching the missing intermediate themselves, from
+ * the URL in the certificate's Authority Information Access extension.
+ * Node does not chase AIA, so it sees a chain that dead-ends and -- correctly
+ * -- refuses. State and county records portals get this wrong constantly.
+ */
+function explainTlsError(err) {
+  const msg = String(err || '');
+  const known = {
+    UNABLE_TO_VERIFY_LEAF_SIGNATURE: {
+      cause: 'the server did not send the intermediate certificate that signs its own.',
+      detail: 'Browsers fetch that missing certificate themselves. Node does not, '
+            + 'so the chain dead-ends and verification fails. This is almost always '
+            + 'a misconfigured server, NOT an untrustworthy one -- but the two are '
+            + 'indistinguishable from here, which is exactly why it is refused.',
+    },
+    SELF_SIGNED_CERT_IN_CHAIN: {
+      cause: 'something in the chain is self-signed.',
+      detail: 'Either the host uses a private CA, or something is intercepting the '
+            + 'connection. On a records portal, treat interception as the working '
+            + 'assumption until you have ruled it out.',
+    },
+    DEPTH_ZERO_SELF_SIGNED_CERT: {
+      cause: 'the server presented a self-signed certificate.',
+      detail: 'Nothing vouches for this host but the host itself.',
+    },
+    CERT_HAS_EXPIRED: {
+      cause: 'the certificate has expired.',
+      detail: 'Common on government sites and genuinely fixed only by the operator '
+            + 'of that site. Worth an email to them; it is not yours to work around.',
+    },
+    ERR_TLS_CERT_ALTNAME_INVALID: {
+      cause: 'the certificate does not cover the hostname you asked for.',
+      detail: 'Check for a www / non-www mismatch before anything else.',
+    },
+  };
+  const hit = Object.keys(known).find((k) => msg.includes(k));
+  if (!hit) return null;
+  return Object.assign({ code: hit }, known[hit]);
+}
+
 async function fetchDocument(url, request, opts = {}) {
   let u;
   try { u = new URL(url); }
@@ -320,6 +380,7 @@ async function fetchDocument(url, request, opts = {}) {
 }
 
 module.exports = {
+  explainTlsError,
   fetchDocument, extractText, extractHtmlText, pageCount, nameFor, sha256,
   haveTool, sniff,
   SCAN_THRESHOLD_CHARS_PER_PAGE, HTML_MIN_CHARS,
