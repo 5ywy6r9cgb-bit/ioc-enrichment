@@ -711,6 +711,59 @@ module.exports = function run() {
       /no foreign principal named/i.test(b.name), b.name);
     check('and the firm is still visible in its own column',
       b.registrant === 'Ballard Partners');
+
+    // A CAP IS NOT A COUNT.
+    //
+    // RegDocs returns a registrant's WHOLE filing history, not a page of
+    // search results. BGR's number came back with 917 documents; the parser
+    // sliced 25 and the screen said "25 candidate lead(s)". Read that way,
+    // BGR appears to have started filing in January of this year.
+    const many = { REGDOCS: { ROW: Array.from({ length: 300 }, (_, i) => ({
+      DATE_STAMPED: '2026-01-01', REGISTRATION_NUMBER: '5430',
+      DOCUMENT_TYPE: 'Short-Form', REGISTRANT_NAME: 'BGR',
+      URL: `https://efile.fara.gov/d/${i}`,
+      FOREIGN_PRINCIPAL_NAME: '', FOREIGN_PRINCIPAL_COUNTRY: '',
+    })) } };
+    check('a whole filing history is returned, not the first screenful',
+      D.parse(many).length === 300, String(D.parse(many).length));
+
+    // The Short-Form row names the individual registering as a foreign
+    // agent. It was being dropped, which is the difference between "a firm
+    // lobbied" and "a named person swore they were acting for a foreign
+    // government".
+    const sf = { REGDOCS: { ROW: [{
+      DATE_STAMPED: '2026-08-13', REGISTRATION_NUMBER: '5430',
+      FOREIGN_PRINCIPAL_COUNTRY: '', DOCUMENT_TYPE: 'Short-Form',
+      REGISTRANT_NAME: 'BGR Government Affairs, LLC',
+      URL: 'https://efile.fara.gov/d/3',
+      SHORT_FORM_NAME: 'Viney, William', FOREIGN_PRINCIPAL_NAME: '',
+    }] } };
+    check('the individual named on a Short-Form registration is carried',
+      D.parse(sf)[0].agent === 'Viney, William', D.parse(sf)[0].agent);
+  }
+
+  // ══ A NAME DECODED WRONG WILL NOT MATCH ITSELF ANYWHERE ELSE ══════════
+  //
+  // DOJ serves Windows-1252 bytes with no charset declared. Read as UTF-8,
+  // the Turkish defence ministry arrived as "Republic of T\uFFFDrkiye". The
+  // principal's name is the identifier carried into every other source, so a
+  // mangled one silently fails to match the same entity twice.
+  {
+    const utf8 = Buffer.from('Republic of T\u00FCrkiye', 'utf8');
+    check('valid UTF-8 is decoded as UTF-8 and left alone',
+      R.decodeBody(utf8) === 'Republic of T\u00FCrkiye', R.decodeBody(utf8));
+
+    const cp = Buffer.from([0x54, 0xFC, 0x72, 0x6B, 0x69, 0x79, 0x65]);
+    check('bytes that are not valid UTF-8 fall back rather than corrupting',
+      R.decodeBody(cp) === 'T\u00FCrkiye', R.decodeBody(cp));
+    check('and no replacement character survives the fallback',
+      !/\uFFFD/.test(R.decodeBody(cp)));
+
+    // Windows-1252, not Latin-1: they differ exactly where quotes and dashes
+    // live, which is the range government systems actually emit.
+    check('the 0x80-0x9F range is read as Windows-1252, not Latin-1',
+      R.decodeBody(Buffer.from([0x93, 0x41, 0x94])) === '\u201CA\u201D',
+      R.decodeBody(Buffer.from([0x93, 0x41, 0x94])));
   }
 
   console.log(`\n  ${FAIL === 0 ? 'PASS' : 'FAIL'} — ${PASS}/${PASS + FAIL} checks\n`);

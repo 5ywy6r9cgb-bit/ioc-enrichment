@@ -61,6 +61,50 @@ function phrase(q) {
  *
  * So: take the deepest single array of objects and say what was found.
  */
+/**
+ * Turn the bytes a server actually sent into a string.
+ *
+ * DOJ's FARA API serves Windows-1252 bytes with no charset declared. Decoded
+ * as UTF-8, the Turkish defence ministry came back as "Republic of T\uFFFDrkiye"
+ * — a replacement character where the u-umlaut was. That is not cosmetic. A
+ * principal's name is the identifier you carry into every other source, and a
+ * mangled one silently fails to match the same entity anywhere else.
+ *
+ * Strict UTF-8 first, because valid UTF-8 is essentially never also a
+ * plausible Windows-1252 document, so a successful strict decode is safe.
+ * Only when that throws do we fall back — Windows-1252 rather than Latin-1,
+ * because it is what Microsoft-stack government systems actually emit and it
+ * differs from Latin-1 exactly in the byte range where quotes and dashes live.
+ *
+ * The CAPTURE ON DISK IS NEVER TOUCHED. It stays the raw bytes the server
+ * sent, and the sha256 in the ledger is over those bytes. Decoding happens on
+ * the way into the parser only, so provenance still points at what arrived.
+ */
+const CP1252_HIGH = {
+  0x80: '\u20AC', 0x82: '\u201A', 0x83: '\u0192', 0x84: '\u201E',
+  0x85: '\u2026', 0x86: '\u2020', 0x87: '\u2021', 0x88: '\u02C6',
+  0x89: '\u2030', 0x8A: '\u0160', 0x8B: '\u2039', 0x8C: '\u0152',
+  0x8E: '\u017D', 0x91: '\u2018', 0x92: '\u2019', 0x93: '\u201C',
+  0x94: '\u201D', 0x95: '\u2022', 0x96: '\u2013', 0x97: '\u2014',
+  0x98: '\u02DC', 0x99: '\u2122', 0x9A: '\u0161', 0x9B: '\u203A',
+  0x9C: '\u0153', 0x9E: '\u017E', 0x9F: '\u0178',
+};
+
+const decodeBody = (buf) => {
+  const b = Buffer.isBuffer(buf) ? buf : Buffer.from(String(buf || ''));
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(b);
+  } catch {
+    let out = '';
+    for (const byte of b) {
+      out += (byte >= 0x80 && byte <= 0x9F)
+        ? (CP1252_HIGH[byte] || '\uFFFD')
+        : String.fromCharCode(byte);
+    }
+    return out;
+  }
+};
+
 function findRecordArray(json, depth = 0) {
   if (Array.isArray(json)) {
     return json.every((x) => x && typeof x === 'object') ? json : [];
@@ -955,7 +999,9 @@ const CONNECTORS = {
       const hits = rows.filter((r) => r && typeof r === 'object'
         && Object.values(r).some((v) => typeof v === 'string'
           && v.toLowerCase().includes(q)));
-      return hits.slice(0, 25).map((r) => {
+      // Uncapped for the same reason as `faradocs`: a cap that prints as a
+      // count is a wrong answer to "how many registrants match".
+      return hits.map((r) => {
         const k = Object.keys(r);
         const pick = (re) => {
           const key = k.find((n) => re.test(n));
@@ -1040,7 +1086,14 @@ const CONNECTORS = {
     }),
     parse: (json) => {
       const rows = findRecordArray(json);
-      return rows.slice(0, 25).map((r) => {
+      // NOT sliced. This is the one connector that returns a firm's whole
+      // filing history rather than a page of search results: BGR's number
+      // came back with 917 documents and the old `.slice(0, 25)` surfaced the
+      // most recent 25 of them under the heading "25 candidate lead(s)". A
+      // cap that reads as a count is how you conclude a firm started filing
+      // in March when the record goes back years. The caller decides how many
+      // to show, and it says how many it is not showing.
+      return rows.map((r) => {
         const k = Object.keys(r);
         const pick = (re) => {
           const key = k.find((n) => re.test(n));
@@ -1061,6 +1114,14 @@ const CONNECTORS = {
         const country = pick(/foreign.?principal.?country/i)
           || pick(/^country$/i);
         const registrant = pick(/registrant.?name|^name$/i);
+        // On a Short-Form registration this names the INDIVIDUAL at the firm
+        // who is registering as an agent of the foreign principal. It is a
+        // natural person, and it is here on purpose: it is that person's own
+        // sworn filing under 22 U.S.C. 611, made in their professional
+        // capacity, and it is the field that turns "a firm lobbied" into "a
+        // named person did". Dropping it was throwing away the most specific
+        // fact on the record.
+        const shortForm = pick(/short.?form.?name/i);
         return {
           external_id: pick(/document.?id|^id$/i) || pick(/url/i),
           // The principal is the point of the whole exercise, so an absent
@@ -1072,6 +1133,7 @@ const CONNECTORS = {
           name: principal || '(no foreign principal named on this document)',
           country,
           registrant,
+          agent: shortForm,
           document: pick(/document.?type|^type$/i),
           filed: pick(/date.?stamped|filed|date/i),
           url: pick(/url|link/i),
@@ -1200,7 +1262,7 @@ async function runConnector(name, query, opts = {}) {
     // The query is passed because one connector (fara) serves a whole dataset
     // rather than a search: DOJ publishes the full active-registrant list and
     // the filtering happens here. Every other parser ignores the argument.
-    results = c.parse(JSON.parse(res.body.toString('utf8')), query);
+    results = c.parse(JSON.parse(decodeBody(res.body)), query);
   } catch (e) {
     parseError = e.message;
   }
@@ -1243,7 +1305,7 @@ async function runConnector(name, query, opts = {}) {
 }
 
 module.exports = {
-  phrase, findRecordArray,
+  phrase, findRecordArray, decodeBody,
   explainHttpError, looksLikeSubstringMatch,
   checkKeyShape, KEY_SHAPES,
   stripAuth, AUTH_HEADERS, MAX_REDIRECTS,
