@@ -22,6 +22,35 @@ const CAPTURES = path.join(EVIDENCE, 'captures');
 const LEDGER = path.join(EVIDENCE, 'manifests', 'provenance.jsonl');
 const VERSION = '0.4.0';
 
+// ------------------------------------------------------- full-text search
+/**
+ * Quote a multi-word query so a full-text search treats it as a PHRASE.
+ *
+ * ─────────────────────────────────────────────────────────────────────────
+ * WHY: THE NOISE WAS NOT NOISE, IT WAS A WRONG QUESTION
+ *
+ * Federal Register and Regulations.gov both do full-text search, and both
+ * OR the words of an unquoted query. So "Magnet Forensics" asked for every
+ * document containing "magnet" OR "forensics", and a sweep for a police
+ * forensics vendor came back with EPA glyphosate spreadsheets and migratory
+ * bird rules. "Ohio Peace Officer Training Commission" was worse: five
+ * common words, twenty-five confident, irrelevant results.
+ *
+ * That is not merely untidy. Twenty-five junk rows per subject per connector
+ * bury the real hits, and an operator who scrolls past them learns to
+ * distrust the whole output — including the rows that matter. A search that
+ * always returns something is indistinguishable from one that never works.
+ *
+ * Quoting makes it the search the operator actually asked for. A phrase that
+ * genuinely appears nowhere now returns nothing, which is a real answer.
+ */
+function phrase(q) {
+  const s = String(q == null ? '' : q).trim();
+  if (!s || /\s/.test(s) === false) return s;      // one word needs no quotes
+  if (/^".*"$/.test(s)) return s;                  // already quoted
+  return `"${s.replace(/"/g, '')}"`;
+}
+
 // ---------------------------------------------------------------- env
 function loadEnv() {
   // Keys live in a .env the operator controls. Read it, never echo it.
@@ -482,7 +511,7 @@ const CONNECTORS = {
     run: (q) => ({
       method: 'GET',
       url: 'https://www.federalregister.gov/api/v1/documents.json'
-         + `?per_page=25&order=newest&conditions%5Bterm%5D=${encodeURIComponent(q)}`,
+         + `?per_page=25&order=newest&conditions%5Bterm%5D=${encodeURIComponent(phrase(q))}`,
       headers: {},
     }),
     parse: (json) => (json.results || []).map((r) => ({
@@ -640,7 +669,7 @@ const CONNECTORS = {
     run: (q, key) => ({
       method: 'GET',
       url: 'https://api.regulations.gov/v4/documents'
-         + `?filter[searchTerm]=${encodeURIComponent(q)}`
+         + `?filter[searchTerm]=${encodeURIComponent(phrase(q))}`
          + '&sort=-postedDate&page[size]=25',
       headers: { 'X-Api-Key': key },
     }),
@@ -994,6 +1023,7 @@ async function runConnector(name, query, opts = {}) {
 }
 
 module.exports = {
+  phrase,
   explainHttpError, looksLikeSubstringMatch,
   checkKeyShape, KEY_SHAPES,
   stripAuth, AUTH_HEADERS, MAX_REDIRECTS,

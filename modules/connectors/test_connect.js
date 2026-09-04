@@ -500,6 +500,49 @@ module.exports = function run() {
       P(['x', '--into', 'Data Centers!']).error);
   }
 
+  // ══ A MULTI-WORD QUERY IS A PHRASE, NOT AN OR OF WORDS ════════════════
+  //
+  // Federal Register and Regulations.gov both OR the words of an unquoted
+  // full-text query. So "Magnet Forensics" asked for every document
+  // containing "magnet" OR "forensics", and a sweep for a police forensics
+  // vendor returned EPA glyphosate spreadsheets. "Ohio Peace Officer
+  // Training Commission" — five common words — returned twenty-five
+  // confident, irrelevant rows.
+  //
+  // Twenty-five junk rows per subject per connector bury the real hits, and
+  // an operator who scrolls past them learns to distrust the whole output,
+  // including the rows that matter. A search that always returns something
+  // is indistinguishable from one that never works.
+  {
+    check('a multi-word query is quoted as a phrase',
+      R.phrase('Magnet Forensics') === '"Magnet Forensics"', R.phrase('Magnet Forensics'));
+    check('a single word is left alone — quoting it buys nothing',
+      R.phrase('Cellebrite') === 'Cellebrite');
+    check('an already-quoted query is not double-quoted',
+      R.phrase('"Flock Safety"') === '"Flock Safety"', R.phrase('"Flock Safety"'));
+    check('an embedded quote cannot break out of the phrase',
+      R.phrase('Ohio" OR x') === '"Ohio OR x"', R.phrase('Ohio" OR x'));
+    check('empty and null do not throw',
+      R.phrase('') === '' && R.phrase(null) === '' && R.phrase(undefined) === '');
+
+    const fr = R.CONNECTORS.federalregister.run('Ohio Peace Officer Training Commission');
+    check('Federal Register sends the quoted phrase',
+      fr.url.includes('%22Ohio%20Peace%20Officer%20Training%20Commission%22'), fr.url);
+    const rg = R.CONNECTORS.regulationsgov.run('Magnet Forensics', 'k');
+    check('Regulations.gov sends the quoted phrase',
+      /%22Magnet(%20|\+)Forensics%22/.test(rg.url), rg.url);
+
+    // The connectors that take a NAME rather than a full-text term must not
+    // acquire quotes — a company registry looking up '"Flock Safety"' with
+    // the quotes included finds nothing at all.
+    const oc = R.CONNECTORS.opencorporates.run('Flock Safety', 'k');
+    check('a company-registry lookup is NOT quoted',
+      !oc.url.includes('%22'), oc.url);
+    const lda = R.CONNECTORS.senatelda.run('Flock Safety', 'k');
+    check('a lobbying-filing lookup is NOT quoted',
+      !lda.url.includes('%22'), lda.url);
+  }
+
   console.log(`\n  ${FAIL === 0 ? 'PASS' : 'FAIL'} — ${PASS}/${PASS + FAIL} checks\n`);
   return FAIL;
 };

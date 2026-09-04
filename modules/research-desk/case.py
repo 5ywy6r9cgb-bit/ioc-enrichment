@@ -390,8 +390,30 @@ def main(argv: list[str]) -> int:
             return 0
 
         if cmd == "read":
-            need(3, "read CASE-ID EX-ID PAGES")
-            e = mark_read(rest[0], rest[1], rest[2])
+            # `case add` takes --pages N, so an operator reasonably writes
+            # `case read CASE EX --pages 4` — and this used to hand the literal
+            # string "--pages" to int() and die with a traceback. A CLI that
+            # accepts a flag in one verb and crashes on it in the next is a CLI
+            # that teaches the wrong thing, loudly, in the middle of the work.
+            argv2 = list(rest)
+            if "--pages" in argv2:
+                i = argv2.index("--pages")
+                if i + 1 >= len(argv2):
+                    raise CaseError("--pages needs a number:  sentinel case read CASE-ID EX-ID --pages 4")
+                pages_arg = argv2[i + 1]
+                del argv2[i:i + 2]
+            else:
+                need(3, "read CASE-ID EX-ID PAGES   (or --pages N)")
+                pages_arg = argv2[2]
+            if len(argv2) < 2:
+                raise CaseError("usage: sentinel case read CASE-ID EX-ID PAGES   (or --pages N)")
+            try:
+                int(pages_arg)
+            except ValueError:
+                raise CaseError(
+                    f"pages must be a number, got {pages_arg!r}. "
+                    "usage: sentinel case read CASE-ID EX-ID PAGES   (or --pages N)")
+            e = mark_read(argv2[0], argv2[1], pages_arg)
             done = e["pages_read"] == e["pages_total"]
             print(f"\n  {G if done else DIM}{'complete' if done else 'progress'}{X}  "
                   f"{B}{e['id']}{X}  {e['pages_read']}/{e['pages_total']}\n")
