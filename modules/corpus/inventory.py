@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import re
 import hashlib
 import subprocess
 import sys
@@ -146,6 +147,50 @@ def text_looks_readable(text: str) -> bool:
     return sum(w in sample for w in _COMMON) >= 3
 
 
+def docx_text(path: Path) -> str | None:
+    """
+    The text of a Word document, without a library.
+
+    ─────────────────────────────────────────────────────────────────────
+    WHY THIS IS NOT A NICETY
+
+    A .docx IS a ZIP, so every tool that sniffs magic bytes calls it an
+    archive. `corpus ocr` did exactly that, looked for page images, found
+    none, and skipped the file as "ZIP contains no page images" — which is a
+    true sentence that means "we could not read this" and reads like "there
+    was nothing in it".
+
+    One of the two files skipped that way in this corpus was
+    `6-19-20 OEPA LOT PTI Review Comments.docx`: the regulator's actual
+    review comments on a public works project. It was reported as an empty
+    bundle.
+
+    The body text lives in word/document.xml. Paragraph and break tags become
+    newlines, tab tags become tabs, everything else is stripped, and entities
+    are decoded — enough to search and quote from, which is the whole job.
+    """
+    import zipfile
+    try:
+        with zipfile.ZipFile(path) as z:
+            names = set(z.namelist())
+            if "word/document.xml" not in names:
+                return None                      # not a Word document
+            xml = z.read("word/document.xml").decode("utf-8", errors="replace")
+    except Exception:
+        return None
+
+    # Structure first, so paragraphs do not run together into one line.
+    xml = re.sub(r"</w:p>", "\n", xml)
+    xml = re.sub(r"<w:br[^>]*/>", "\n", xml)
+    xml = re.sub(r"<w:tab[^>]*/>", "\t", xml)
+    text = re.sub(r"<[^>]+>", "", xml)
+    for ent, ch in (("&amp;", "&"), ("&lt;", "<"), ("&gt;", ">"),
+                    ("&quot;", '"'), ("&apos;", "'"), ("&#160;", " ")):
+        text = text.replace(ent, ch)
+    text = re.sub(r"[ \t]{2,}", " ", text)
+    return re.sub(r"\n{3,}", "\n\n", text).strip()
+
+
 def save_text(path: Path, sha: str, outdir: Path) -> tuple[int | None, str]:
     """
     Extract a PDF's text and keep it, named by the hash of the bytes it
@@ -174,7 +219,7 @@ def save_text(path: Path, sha: str, outdir: Path) -> tuple[int | None, str]:
     saying so, and the manifest records it as needing OCR.
     """
     outdir.mkdir(parents=True, exist_ok=True)
-    text = pdf_text(path)
+    text = docx_text(path) if path.suffix.lower() == ".docx" else pdf_text(path)
     stem = f"{sha[:16]}__{path.stem[:60]}.txt"
     dest = outdir / stem
 
@@ -217,6 +262,14 @@ def classify(row: dict) -> str:
     """The integrity verdict. Plain words, no jargon."""
     if row["size_bytes"] == 0 or row["sha256"].startswith(ZERO_BYTE_SHA):
         return "EMPTY FILE"
+    if row["ext"] == ".docx":
+        # A .docx IS a zip. Reporting that as a mislabelled bundle is true and
+        # useless — it is a Word file, and it either yielded text or did not.
+        if row.get("text_chars") is None:
+            return "UNKNOWN — readability never tested"
+        if row["text_chars"] < TEXT_LAYER_MIN_CHARS:
+            return "WORD FILE WITH NO TEXT — check it by hand"
+        return "searchable"
     if row["ext"] == ".pdf" and "PDF" not in row["real_type"]:
         if "Zip" in row["real_type"] or "ZIP" in row["real_type"]:
             return "ZIP MISLABELED AS PDF"
@@ -323,7 +376,7 @@ def scan(root: Path, shelf_name: str = "", volume_id: str = "",
             rows.append(blank(p, f"read failed: {e.strerror or e}"))
             continue
 
-        if row["ext"] == ".pdf" and size > 0:
+        if row["ext"] in (".pdf", ".docx") and size > 0:
             if text_dir is not None:
                 # One extraction, used twice: the count for the verdict and
                 # the text for the corpus. Extracting twice would double the

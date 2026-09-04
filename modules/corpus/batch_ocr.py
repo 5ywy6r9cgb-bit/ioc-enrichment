@@ -462,8 +462,13 @@ def main() -> int:
 
     # Both problems, not just the one this module started with: a ZIP wearing
     # a .pdf name, AND a PDF that really is one and really has no text layer.
+    # A .docx is a ZIP. Feeding it to the bundle path finds no page images and
+    # reports "ZIP contains no page images" — true, useless, and indistinguish-
+    # able from an empty document. Word files are read by `corpus inventory
+    # --save-text`, not here.
     candidates = sorted(p for p in root.rglob("*")
                         if p.is_file()
+                        and p.suffix.lower() not in (".docx", ".xlsx", ".pptx")
                         and (zipfile.is_zipfile(p)
                              or (is_pdf(p) and needs_ocr(p))))
     if not candidates:

@@ -292,6 +292,58 @@ sys.exit(I.main())
         finally:
             I.pdf_text = real
 
+        # ══ 8. A WORD FILE IS NOT AN EMPTY BUNDLE ═════════════════════════
+        #
+        # A .docx IS a zip, so magic-byte sniffing calls it an archive. The OCR
+        # stage did exactly that, looked for page images, found none, and
+        # reported "ZIP contains no page images" — a true sentence meaning
+        # "we could not read this" that reads as "there was nothing in it".
+        # One of the two files skipped that way here was the regulator's own
+        # PTI review comments on a public works project.
+        import zipfile as _zip
+        wd = tmp / "word"; wd.mkdir()
+        docx = wd / "comments.docx"
+        body = ('<?xml version="1.0"?><w:document><w:body>'
+                '<w:p><w:r><w:t>Comment 1: Sheet C313 is omitted.</w:t></w:r></w:p>'
+                '<w:p><w:r><w:t>Comment 2: G011 list incomplete &amp; revised.</w:t></w:r></w:p>'
+                '</w:body></w:document>')
+        with _zip.ZipFile(docx, "w") as z:
+            z.writestr("word/document.xml", body)
+            z.writestr("[Content_Types].xml", "<x/>")
+
+        text = I.docx_text(docx)
+        check("a Word document yields its text", text and "Sheet C313" in text)
+        check("paragraphs stay on separate lines rather than running together",
+              text.count("\n") >= 1, repr(text))
+        check("XML entities are decoded, so a quote is quotable",
+              "&" in text and "&amp;" not in text)
+        check("markup is stripped, not left in the body",
+              "<w:" not in text)
+
+        plain = wd / "bundle.pdf"
+        with _zip.ZipFile(plain, "w") as z:
+            z.writestr("page_0001.png", b"\x89PNG")
+        check("a page-image bundle is NOT mistaken for a Word file",
+              I.docx_text(plain) is None)
+        check("a missing file returns None rather than throwing",
+              I.docx_text(tmp / "nope.docx") is None)
+
+        # And the verdict must not call it a mislabelled PDF.
+        row = {"ext": ".docx", "size_bytes": 10, "sha256": "a" * 64,
+               "real_type": "Zip archive", "text_chars": 5000}
+        check("a readable Word file is searchable, not 'not actually a PDF'",
+              I.classify(row) == "searchable", I.classify(row))
+        row["text_chars"] = 3
+        check("an empty one says so in Word terms",
+              "WORD FILE WITH NO TEXT" in I.classify(row), I.classify(row))
+        row["text_chars"] = None
+        check("and one never tested is not called readable",
+              "never tested" in I.classify(row), I.classify(row))
+
+        ocr_src = (Path(__file__).parent / "batch_ocr.py").read_text()
+        check("the OCR stage no longer treats Office files as page bundles",
+              '".docx", ".xlsx", ".pptx"' in ocr_src)
+
     print(f"\n  {'FAIL' if FAIL else 'PASS'} — {PASS}/{PASS + FAIL} checks\n")
     return 1 if FAIL else 0
 
