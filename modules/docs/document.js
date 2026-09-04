@@ -329,6 +329,52 @@ function explainTlsError(err) {
   return Object.assign({ code: hit }, known[hit]);
 }
 
+/**
+ * Some sources publish a page for humans and a document for machines.
+ *
+ * ─────────────────────────────────────────────────────────────────────────
+ * COURTLISTENER
+ *
+ * `courtlistener.com/opinion/8725437/laborde-v-city-of-gahanna/` is a React
+ * shell: the opinion text arrives later, from JavaScript. Fetching it gets an
+ * empty body, and `doc get` correctly reports "empty response body" — which
+ * reads like the document is gone when it is simply not in the HTML.
+ *
+ * That is a bad failure for this desk in particular, because the connector
+ * hands the operator exactly these URLs. The search says "here are 20 civil
+ * rights cases", the fetch says nothing is there, and the honest conclusion
+ * from the terminal alone is that the leads were junk.
+ *
+ * The same opinion is a JSON document at
+ * `/api/rest/v4/clusters/<id>/`, which carries the caption, court, date,
+ * docket number and links to the opinion text itself. So the URL is rewritten
+ * and the key travels in the Authorization header, exactly as the connector
+ * sends it.
+ *
+ * WHAT IS SAVED IS STILL THE FETCHED BYTES. The rewrite changes which
+ * document is requested, never what is recorded: the capture is whatever the
+ * server returned, hashed before anything is derived from it, and the ledger
+ * records the URL actually called.
+ */
+function rewriteForMachines(url, env) {
+  let u;
+  try { u = new URL(url); } catch { return null; }
+  if (!/(^|\.)courtlistener\.com$/i.test(u.hostname)) return null;
+
+  // /opinion/<clusterId>/<slug>/ — the id in the path is the CLUSTER, which is
+  // what the search results link to.
+  const m = /^\/opinion\/(\d+)\//.exec(u.pathname);
+  if (!m) return null;
+
+  const key = (env && env.COURTLISTENER_API_TOKEN) || '';
+  return {
+    url: `https://www.courtlistener.com/api/rest/v4/clusters/${m[1]}/`,
+    headers: key ? { Authorization: `Token ${key}` } : {},
+    why: 'the opinion page renders from JavaScript; this is the same record as JSON',
+    needsKey: !key,
+  };
+}
+
 async function fetchDocument(url, request, opts = {}) {
   let u;
   try { u = new URL(url); }
@@ -337,7 +383,11 @@ async function fetchDocument(url, request, opts = {}) {
     return { ok: false, error: `refusing non-https url (${u.protocol})` };
   }
 
-  const res = await request('GET', url, { Accept: '*/*' });
+  // A caller may need to authenticate to the record (CourtListener's API, for
+  // one). The key goes in a header and never into the URL, so it cannot land
+  // in the ledger, a log line, or a capture filename.
+  const res = await request('GET', url,
+    Object.assign({ Accept: '*/*' }, opts.headers || {}));
   if (res.status === 0) return { ok: false, error: res.error || 'no response' };
   if (res.status < 200 || res.status >= 300) {
     return { ok: false, status: res.status, error: `HTTP ${res.status}` };
@@ -381,6 +431,7 @@ async function fetchDocument(url, request, opts = {}) {
 
 module.exports = {
   explainTlsError,
+  rewriteForMachines,
   fetchDocument, extractText, extractHtmlText, pageCount, nameFor, sha256,
   haveTool, sniff,
   SCAN_THRESHOLD_CHARS_PER_PAGE, HTML_MIN_CHARS,

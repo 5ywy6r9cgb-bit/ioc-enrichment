@@ -42,7 +42,25 @@ async function cmdGet(url, opts) {
   console.log(`  ${url}`);
   console.log(C.dim(`  → ${dir}/\n`));
 
-  const got = await D.fetchDocument(url, R.request, { dir });
+  // Some sources publish a JS shell for humans and the record for machines.
+  // Rewriting the URL changes which document is requested; it never changes
+  // what is recorded — the capture is the bytes that came back, hashed before
+  // anything is derived, and the ledger stores the URL actually called.
+  const env = R.loadEnv();
+  const alt = D.rewriteForMachines(url, env);
+  let target = url;
+  let extraHeaders;
+  if (alt) {
+    console.log(C.dim(`  → ${alt.url}`));
+    console.log(C.dim(`    ${alt.why}`));
+    if (alt.needsKey) {
+      console.log(`    ${C.y('COURTLISTENER_API_TOKEN is not set — this will likely be refused.')}`);
+    }
+    target = alt.url;
+    extraHeaders = alt.headers;
+  }
+
+  const got = await D.fetchDocument(target, R.request, { dir, headers: extraHeaders });
   if (!got.ok) {
     console.error(`  ${C.r('failed:')} ${got.error}`);
 

@@ -336,6 +336,52 @@ module.exports = async function run() {
       /NODE_EXTRA_CA_CERTS/.test(cliSrc));
   }
 
+  // ══ A JS SHELL IS NOT A MISSING DOCUMENT ══════════════════════════════
+  //
+  // courtlistener.com/opinion/<id>/<slug>/ renders from JavaScript, so a fetch
+  // gets an empty body and `doc get` reports "empty response body" — which
+  // reads as "the document is gone" when it is simply not in the HTML.
+  //
+  // That failure is worst precisely here: the connector hands the operator
+  // these URLs by the dozen. The search says "20 civil rights cases", every
+  // fetch says nothing is there, and the conclusion from the terminal alone
+  // is that the leads were junk.
+  {
+    const r = D.rewriteForMachines(
+      'https://www.courtlistener.com/opinion/8725437/laborde-v-city-of-gahanna/',
+      { COURTLISTENER_API_TOKEN: 'secret-token' });
+    check('an opinion URL is rewritten to the API record',
+      r && r.url === 'https://www.courtlistener.com/api/rest/v4/clusters/8725437/',
+      r && r.url);
+    check('the key travels in the Authorization header',
+      r.headers.Authorization === 'Token secret-token');
+    check('and never in the URL, where it would reach the ledger and a filename',
+      !r.url.includes('secret-token'));
+
+    const nokey = D.rewriteForMachines('https://www.courtlistener.com/opinion/1/x/', {});
+    check('a missing key is flagged rather than silently sending none',
+      nokey.needsKey === true && !nokey.headers.Authorization);
+
+    check('a host that merely CONTAINS courtlistener.com is not rewritten',
+      D.rewriteForMachines('https://evilcourtlistener.com/opinion/1/x/', {}) === null);
+    check('a subdomain of the real host still is',
+      !!D.rewriteForMachines('https://www.courtlistener.com/opinion/1/x/', {}));
+    check('a CourtListener page that is not an opinion is left alone',
+      D.rewriteForMachines('https://www.courtlistener.com/docket/123/x/', {}) === null);
+    check('an unrelated host is left alone',
+      D.rewriteForMachines('https://lda.gov/filings/public/filing/abc/print/', {}) === null);
+    check('a malformed url does not throw',
+      D.rewriteForMachines('not a url', {}) === null);
+
+    // The rewrite must change WHICH document is asked for, never what is
+    // recorded about it.
+    const cliSrc = fs.readFileSync(path.join(__dirname, 'cli.js'), 'utf8');
+    check('the rewritten target is announced, not swapped in silently',
+      /→ \$\{alt\.url\}/.test(cliSrc) && /alt\.why/.test(cliSrc));
+    check('and the operator is warned when the key is missing',
+      /COURTLISTENER_API_TOKEN is not set/.test(cliSrc));
+  }
+
   console.log(`\n  ${FAIL ? 'FAIL' : 'PASS'} — ${PASS}/${PASS + FAIL} checks\n`);
   if (FAIL) process.exitCode = 1;
   return { pass: PASS, fail: FAIL };
