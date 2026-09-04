@@ -73,16 +73,57 @@ This is the phase that converts *reported* into *citable*. Each command
 fetches the bytes, hashes them before deriving anything, extracts the text,
 and writes a provenance row.
 
-Fetch the regulator's own words, not a news account of them:
+Fetch the regulator's own words, not a news account of them. These URLs were
+looked up, not reconstructed — but a URL rots, so if one 404s say so rather
+than substituting something that looks close.
+
+**The bill text. Do these two first.**
 
 ```
-bin/sentinel doc get "<OPSB press release URL — Socrates the Younger, 26-0169-EL-BLN>"
-bin/sentinel doc get "<OPSB press release URL — Apollo, 25-0973-EL-BLN>"
-bin/sentinel doc get "<governor.ohio.gov press release — data center tax pause, 2026-05-27>"
-bin/sentinel doc get "<ohiohouse.gov press release — HB 695>"
-bin/sentinel doc get "<legislature.ohio.gov bill text — HB 15>"
-bin/sentinel doc get "<legislature.ohio.gov bill text — HB 695>"
+bin/sentinel doc get "https://www.legislature.ohio.gov/legislation/136/hb15"
+bin/sentinel doc get "https://www.legislature.ohio.gov/legislation/136/hb695"
+bin/sentinel doc get "https://www.legislature.ohio.gov/download?key=27372"
 ```
+
+The third is the Legislative Service Commission's own analysis of HB 695 —
+the neutral drafting body's summary, not a sponsor's press release and not an
+advocacy read.
+
+**What HB 15's own title says, and why it is not a coincidence:** the bill
+amends the competitive retail electric service law, creates the behind-the-
+meter siting pathway, *and repeals parts of H.B. 6 of the 133rd General
+Assembly.* The post-bribery cleanup and the data-center power fast lane are
+the same legislative vehicle. That is a fact about one document's scope — it
+establishes nothing about anyone's intent — and it is checkable in the one
+file the first command fetches.
+
+**The siting orders.**
+
+```
+bin/sentinel doc get "https://opsb.ohio.gov/news/opsb-authorizes-construction-of-licking-county-power-plant-0626"
+bin/sentinel doc get "https://opsb.ohio.gov/news/opsb-authorizes-construction-of-wood-county-power-plant"
+bin/sentinel doc get "https://interactive.wtol.com/pdfs/power-siting-board-ohio-020326.pdf"
+```
+
+The third is the **OPSB board order itself**, not a summary of it — that is
+where the 34 conditions on Apollo actually live.
+
+**The pause, from the office that ordered it.**
+
+```
+bin/sentinel doc get "https://governor.ohio.gov/wps/portal/gov/governor/media/news-and-media/governor-dewine-announces-pause-of-data-center-tax-exemption"
+```
+
+**Two state datasets, both primary, both previously logged as unpulled.**
+
+```
+bin/sentinel doc get "https://dam.assets.ohio.gov/image/upload/puco.ohio.gov/empliibrary/files/OPA/Mapping/OPSB/Solar%20Facilities%20Map/Natural_Gas_Map_and_Stats.pdf"
+bin/sentinel doc get "https://dam.assets.ohio.gov/image/upload/puco.ohio.gov/OPSB/OPSB_2025_annual_report_final.pdf"
+```
+
+The first is Ohio's own gas generation and CHP case-status tracker. It settles
+operational-status dates against the state's own record instead of against a
+newsletter's characterization of it.
 
 If a fetch reports **almost no text**, it is a nav shell or a JavaScript
 page — saved and hashed, but not the record. If it reports a **ZIP wearing a
