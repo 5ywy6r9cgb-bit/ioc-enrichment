@@ -326,6 +326,8 @@ bin/sentinel connect sweep datacenters       # the plan, no calls
 bin/sentinel connect sweep datacenters --go  # run it
 bin/sentinel connect expand                  # ask every registrant you already have
 bin/sentinel connect expand --limit 25
+bin/sentinel connect farascan --match "hikvision|q cyber|nso"   # scan the WHOLE FARA register
+bin/sentinel connect farascan --match "data center|colocation" --limit 50
 bin/sentinel connect senatelda --registrant "<firm>"   # every client a firm files for
 bin/sentinel connect senatelda --registrant "<firm>" --pages 20
 bin/sentinel connect graph                   # preview the Neo4j graph (writes nothing)
@@ -334,6 +336,40 @@ bin/sentinel connect graph --dashboard       # → evidence/graph-dashboard.html
 bin/sentinel connect graph --dashboard --side-a "ENERGY|POWER|GAS" --side-b "AWS|META|MICROSOFT"
 bin/sentinel connect <connector> "<query>"   # one source only
 ```
+
+### `connect farascan` — read the register, not your own shortlist
+
+`faradocs` answers *"who paid this firm"*, and only if you already know the
+registration number. That bounds the answer by whose name you already
+suspected. `farascan` walks every ACTIVE registrant, pulls each one's
+documents, and matches the pattern against the **foreign principal** name and
+country — never against the registrant's own name, because every row carries
+that and a firm-name pattern would return the firm's whole history as "hits".
+
+```
+bin/sentinel connect farascan --match "hikvision|q cyber|huawei|zte"
+bin/sentinel connect farascan --match "nuclear|electric|power|grid"
+bin/sentinel connect farascan --match "data broker|advertising|analytics"
+bin/sentinel connect farascan --match "farm|agricultur|land"
+```
+
+Flags: `--limit N` (partial scan, and it says so), `--fresh-days N` (reuse
+cached copies, default 7), `--interval MS` (pacing, default 700ms),
+`--refresh` (ignore cache).
+
+The first run is ~500 paced requests and takes several minutes. Every
+registrant's documents are cached under `evidence/captures/farascan/`, so
+later scans on a different pattern are nearly instant and cost no requests.
+
+**Read the COVERAGE line before the hits.** The dangerous output of this
+command is not a false hit, it is a confident zero. A scan where 40
+registrants failed to answer will still print its matches, and "no registered
+foreign agent has ever filed for a surveillance company" is only worth
+something if the scan can say what share of the register it actually read.
+Failures are listed by registration number and are UNKNOWN, not zero; re-run
+to retry them, since everything that answered comes from cache. The scan also
+covers the **active** list only — a terminated registrant's history is not in
+it.
 
 ### The eleven connectors
 

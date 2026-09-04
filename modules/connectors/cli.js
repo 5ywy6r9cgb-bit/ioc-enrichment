@@ -16,6 +16,7 @@ const fs = require('fs');
 const path = require('path');
 const R = require('./registry.js');
 const RECENCY = require('./recency.js');
+const FSCAN = require('./farascan.js');
 
 const C = {
   b: (s) => `\x1b[1m${s}\x1b[0m`,
@@ -1575,6 +1576,95 @@ async function cmdSearch(name, query, opts) {
   console.log('');
 }
 
+
+/**
+ * sentinel connect farascan --match "REGEX"
+ *
+ * Walk the whole active FARA register and report which registered foreign
+ * agents have filed for a principal matching the pattern.
+ *
+ * The output leads with COVERAGE rather than with hits. That ordering is
+ * deliberate: the dangerous result from this command is not a false hit, it
+ * is a confident zero. "No registered foreign agent has ever filed for a
+ * surveillance company" is a very strong claim, and it is only worth
+ * anything if the scan can say how much of the register it actually read.
+ */
+async function cmdFaraScan(pattern, opts = {}) {
+  if (!pattern) {
+    console.error('\n  ' + C.r('farascan needs a pattern: --match "hikvision|nso|q cyber"') + '\n');
+    process.exit(2);
+  }
+
+  console.log(`\n${C.b('FARA register scan')}`);
+  console.log(`  pattern     ${pattern}`);
+  console.log(`  scope       every ACTIVE registrant's filed documents`);
+  console.log(`  matched on  foreign principal name and country ${C.dim('(not the firm name)')}`);
+  console.log(C.dim(`  pacing      ~${opts.intervalMs ?? FSCAN.DEFAULT_INTERVAL_MS}ms between calls; cached copies are reused for ${opts.freshDays || 7} days`));
+  if (opts.limit) console.log(C.y(`  LIMIT       ${opts.limit} registrants — this is a PARTIAL scan`));
+  console.log('');
+
+  let n = 0;
+  const out = await FSCAN.scan(pattern, Object.assign({}, opts, {
+    onProgress: (p) => {
+      n += 1;
+      if (p.failed) {
+        process.stdout.write(`\r  ${String(n).padStart(4)}  ${C.r('no answer')}  ${p.reg.number} ${p.reg.name.slice(0, 40)}          \n`);
+        return;
+      }
+      const mark = p.hits ? C.g('HIT') : '   ';
+      process.stdout.write(`\r  ${String(n).padStart(4)}  ${mark}  ${String(p.docs).padStart(5)} docs  ${p.reg.name.slice(0, 44)}          `);
+      if (p.hits) process.stdout.write('\n');
+    },
+  }));
+  process.stdout.write('\r' + ' '.repeat(90) + '\r');
+
+  if (!out.ok) {
+    console.error(`\n  ${C.r(out.error)}\n`);
+    process.exit(1);
+  }
+
+  // ---- coverage FIRST -------------------------------------------------
+  console.log(`\n  ${C.b('COVERAGE')}  ${FSCAN.coverageLine(out)}`);
+  console.log(C.dim(`  ${out.docsRead} document(s) read, ${out.fromCache} registrant(s) served from cache`));
+  if (out.registrantsFailed) {
+    console.log(C.y(`\n  ${out.registrantsFailed} registrant(s) did not answer. They are UNKNOWN, not empty.`));
+    for (const f of out.failures.slice(0, 12)) {
+      console.log(C.dim(`    ${f.number.padEnd(8)} ${f.name.slice(0, 44).padEnd(46)} ${f.error}`));
+    }
+    if (out.failures.length > 12) console.log(C.dim(`    …and ${out.failures.length - 12} more`));
+    console.log(C.dim('    Re-run to retry them; answered registrants come from cache and cost nothing.'));
+  }
+
+  // ---- hits ------------------------------------------------------------
+  if (!out.hits.length) {
+    console.log(`\n  ${C.y('No principal matched that pattern in what was read.')}`);
+    console.log(C.dim('  That is a bounded null, not an absence. It says nothing about the'));
+    console.log(C.dim('  registrants above that did not answer, about TERMINATED registrants'));
+    console.log(C.dim('  (this scans the ACTIVE list only), or about a principal filed under'));
+    console.log(C.dim('  a name your pattern does not spell the same way.\n'));
+    return;
+  }
+
+  console.log(`\n  ${C.b(`${out.hits.length} registrant(s) filed for a matching principal`)}\n`);
+  for (const h of out.hits) {
+    console.log(`  ${C.b(h.registrant)}  ${C.dim('#' + h.number)}`);
+    for (const p of h.principals) {
+      const span = p.first === p.last
+        ? String(p.first || '').slice(0, 10)
+        : `${String(p.first || '').slice(0, 10)} .. ${String(p.last || '').slice(0, 10)}`;
+      console.log(`    ${String(p.docs).padStart(4)}  ${span}  ${p.principal}${p.country ? `  [${p.country}]` : ''}`);
+      console.log(C.dim(`          ${p.types.join(', ')}`));
+      if (p.sample) console.log(C.dim(`          ${p.sample}`));
+    }
+    console.log('');
+  }
+
+  console.log('  ' + C.y('These are FILINGS, not findings.'));
+  console.log(C.dim('  A registrant appearing here filed for that principal. It does not say'));
+  console.log(C.dim('  the principal directed anything, and it is not a link between two'));
+  console.log(C.dim('  clients of the same firm. Pull the Exhibit AB before writing anything.\n'));
+}
+
 async function main() {
   const argv = process.argv.slice(2);
   const opts = { dryRun: argv.includes('--dry-run') };
@@ -1624,6 +1714,21 @@ async function main() {
   }
   // --registrant turns the senatelda search around: "who does this firm file
   // for" rather than "who filed for this company".
+  if (action === 'farascan') {
+    const flagVal = (name) => {
+      const i = argv.findIndex((a) => a === name || a.startsWith(name + '='));
+      if (i < 0) return null;
+      if (argv[i].startsWith(name + '=')) return argv[i].slice(name.length + 1);
+      return argv[i + 1] && !argv[i + 1].startsWith('--') ? argv[i + 1] : null;
+    };
+    const num = (v) => (v === null ? undefined : parseInt(v, 10));
+    return cmdFaraScan(flagVal('--match') || args.slice(1).join(' '), {
+      limit: num(flagVal('--limit')),
+      freshDays: num(flagVal('--fresh-days')),
+      intervalMs: num(flagVal('--interval')),
+      refresh: argv.includes('--refresh'),
+    });
+  }
   if (action === 'brief') return cmdBrief(args.slice(1).join(' '), {});
   if (action === 'sweep') {
     return cmdSweep(args[1], {
@@ -1698,4 +1803,4 @@ if (require.main === module) {
   main().catch((e) => { console.error(e); process.exit(1); });
 }
 
-module.exports = { verdictFor, cmdTest, wrap, parseAllArgs, cmdLobby, cmdGraph, cmdRegistrant, cmdExpand, cmdSweep, cmdBrief };
+module.exports = { verdictFor, cmdTest, cmdFaraScan, wrap, parseAllArgs, cmdLobby, cmdGraph, cmdRegistrant, cmdExpand, cmdSweep, cmdBrief };

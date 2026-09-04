@@ -43,6 +43,7 @@
 #   sentinel connect lobby --chart  read the captured lobbying filings, charted
 #   sentinel connect expand         ask every registrant who else they file for
 #   sentinel connect sweep SET      run a whole named subject list
+#   sentinel connect farascan --match RE   scan the WHOLE FARA register for a principal
 #                                   --new-only skips subjects captured today
 #   sentinel connect brief "NAME"   everything the library holds on one name
 #
@@ -209,6 +210,9 @@ PYSTATUS
     echo "== capture recency =="
     node "$ROOT/modules/connectors/test_recency.js" || FAILED=1
     echo ""
+    echo "== FARA register scan =="
+    node "$ROOT/modules/connectors/test_farascan.js" || FAILED=1
+    echo ""
     echo "== lobbying filings =="
     node "$ROOT/modules/connectors/test_lobby.js" || FAILED=1
 
@@ -355,7 +359,7 @@ PYSTATUS
     # works when the module is called directly is not yet a command that works.
     action="${1:-test}"; shift || true
     case "$action" in
-      test|list|all|crosslink|lobby|graph|expand|sweep|brief)
+      test|list|all|crosslink|lobby|graph|expand|sweep|brief|farascan)
         node "$ROOT/modules/connectors/cli.js" "$action" "$@"
         ;;
       *)
