@@ -897,6 +897,36 @@ readable — an error page, a cookie banner and a JavaScript shell all produce
 one, and filing one as a record is how "the filing does not mention that"
 gets written about a filing nobody could read.
 
+### `corpus inventory --save-text` — a PDF corpus you can grep AND cite
+
+```bash
+bin/sentinel corpus inventory "/Volumes/NO NAME/CC19094/DR" \
+  --out ~/sentinel/evidence/cc19094 \
+  --save-text ~/sentinel/evidence/cc19094/text
+```
+
+Without `--save-text` the inventory counts each PDF's extractable characters
+and throws the text away. With it, the text is kept — each file named by the
+first 16 characters of the **SHA-256 of the bytes it came from**, with the
+source path, hash and character count in a header.
+
+That naming is the whole point. A folder of extracted `.txt` is a searchable
+corpus and *not* evidence: text on disk cannot prove which bytes produced it.
+Hash-named files mean a paragraph you quote in print leads back to a specific
+file whose hash you can re-check, and a re-scan that yields a different hash
+lands beside the old one instead of silently overwriting it.
+
+**An image-only PDF is written, not skipped**, with a header saying it has no
+text layer and naming `corpus ocr`. Writing an empty result silently is how a
+200-page scanned deposition becomes a document that "says nothing" and every
+keyword search over it returns a confident, wrong null. A file where
+`pdftotext` could not run at all is recorded as a check that *did not happen* —
+never as zero characters.
+
+Do not write the output to the Desktop. It is the least protected folder on
+the machine: screen-shared, cloud-synced, and shown to whoever is looking over
+your shoulder. `evidence/` is gitignored and CI-enforced.
+
 ### `mail scan` / `mail read` — a records production of email
 
 ```bash

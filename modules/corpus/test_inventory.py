@@ -207,6 +207,55 @@ sys.exit(I.main())
         check("identical files across two shelves are reported as cross-shelf",
               "MORE THAN ONE shelf" in r.stdout, r.stdout[-500:])
 
+        # ══ 7. KEEPING THE TEXT: A CORPUS YOU CAN GREP *AND* CITE ═════════
+        #
+        # The scraper this replaces kept the text and recorded no hash, so a
+        # quoted paragraph could not be traced to the bytes it came from. And
+        # it wrote an empty result for an image-only PDF with no comment —
+        # which turns a 200-page scan into a document that "says nothing" and
+        # every keyword search over it into a confident, wrong null.
+        tdir = tmp / "textout"
+        readable = tmp / "readable.pdf"
+        readable.write_bytes(b"%PDF-1.4\nnot a real pdf body")
+        sha = "a" * 64
+
+        # pdftotext may not exist on the runner. Both paths must be safe, so
+        # drive each one deliberately rather than depending on the machine.
+        real = I.pdf_text
+        try:
+            I.pdf_text = lambda p: "Gowdy Field shaft site power extension\n" * 40
+            chars, dest = I.save_text(readable, sha, tdir)
+            body = Path(dest).read_text()
+            check("the extracted text is kept", chars and chars > 200, str(chars))
+            check("the file is named by the hash of the bytes it came from",
+                  Path(dest).name.startswith(sha[:16]), Path(dest).name)
+            check("and the text carries its own source and hash in a header",
+                  str(readable) in body and sha in body)
+            check("a readable document is not labelled a scan",
+                  "NO TEXT LAYER" not in body)
+
+            # The dangerous case.
+            I.pdf_text = lambda p: "   \n  \n"
+            chars, dest = I.save_text(readable, "b" * 64, tdir)
+            body = Path(dest).read_text()
+            check("an image-only PDF is written, not skipped", Path(dest).exists())
+            check("and it SAYS it is a scan rather than reading as empty",
+                  "NO TEXT LAYER" in body
+                  and "match no keyword search" in body, body[:200])
+            check("it names the command that fixes it",
+                  "corpus ocr" in body)
+
+            # The case that must never read as reassuring.
+            I.pdf_text = lambda p: None
+            chars, dest = I.save_text(readable, "c" * 64, tdir)
+            body = Path(dest).read_text()
+            check("a check that could not run reports None, not zero characters",
+                  chars is None, str(chars))
+            check("and the file says the check did not happen",
+                  "did not happen" in body and "NOT a document that says nothing" in body)
+        finally:
+            I.pdf_text = real
+
     print(f"\n  {'FAIL' if FAIL else 'PASS'} — {PASS}/{PASS + FAIL} checks\n")
     return 1 if FAIL else 0
 

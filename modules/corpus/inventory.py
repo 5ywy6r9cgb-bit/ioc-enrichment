@@ -82,14 +82,73 @@ def magic_type(path: Path) -> str:
         return "unknown"
 
 
-def pdf_text_chars(path: Path) -> int | None:
-    """Characters pdftotext can extract. None if not applicable/failed."""
+def pdf_text(path: Path) -> str | None:
+    """The text pdftotext can extract. None if it could not run at all."""
     try:
-        out = subprocess.run(["pdftotext", str(path), "-"],
+        out = subprocess.run(["pdftotext", "-layout", str(path), "-"],
                              capture_output=True, text=True, timeout=90)
-        return len(out.stdout.strip())
+        return out.stdout
     except Exception:
         return None
+
+
+def pdf_text_chars(path: Path) -> int | None:
+    """Characters pdftotext can extract. None if not applicable/failed."""
+    t = pdf_text(path)
+    return None if t is None else len(t.strip())
+
+
+def save_text(path: Path, sha: str, outdir: Path) -> tuple[int | None, str]:
+    """
+    Extract a PDF's text and keep it, named by the hash of the bytes it
+    came from.
+
+    ─────────────────────────────────────────────────────────────────────
+    WHY THE FILENAME CARRIES THE HASH
+
+    A folder of extracted .txt files is a searchable corpus and NOT evidence
+    — text on disk cannot prove which bytes produced it. Naming each file
+    after the first 16 characters of the source's SHA-256 means a passage you
+    quote leads back to a specific file whose hash you can re-check, and a
+    later re-scan that produces a different hash for the "same" document
+    lands beside the old one instead of silently overwriting it.
+
+    The failure this prevents is the one that costs you a story: quoting a
+    paragraph in print and being unable to say which document it came out of.
+
+    ─────────────────────────────────────────────────────────────────────
+    A SCAN IS NOT AN EMPTY DOCUMENT
+
+    An image-only PDF extracts to nothing. Writing that empty result with no
+    comment produces a corpus where a 200-page deposition reads as a document
+    that says nothing, and every keyword search over it returns a confident,
+    wrong null. So a file below the text-layer floor is written with a header
+    saying so, and the manifest records it as needing OCR.
+    """
+    outdir.mkdir(parents=True, exist_ok=True)
+    text = pdf_text(path)
+    stem = f"{sha[:16]}__{path.stem[:60]}.txt"
+    dest = outdir / stem
+
+    if text is None:
+        dest.write_text(
+            f"[NO TEXT EXTRACTED — pdftotext could not run on this file]\n"
+            f"[source: {path}]\n[sha256: {sha}]\n"
+            f"[This is NOT a document that says nothing. It is a check that\n"
+            f" did not happen. Install poppler (brew install poppler) and\n"
+            f" re-run before treating any null search against it as absence.]\n",
+            encoding="utf-8")
+        return None, str(dest)
+
+    chars = len(text.strip())
+    header = (f"[source: {path}]\n[sha256: {sha}]\n[characters: {chars}]\n")
+    if chars < TEXT_LAYER_MIN_CHARS:
+        header += (
+            "[NO TEXT LAYER — this document is almost certainly a scan.]\n"
+            "[It will match no keyword search regardless of what it says.]\n"
+            "[OCR it first:  bin/sentinel corpus ocr <folder> --out <folder>_derived]\n")
+    dest.write_text(header + "\n" + text, encoding="utf-8")
+    return chars, str(dest)
 
 
 def classify(row: dict) -> str:
@@ -116,7 +175,8 @@ def classify(row: dict) -> str:
 
 def scan(root: Path, shelf_name: str = "", volume_id: str = "",
          volume_root: Path | None = None,
-         done: dict | None = None) -> tuple[list[dict], str | None]:
+         done: dict | None = None,
+         text_dir: Path | None = None) -> tuple[list[dict], str | None]:
     """Inventory one root.
 
     `shelf_name` and `volume_id` are carried onto every row. Without them a
@@ -198,7 +258,13 @@ def scan(root: Path, shelf_name: str = "", volume_id: str = "",
             continue
 
         if row["ext"] == ".pdf" and size > 0:
-            row["text_chars"] = pdf_text_chars(p)
+            if text_dir is not None:
+                # One extraction, used twice: the count for the verdict and
+                # the text for the corpus. Extracting twice would double the
+                # slowest step in the scan for no gain.
+                row["text_chars"], row["text_file"] = save_text(p, row["sha256"], text_dir)
+            else:
+                row["text_chars"] = pdf_text_chars(p)
         row["verdict"] = classify(row)
         rows.append(row)
 
@@ -357,6 +423,10 @@ def main() -> int:
     ap.add_argument("roots", nargs="+",
                     help="shelf names (N1, N2, N1/records) or folder paths")
     ap.add_argument("--out", default="inventory_out", help="output folder")
+    ap.add_argument("--save-text", metavar="DIR",
+                    help="also keep each PDF's extracted text, named by the "
+                         "hash of the bytes it came from — a corpus you can "
+                         "grep AND cite")
     ap.add_argument("--resume", action="store_true",
                     help="reuse hashes from a previous run in --out")
     args = ap.parse_args()
@@ -393,6 +463,8 @@ def main() -> int:
         label = f"{name} ({root})" if name else str(root)
         print(f"Inventorying {label}")
         got, why = scan(root, shelf_name=name, volume_id=vid,
+                        text_dir=(Path(args.save_text).expanduser()
+                                  if args.save_text else None),
                         volume_root=vroot, done=done)
         rows.extend(got)
         if why:
@@ -423,7 +495,8 @@ def main() -> int:
     complete = not truncated
     csv_path = outdir / ("inventory.csv" if complete else "inventory.PARTIAL.csv")
     fields = ["shelf", "volume_id", "filename", "relpath", "ext", "size_bytes",
-              "size_kb", "real_type", "sha256", "text_chars", "verdict"]
+              "size_kb", "real_type", "sha256", "text_chars", "verdict",
+              "text_file"]
     with csv_path.open("w", newline="") as fh:
         w = csv.DictWriter(fh, fieldnames=fields, extrasaction="ignore")
         w.writeheader()
