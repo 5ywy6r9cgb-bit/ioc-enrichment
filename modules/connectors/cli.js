@@ -1608,7 +1608,8 @@ async function cmdFaraScan(pattern, opts = {}) {
     onProgress: (p) => {
       n += 1;
       if (p.failed) {
-        process.stdout.write(`\r  ${String(n).padStart(4)}  ${C.r('no answer')}  ${p.reg.number} ${p.reg.name.slice(0, 40)}          \n`);
+        const why = p.throttled ? C.y('rate limited') : C.r('no answer');
+        process.stdout.write(`\r  ${String(n).padStart(4)}  ${why}  ${p.reg.number} ${p.reg.name.slice(0, 40)}          \n`);
         return;
       }
       const mark = p.hits ? C.g('HIT') : '   ';
@@ -1627,7 +1628,13 @@ async function cmdFaraScan(pattern, opts = {}) {
   console.log(`\n  ${C.b('COVERAGE')}  ${FSCAN.coverageLine(out)}`);
   console.log(C.dim(`  ${out.docsRead} document(s) read, ${out.fromCache} registrant(s) served from cache`));
   if (out.registrantsFailed) {
+    const t = out.registrantsThrottled || 0;
     console.log(C.y(`\n  ${out.registrantsFailed} registrant(s) did not answer. They are UNKNOWN, not empty.`));
+    if (t) {
+      console.log(C.dim(`  ${t} of them were RATE LIMITED — the scan caused that silence, not DOJ.`));
+      console.log(C.dim(`  Pacing ended at ${out.finalIntervalMs}ms. Re-run: everything already read is`));
+      console.log(C.dim('  cached and free, so each pass covers more of the register than the last.'));
+    }
     for (const f of out.failures.slice(0, 12)) {
       console.log(C.dim(`    ${f.number.padEnd(8)} ${f.name.slice(0, 44).padEnd(46)} ${f.error}`));
     }

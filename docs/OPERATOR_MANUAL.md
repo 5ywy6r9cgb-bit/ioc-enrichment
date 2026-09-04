@@ -354,8 +354,21 @@ bin/sentinel connect farascan --match "farm|agricultur|land"
 ```
 
 Flags: `--limit N` (partial scan, and it says so), `--fresh-days N` (reuse
-cached copies, default 7), `--interval MS` (pacing, default 700ms),
+cached copies, default 7), `--interval MS` (pacing, default 1500ms),
 `--refresh` (ignore cache).
+
+**On rate limiting.** DOJ throttles. A 429 is answered with Retry-After when
+the service sends one, otherwise a geometric backoff, and a throttle
+permanently slows the rest of the run — returning to the old cadence just
+walks into the next 429. Registrants still throttled after the retries are
+reported separately from real failures, because that silence was caused by
+the scan, not by DOJ, and **re-running clears it**: everything already read
+comes from cache, so each pass covers more of the register than the last.
+
+**Write patterns with word boundaries.** `land` matches Iceland, Somaliland,
+Finland, Switzerland, Poland and every Islands. Use `\bfarmland\b` or
+`agricultur` instead. A pattern that floods is worse than one that misses,
+because you will read the flood and conclude something from it.
 
 The first run is ~500 paced requests and takes several minutes. Every
 registrant's documents are cached under `evidence/captures/farascan/`, so

@@ -159,16 +159,86 @@ module.exports = function run() {
           return F.scan('([unclosed', opts).then((bad) => {
             check('an unparseable pattern is refused, not run as zero hits',
               bad.ok === false && /not a valid pattern/.test(bad.error), bad.error);
-
             fs.rmSync(dir, { recursive: true, force: true });
-            console.log(`\n  ${FAIL === 0 ? 'PASS' : 'FAIL'} — ${PASS}/${PASS + FAIL} checks\n`);
-            return FAIL;
+            return rateLimitTests();
           });
         });
       });
     });
   }
 };
+
+/**
+ * ══ A RATE LIMIT IS NOT AN ANSWER ══════════════════════════════════════
+ *
+ * The first live run paced at 700ms and got 478 of 536 registrants back as
+ * HTTP 429. The scan then reported them as "did not answer — unknown, not
+ * zero", which is true and useless: the tool had manufactured the silence it
+ * was reporting, and nothing in the output said the fix was simply to slow
+ * down and go again.
+ */
+function rateLimitTests() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'farascan429-'));
+  const listFile = path.join(dir, 'captures', 'farascan', 'active_registrants.json');
+  fs.mkdirSync(path.dirname(listFile), { recursive: true });
+  fs.writeFileSync(listFile, JSON.stringify({ REGISTRANTS_ACTIVE: { ROW: [
+    { Registration_Number: '10', Name: 'Alpha' },
+    { Registration_Number: '11', Name: 'Bravo' },
+  ] } }));
+
+  const body = (principal) => Buffer.from(JSON.stringify({ REGDOCS: { ROW: [{
+    DATE_STAMPED: '2024-01-01', REGISTRATION_NUMBER: '10',
+    FOREIGN_PRINCIPAL_COUNTRY: 'CHINA', DOCUMENT_TYPE: 'Exhibit AB',
+    REGISTRANT_NAME: 'X', URL: 'https://efile.fara.gov/d/1',
+    FOREIGN_PRINCIPAL_NAME: principal,
+  }] } }));
+
+  // Header form: Retry-After in seconds.
+  check('Retry-After in seconds is read',
+    F.retryAfterMs({ headers: { 'retry-after': '3' } }) === 3000);
+  check('Retry-After as an HTTP date is read',
+    F.retryAfterMs({ headers: { 'retry-after': new Date(Date.now() + 5000).toUTCString() } }) > 3000);
+  check('a response with no Retry-After returns null, not zero',
+    F.retryAfterMs({ headers: {} }) === null);
+
+  // 10 throttles twice then succeeds; 11 throttles forever.
+  let seen10 = 0;
+  const waits = [];
+  const req = async (method, url) => {
+    const n = (/RegDocs\/json\/(\d+)/.exec(url) || [])[1];
+    if (n === '10') {
+      seen10 += 1;
+      if (seen10 <= 2) return { status: 429, headers: { 'retry-after': '0' }, body: Buffer.from('') };
+      return { status: 200, headers: {}, body: body('Hikvision USA Inc.') };
+    }
+    return { status: 429, headers: { 'retry-after': '0' }, body: Buffer.from('') };
+  };
+
+  return F.scan(/hikvision/i, {
+    evidenceRoot: dir, request: req, intervalMs: 0, freshDays: 99,
+    onNote: (m) => waits.push(m),
+  }).then((out) => {
+    check('a registrant that throttles then answers is READ, not written off',
+      out.registrantsRead === 1 && out.hits.length === 1, out.registrantsRead);
+    check('it retried rather than giving up on the first 429',
+      seen10 === 3, String(seen10));
+    check('a registrant that never stops throttling is a failure, not a zero',
+      out.registrantsFailed === 1, out.registrantsFailed);
+    check('and that failure is labelled as throttling specifically',
+      out.registrantsThrottled === 1 && /rate limited, not empty/.test(out.failures[0].error),
+      JSON.stringify(out.failures));
+    check('the operator is told the retry is happening, not left staring at a pause',
+      waits.some((w) => /rate limited, waiting/.test(w)), waits[0]);
+
+    const line = F.coverageLine(out);
+    check('the coverage sentence says re-running clears a throttle',
+      /re-running clears them/i.test(line), line);
+
+    fs.rmSync(dir, { recursive: true, force: true });
+    console.log(`\n  ${FAIL === 0 ? 'PASS' : 'FAIL'} — ${PASS}/${PASS + FAIL} checks\n`);
+    return FAIL;
+  });
+}
 
 if (require.main === module) {
   Promise.resolve(module.exports()).then((f) => process.exit(f ? 1 : 0));
