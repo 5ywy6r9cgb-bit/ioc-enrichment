@@ -255,6 +255,28 @@ module.exports = function run() {
       !CLI.looksInline({ name: 'image001.png', bytes: 4 * 1024 * 1024 }));
   }
 
+  // ══ DEDUPING THE REPORT IS NOT DEDUPING THE DISK ══════════════════════
+  //
+  // The same PDF forwarded to three custodians is one document. The first
+  // version of this extracted every attachment in a message and filtered
+  // afterwards — which filtered the printed list while all three copies were
+  // already on disk. A deduplicated run reported 92 files and wrote 120, and
+  // the inventory afterwards is what caught it. Three copies of one record
+  // read as a pattern of records.
+  {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'msgatt-'));
+    const src = path.join(__dirname, '..', '..', 'modules', 'mail', 'msg.js');
+    const code = fs.readFileSync(src, 'utf8');
+    ok('extractAttachments can be told to write a single attachment',
+      /opts\.only/.test(code));
+    ok('and it skips the others before touching the disk',
+      /opts\.only && !opts\.only\.has\(sha256\)[\s\S]{0,60}continue/.test(code));
+    const cli = fs.readFileSync(path.join(__dirname, 'cli.js'), 'utf8');
+    ok('the extractor is called with that restriction, not filtered afterwards',
+      /extractAttachments\(m\.file, outDir, \{ only:/.test(cli));
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+
   console.log(`\n  ${FAIL ? 'FAIL' : 'PASS'} — ${PASS}/${PASS + FAIL} checks\n`);
   return FAIL;
 };

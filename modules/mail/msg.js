@@ -303,6 +303,11 @@ function extractAttachments(file, outDir, opts = {}) {
     const sha256 = crypto.createHash('sha256').update(bytes).digest('hex');
 
     const rec = { name, sha256, bytes: bytes.length };
+    // `only` lets a caller write ONE attachment out of a message that carries
+    // several. Without it the caller must write them all and discard the
+    // extras afterwards -- which does not discard anything, because they are
+    // already on disk by then.
+    if (opts.only && !opts.only.has(sha256)) { out.push(rec); continue; }
     if (outDir && !opts.listOnly) {
       fs.mkdirSync(outDir, { recursive: true });
       const dest = path.join(outDir, `${sha256.slice(0, 16)}__${safeName(name)}`);

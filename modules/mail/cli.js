@@ -394,8 +394,12 @@ function cmdAttachments(opts = {}) {
       if (seen.has(a.sha256)) continue;
       seen.set(a.sha256, a.name);
       try {
-        const [rec] = M.extractAttachments(m.file, outDir)
-          .filter((x) => x.sha256 === a.sha256);
+        // Write ONLY this one. Extracting the whole message and filtering
+        // afterwards filters the REPORT, not the disk -- every duplicate is
+        // already written by the time the filter runs, which is how a
+        // deduplicated run still produced 120 files while reporting 92.
+        const [rec] = M.extractAttachments(m.file, outDir, { only: new Set([a.sha256]) })
+          .filter((x) => x.file);
         if (!rec) continue;
         if (!printedHeader) {
           console.log(`  ${C.dim((m.date || '(no date)').slice(0, 25))}  ${m.subject.slice(0, 60)}`);
