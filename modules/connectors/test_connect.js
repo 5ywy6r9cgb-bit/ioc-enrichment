@@ -891,6 +891,78 @@ module.exports = function run() {
       R.decodeBody(Buffer.from([0x93, 0x41, 0x94])));
   }
 
+  // ══ SEC EDGAR — THE ONLY SWORN NUMBER ON FAKE ACCOUNTS ════════════════
+  //
+  // The whole point of this connector is that a platform's own 10-K is the
+  // only public, company-specific, sworn figure on duplicate and false
+  // accounts. Every defect below would turn that into a confident zero.
+  {
+    const c = R.CONNECTORS.sec;
+    check('sec is registered', !!c);
+
+    // SEC refuses automated clients that do not identify themselves, and the
+    // refusal is an HTML 403 — which a JSON parser reads as "no results".
+    const ua = c.run('x', null, {}).headers['User-Agent'];
+    check('every SEC request declares a contact in its User-Agent', !!ua && /sentinel/.test(ua), ua);
+    check('and says so loudly when no contact has been configured',
+      /SEC_CONTACT/.test(ua) || !/not set/.test(ua), ua);
+    check('a non-JSON body is diagnosed as a refusal, not as an empty result',
+      /not JSON/i.test(c.diagnose('<html>Request Rate Threshold Exceeded</html>')));
+
+    // A filing hit has to reach the actual document. A constructed EDGAR path
+    // that 404s is worse than no link: it looks checkable and is not.
+    const sample = { hits: { total: { value: 412 }, hits: [{
+      _id: '0001326801-24-000012:meta-20231231.htm',
+      _source: { ciks: ['0001326801'], root_form: '10-K', file_date: '2024-02-02',
+        display_names: ['Meta Platforms, Inc.  (META)  (CIK 0001326801)'] },
+    }] } };
+    const [row] = c.parse(sample);
+    check('the filing URL is built from the accession and document name',
+      row.url === 'https://www.sec.gov/Archives/edgar/data/1326801/000132680124000012/meta-20231231.htm',
+      row.url);
+    check('the CIK is stripped of leading zeros for the archive path',
+      /\/data\/1326801\//.test(row.url), row.url);
+
+    // "Meta Platforms, Inc.  (META)  (CIK 0001326801)" as a name matches no
+    // other connector's spelling of the same company, so the entity index
+    // would carry it as a separate company forever.
+    check('the ticker and CIK are not left glued inside the company name',
+      row.name === 'Meta Platforms, Inc.', row.name);
+    check('the ticker is kept, separately', row.ticker === 'META', row.ticker);
+    check('the CIK is kept, separately', row.cik === '0001326801', row.cik);
+
+    // A hit with no id must not silently produce a link to nowhere.
+    const [bare] = c.parse({ hits: { hits: [{ _source: { display_names: ['X Corp.'] } }] } });
+    check('a hit with no accession yields no URL rather than a broken one',
+      bare.url === '', bare.url);
+
+    // A schema change under hits.hits reports "this company never disclosed a
+    // false-account estimate" about a company that discloses one every year.
+    check('a missing hits array is diagnosed as a schema mismatch',
+      /schema mismatch/i.test(c.diagnose({ took: 3 })));
+    check('and the top-level keys are shown so it can be fixed',
+      /took/.test(c.diagnose({ took: 3 })));
+
+    // Zero hits out of a non-zero reported total is a real search result and
+    // must not read as a fact about the company.
+    check('an honest zero says what was searched, not what is true',
+      /search result, not a fact/.test(c.diagnose({ hits: { total: { value: 412 }, hits: [] } })));
+
+    // The default narrows to 10-K because that is where the disclosure lives;
+    // --allforms has to actually drop the filter.
+    check('10-K is the default form filter', /forms=10-K/.test(c.run('q', null, {}).url));
+    check('--allforms drops the form filter',
+      !/forms=/.test(c.run('q', null, { allforms: true }).url));
+    check('and the announced request line says which was used',
+      /10-K only/.test(c.describe('q', {})) && /ALL/.test(c.describe('q', { allforms: true })));
+
+    // A multi-word disclosure phrase must go as a phrase. "false or duplicate
+    // accounts" sent as loose terms matches every filing containing "accounts".
+    check('a short disclosure phrase is sent as an exact phrase',
+      /%22/.test(c.run('false or duplicate accounts', null, {}).url),
+      c.run('false or duplicate accounts', null, {}).url);
+  }
+
   console.log(`\n  ${FAIL === 0 ? 'PASS' : 'FAIL'} — ${PASS}/${PASS + FAIL} checks\n`);
   return FAIL;
 };

@@ -1489,7 +1489,7 @@ async function cmdSearch(name, query, opts) {
   console.log(`  subject     ${query}`);
   console.log(`  calls       ${c.calls} (exactly)`);
   console.log(`  request     ${c.describe(query,
-    { exact: opts.exact, any: opts.any, dockets: opts.dockets })}`);
+    { exact: opts.exact, any: opts.any, dockets: opts.dockets, allforms: opts.allforms })}`);
   console.log(`  key         ${key ? C.g('present, sent in Authorization header only')
     : (keyMissing ? C.r(`MISSING — set ${c.keyVar} in .env`)
       : (c.keyVar ? C.y('none (anonymous)') : C.dim('none needed')))}`);
@@ -1522,7 +1522,7 @@ async function cmdSearch(name, query, opts) {
   }
 
   const out = await R.runConnector(name, query,
-    { env, exact: opts.exact, any: opts.any, dockets: opts.dockets });
+    { env, exact: opts.exact, any: opts.any, dockets: opts.dockets, allforms: opts.allforms });
   if (!out.ok) {
     console.error(C.r(`\n  ${out.error} — nothing written.`));
     if (out.status === 401 || out.status === 403) console.error('  The key was rejected. Run: sentinel connect test\n');
@@ -1929,13 +1929,15 @@ async function main() {
     return cmdSearch(args[1], positional(2).join(' '),
       Object.assign({}, opts, { into: intoOf(argv),
         exact: argv.includes('--exact'), any: argv.includes('--any'),
-        dockets: argv.includes('--dockets') }));
+        dockets: argv.includes('--dockets'),
+        allforms: argv.includes('--allforms') }));
   }
   if (R.CONNECTORS[action]) {
     return cmdSearch(action, positional(1).join(' '),
       Object.assign({}, opts, { into: intoOf(argv),
         exact: argv.includes('--exact'), any: argv.includes('--any'),
-        dockets: argv.includes('--dockets') }));
+        dockets: argv.includes('--dockets'),
+        allforms: argv.includes('--allforms') }));
   }
 
   console.error(`unknown action: ${action}`);

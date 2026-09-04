@@ -310,7 +310,7 @@ PRA_MAIL_MAX_PER_RUN=5          # cap on one `send`
 
 ```bash
 bin/sentinel connect test                    # which keys are set, and reachable
-bin/sentinel connect list                    # the eleven connectors and their key variables
+bin/sentinel connect list                    # the twelve connectors and their key variables
 bin/sentinel connect all "<subject>"         # search every source at once
 bin/sentinel connect all "<subject>" --into <investigation>
 bin/sentinel connect all "<subject>" --dry-run
@@ -338,6 +338,8 @@ bin/sentinel connect <connector> "<query>"   # one source only
 bin/sentinel connect courtlistener "<party>" --dockets     # indictments, not opinions
 bin/sentinel connect federalregister "<query>" --exact   # force a phrase search
 bin/sentinel connect federalregister "<query>" --any      # force separate terms
+bin/sentinel connect sec "<phrase>"                      # 10-K full text
+bin/sentinel connect sec "<phrase>" --allforms           # every form type
 ```
 
 ### OpenSanctions searches people AND organisations
@@ -367,6 +369,47 @@ Searching opinions for a charging document returns zero forever, and the zero
 looks like an answer. The request line now states which index it searched.
 Multi-word party names are also phrase-quoted here (they weren't — "Internet
 Research Agency" was returning *Hachette v. Internet Archive*).
+
+### SEC EDGAR: the only sworn number on fake accounts
+
+Nobody outside a platform can count its inauthentic accounts — the data is
+server-side, and every public figure is a sample generalised to a population
+no outsider can see. But Meta, Snap, Pinterest and Reddit each **disclose an
+estimate of duplicate and false accounts in their 10-K**, signed by named
+officers under Sarbanes-Oxley s.302, because advertisers price inventory on
+user counts and a materially wrong count is securities fraud.
+
+That makes the 10-K the only public, company-specific, comparable, sworn
+figure on the question.
+
+```bash
+bin/sentinel connect sec "false or duplicate accounts"
+bin/sentinel connect sec "duplicate accounts" --allforms
+```
+
+**Set `SEC_CONTACT` in `.env` first.** SEC refuses automated requests that do
+not declare a contact address, and the refusal is an HTML 403 — which a JSON
+parser reads as *no results*. The connector sends a `User-Agent` naming you,
+and says so in the request line; without the variable it still runs, but the
+diagnosis will tell you the zero is not trustworthy.
+
+```
+SEC_CONTACT=you@example.com
+```
+
+**What a disclosure is not.** A duplicate account is a real person's second
+account. A "false" account covers user-misclassified accounts (a pet, a
+business run from a personal profile) *and* accounts the company judges
+undesirable — spam, scripted, malicious. Only that last slice is what anyone
+means by "bot", and the filings do not break it out by campaign, origin or
+sponsor. Nothing in EDGAR connects a platform's estimate to any influence
+operation. Reporting it as though it did would be the easiest false claim in
+this whole subject.
+
+Full-text search covers **2001 onward** and searches filing text only. A
+company that words its disclosure differently will not match — that is a
+search result, not a fact about the company. Try the neighbouring phrasings
+before concluding anything from a zero.
 
 ### Phrase vs. terms on the full-text sources
 
@@ -484,7 +527,7 @@ to retry them, since everything that answered comes from cache. The scan also
 covers the **active** list only — a terminated registrant's history is not in
 it.
 
-### The eleven connectors
+### The twelve connectors
 
 | Name | Source | Key variable |
 |---|---|---|
@@ -499,6 +542,7 @@ it.
 | `usaspending` | USAspending federal awards — **procurement contracts only** | none needed |
 | `federalgrants` | USAspending grants & cooperative agreements | none needed |
 | `fara` | FARA — agents of foreign principals (22 U.S.C. 611) | none needed |
+| `sec` | SEC EDGAR full-text search of filings | none — but set `SEC_CONTACT` |
 
 `connect all` deliberately **skips `bls`** — it takes series IDs, not names,
 so a company name against it is meaningless.
@@ -1927,7 +1971,7 @@ This is the single most useful page in the manual, because the failure it
 prevents is concluding that a record *doesn't exist* when you simply asked
 the wrong government.
 
-The eleven connectors are **federal**. The following are **not** federal
+The twelve connectors are **federal**. The following are **not** federal
 records and will never appear in a `connect all`, no matter how you phrase
 the subject:
 

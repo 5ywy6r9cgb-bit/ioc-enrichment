@@ -346,6 +346,19 @@ function retryAfterMs(res) {
   return null;
 }
 
+/**
+ * SEC asks every automated client to identify itself with a real contact
+ * address. A request without one comes back 403 with an HTML body, which any
+ * parser reads as "no results" -- a confident zero about a company that files
+ * every year. So the address is explicit, and its absence is visible.
+ */
+function SEC_UA() {
+  const who = process.env.SEC_CONTACT || process.env.SEC_USER_AGENT || '';
+  return who
+    ? `sentinel-connectors/${VERSION} (${who})`
+    : `sentinel-connectors/${VERSION} (SEC_CONTACT not set - see docs/OPERATOR_MANUAL.md)`;
+}
+
 function requestOnce(method, url, headers, body) {
   return new Promise((resolve) => {
     let u;
@@ -1090,6 +1103,139 @@ const CONNECTORS = {
    * back to the operator. It cannot silently mismatch a schema it never
    * claimed to know.
    */
+  /**
+   * SEC EDGAR full-text search — what a platform swore to the SEC about
+   * its own fake accounts.
+   *
+   * ───────────────────────────────────────────────────────────────────────
+   * WHY THIS CONNECTOR EXISTS
+   * ───────────────────────────────────────────────────────────────────────
+   * "The platforms are full of bots" is the single most common claim in this
+   * subject area and the least evidenced. Nobody outside a platform can count
+   * its inauthentic accounts: the data is server-side, and every public
+   * estimate is a sample generalised to a population nobody can see.
+   *
+   * But the platforms themselves publish a number, under a different kind of
+   * obligation. A 10-K is signed under 15 U.S.C. 78ff and Sarbanes-Oxley
+   * s.302 by named officers, and Meta, Snap, Pinterest and Reddit all disclose
+   * estimated duplicate and false accounts in it, because advertisers price
+   * inventory on user counts and a materially wrong count is securities fraud.
+   *
+   * That makes the 10-K the only public, sworn, company-specific, comparable
+   * figure that exists on this question. It is an ESTIMATE — the filings say
+   * so themselves, usually at length — and this connector's job is to put the
+   * operator in front of the company's own words rather than a headline about
+   * them.
+   *
+   * ───────────────────────────────────────────────────────────────────────
+   * WHAT IT DOES NOT ESTABLISH
+   * ───────────────────────────────────────────────────────────────────────
+   * A disclosed duplicate-account estimate is not a bot count, and the two get
+   * conflated constantly. A duplicate account is a real person's second
+   * account. A "false" account covers both user-misclassified accounts (a pet,
+   * a business page on a personal profile) and accounts the company judges to
+   * be undesirable — spam, scripted, malicious. Only that last slice is what
+   * anyone means by "bot", and the filings do not break it out by campaign,
+   * origin, or state sponsorship. Nothing here connects a platform's estimate
+   * to any influence operation, and treating it as if it did would be the
+   * easiest false claim in this entire subject.
+   *
+   * Full-text search covers 2001 onward and searches the filing text only.
+   */
+  sec: {
+    label: 'SEC EDGAR (full-text search of filings)',
+    // The `name` is a FILER, which is a real legal entity, so entity indexing
+    // is on — unlike Federal Register, where the name is a document title.
+    entityNames: true,
+    keyVar: null,          // no key; SEC asks for a declared contact instead
+    keyRequired: false,
+    calls: 1,
+    describe: (q, o = {}) => 'GET https://efts.sec.gov/LATEST/search-index'
+      + `  (term: ${q} — sent ${phraseMode(q, o)}`
+      + `; forms: ${o.allforms ? 'ALL' : '10-K only'})`,
+    probe: () => ({
+      method: 'GET',
+      url: 'https://efts.sec.gov/LATEST/search-index?q=%22duplicate%20accounts%22&forms=10-K',
+      headers: { Accept: 'application/json', 'User-Agent': SEC_UA() },
+    }),
+    run: (q, key, o = {}) => ({
+      method: 'GET',
+      url: 'https://efts.sec.gov/LATEST/search-index'
+         + `?q=${encodeURIComponent(phrase(q, o))}`
+         + (o.allforms ? '' : '&forms=10-K'),
+      // SEC's access policy asks every automated client to identify itself
+      // with a contact address. A request without one is refused, and the
+      // refusal is an HTTP 403 that reads exactly like "no results" if it is
+      // not caught. Set SEC_CONTACT in .env to your own address.
+      headers: { Accept: 'application/json', 'User-Agent': SEC_UA() },
+    }),
+    parse: (json) => {
+      const hits = (json && json.hits && Array.isArray(json.hits.hits))
+        ? json.hits.hits : [];
+      return hits.map((h) => {
+        const s = (h && h._source) || {};
+        // _id is "<accession>:<document filename>". Both halves are needed to
+        // build a URL to the actual filing, and a URL that cannot be built is
+        // reported as absent rather than guessed at — a constructed EDGAR path
+        // that 404s is worse than no link, because it looks checkable.
+        const id = String(h._id || '');
+        const colon = id.indexOf(':');
+        const accession = colon > 0 ? id.slice(0, colon) : '';
+        const docName = colon > 0 ? id.slice(colon + 1) : '';
+        const cik = Array.isArray(s.ciks) && s.ciks.length ? String(s.ciks[0]) : '';
+        const url = (accession && docName && cik)
+          ? `https://www.sec.gov/Archives/edgar/data/${Number(cik)}/`
+            + `${accession.replace(/-/g, '')}/${docName}`
+          : '';
+        // display_names arrive as "Meta Platforms, Inc.  (META)  (CIK 000...)".
+        // The ticker and CIK are kept separately rather than left glued into
+        // the name, because a name with a CIK inside it will never match the
+        // same company coming from any other connector.
+        const raw = Array.isArray(s.display_names) && s.display_names.length
+          ? String(s.display_names[0]) : '';
+        const name = raw.replace(/\s*\((?:CIK\s*)?[^)]*\)\s*/g, ' ').replace(/\s+/g, ' ').trim();
+        const tick = /\(([A-Z.\-]{1,6})\)/.exec(raw);
+        return {
+          external_id: id,
+          name: name || raw || '(filer not named in this hit)',
+          ticker: tick ? tick[1] : '',
+          cik,
+          form: s.root_form || s.file_type || '',
+          date: s.file_date || '',
+          url,
+        };
+      });
+    },
+    identify: (r) => r.external_id,
+    /**
+     * A zero here has four causes and only one of them is a real null.
+     *
+     * The dangerous ones are the 403 (no declared contact — SEC refuses and
+     * the body is not JSON) and a schema change under hits.hits, either of
+     * which reports "this company never disclosed a false-account estimate"
+     * about a company that discloses one every February.
+     */
+    diagnose: (json) => {
+      if (!json || typeof json !== 'object') {
+        return 'THE RESPONSE WAS NOT JSON. SEC refuses automated requests that '
+          + 'do not declare a contact address, and the refusal is an HTML page, '
+          + 'not an empty result. Set SEC_CONTACT=you@example.com in .env and '
+          + 'run this again before believing the zero.';
+      }
+      if (!json.hits || !Array.isArray(json.hits.hits)) {
+        return 'NO hits.hits ARRAY IN THE RESPONSE. That is a schema mismatch, '
+          + 'not a null result — the capture is on disk; send its top-level '
+          + `keys (${Object.keys(json).join(', ').slice(0, 120)}) and this can `
+          + 'be fixed.';
+      }
+      const total = (json.hits.total && (json.hits.total.value ?? json.hits.total)) ?? 0;
+      return `${json.hits.hits.length} hit(s) returned of ${total} reported by `
+        + 'EDGAR. Full-text search covers 2001 onward and searches filing TEXT '
+        + 'only — a phrase the company words differently will not match, and '
+        + 'that is a search result, not a fact about the company.';
+    },
+  },
+
   fara: {
     label: 'FARA (foreign agents registration)',
     keyVar: null,
