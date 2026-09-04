@@ -897,6 +897,33 @@ readable — an error page, a cookie banner and a JavaScript shell all produce
 one, and filing one as a record is how "the filing does not mention that"
 gets written about a filing nobody could read.
 
+### `corpus ocr` — make the unsearchable searchable
+
+```bash
+bin/sentinel corpus ocr evidence/mail_attachments --out evidence/mail_attachments_ocr
+```
+
+Handles **both** kinds of unreadable file: a ZIP archive of page images wearing
+a `.pdf` name, and an ordinary PDF that really is one and really has no text
+layer because someone scanned paper. It used to refuse the second — so an
+inventory would report `NO TEXT LAYER — needs OCR` and name this command as the
+fix, and this command would find no bundles and report nothing wrong. The
+operator was told to run something that could not help, by a tool that would
+not say so.
+
+A PDF that already has a usable text layer is left alone. Re-reading one costs
+minutes and produces a *worse* transcript than the text it replaced.
+
+Needs `brew install tesseract` and `brew install poppler`. Both are checked
+before the run starts rather than discovered halfway through a folder.
+
+> **The output is DERIVED and that is not a formality.** OCR text contains
+> character errors. A misread digit in a bid amount or a date is invisible in
+> the transcript and fatal in print. Use it to find *which page* says the
+> thing, then open the page image and quote what you see. Every transcript
+> carries that warning in its own header, and every page records whether its
+> text came from OCR or from a real text layer.
+
 ### `corpus inventory --save-text` — a PDF corpus you can grep AND cite
 
 ```bash

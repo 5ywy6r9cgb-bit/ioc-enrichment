@@ -55,7 +55,7 @@
 #   sentinel mail attachments       get the documents out of the messages
 #   sentinel mail read FILE         one message: headers, body, hash
 #   sentinel corpus inventory DIR   what a folder of records ACTUALLY holds
-#   sentinel corpus ocr DIR --out DIR  read the bundles that only look like PDFs
+#   sentinel corpus ocr DIR --out DIR  make scanned PDFs and image bundles searchable
 #
 #   sentinel shelf add NAME PATH    register an external drive by identity
 #   sentinel shelf list             mounted volumes and registered shelves
@@ -223,6 +223,9 @@ PYSTATUS
 
     echo "== outlook .msg =="
     node "$ROOT/modules/mail/test_msg.js" || FAILED=1
+
+    echo "== batch OCR =="
+    python3 "$ROOT/modules/corpus/test_batch_ocr.py" || FAILED=1
     echo ""
     echo "== records desk (overnight stage) =="
     node "$ROOT/modules/watch/test_records_desk.js" || FAILED=1

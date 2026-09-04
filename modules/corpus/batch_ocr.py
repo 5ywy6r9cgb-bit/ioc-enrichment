@@ -116,6 +116,11 @@ def meaningful_chars(text: str) -> int:
 def require_tools() -> str:
     if shutil.which("tesseract") is None:
         sys.exit("tesseract not found.  Install it:  brew install tesseract")
+    # The scanned-PDF path renders pages with poppler before reading them.
+    # Discovering that halfway through a folder wastes the whole run.
+    for tool in ("pdftoppm", "pdftotext"):
+        if shutil.which(tool) is None:
+            sys.exit(f"{tool} not found (poppler).  Install it:  brew install poppler")
     try:
         v = subprocess.run(["tesseract", "--version"], capture_output=True,
                            text=True, timeout=20).stdout.splitlines()[0]
@@ -143,13 +148,142 @@ def ocr_image(img: Path) -> tuple[str, str | None]:
 
 
 # ------------------------------------------------------------ core worker ---
+def is_pdf(path: Path) -> bool:
+    """A real PDF, by its magic bytes rather than its name."""
+    try:
+        with path.open("rb") as f:
+            return f.read(5) == b"%PDF-"
+    except OSError:
+        return False
+
+
+def pdf_page_count(path: Path) -> int | None:
+    try:
+        out = subprocess.run(["pdfinfo", str(path)], capture_output=True,
+                             text=True, timeout=60)
+        m = re.search(r"^Pages:\s+(\d+)", out.stdout, re.M)
+        return int(m.group(1)) if m else None
+    except Exception:
+        return None
+
+
+def process_scanned_pdf(src: Path, outroot: Path) -> dict:
+    """
+    OCR an ordinary scanned PDF.
+
+    ─────────────────────────────────────────────────────────────────────
+    WHY THIS BRANCH EXISTS
+
+    This module was written for one problem: records portals serving ZIP
+    archives of page images under a .pdf name. It refused anything that was
+    not a ZIP, which is correct for that job and useless for the far more
+    common one — a PDF that really is a PDF and really has no text layer,
+    because somebody scanned paper.
+
+    The consequence was quiet and bad. An inventory would report
+    `NO TEXT LAYER — needs OCR` and name `corpus ocr` as the fix; `corpus ocr`
+    would then find no bundles and report nothing wrong. The operator has been
+    told to run a command that cannot help, by a tool that will not say so.
+
+    Pages are rendered with pdftoppm (poppler) and read with tesseract — the
+    same two tools the ZIP path already requires.
+
+    ─────────────────────────────────────────────────────────────────────
+    THE OUTPUT IS DERIVED, AND THAT IS NOT A FORMALITY
+
+    OCR text contains character errors. A misread digit in a bid amount or a
+    date is invisible in the transcript and fatal in print. This output is for
+    SEARCHING — for finding which page says the thing. Quote from the page
+    image, never from here.
+    """
+    size = src.stat().st_size
+    if size == 0:
+        raise Skip("empty file — zero bytes, nothing to read")
+
+    sha = sha256_of(src)
+    dest = outroot / f"{src.stem}__{sha[:8]}"
+    dest.mkdir(parents=True, exist_ok=True)
+    img_dir = dest / "pages"
+    img_dir.mkdir(exist_ok=True)
+
+    # 300 dpi is the floor at which tesseract reads a typed page reliably.
+    # Lower is faster and produces a transcript that looks fine and is wrong.
+    try:
+        subprocess.run(
+            ["pdftoppm", "-r", "300", "-png", str(src), str(img_dir / "page")],
+            capture_output=True, timeout=PAGE_TIMEOUT_SEC * 20, check=True)
+    except subprocess.CalledProcessError as e:
+        raise Skip(f"pdftoppm failed: {(e.stderr or b'')[:120]!r}")
+    except subprocess.TimeoutExpired:
+        raise Skip("pdftoppm timed out")
+
+    images = sorted(img_dir.glob("page-*.png"), key=lambda p: natural_key(p.name))
+    if not images:
+        raise Skip("no pages rendered")
+
+    pages, n_ocr, n_failed = [], 0, 0
+    combined = []
+    for idx, img in enumerate(images, 1):
+        rec = {"page": idx, "zip_entry": None, "error": None}
+        text, err = ocr_image(img)
+        if err:
+            rec.update(source="failed", error=err)
+            n_failed += 1
+            text = ""
+        else:
+            rec["source"] = "ocr"
+            n_ocr += 1
+        rec["chars"] = meaningful_chars(text)
+        (dest / f"page_{idx:04d}.txt").write_text(text, encoding="utf-8")
+        combined.append(f"\n[Page {idx} — source: {rec['source']}]\n{text}")
+        pages.append(rec)
+
+    (dest / "_combined.txt").write_text(
+        "[DERIVED — machine-read from page images. Contains character errors.]\n"
+        "[Use it to FIND the page. Quote from the page image, never from here.]\n"
+        f"[source: {src}]\n[sha256: {sha}]\n" + "".join(combined),
+        encoding="utf-8")
+
+    row = {
+        "source_path": str(src), "sha256": sha, "bytes": size,
+        "kind": "scanned_pdf", "pages": len(images),
+        "native_pages": 0, "ocr_pages": n_ocr, "failed_pages": n_failed,
+        "out_dir": str(dest),
+        "processed_at": datetime.now(timezone.utc).isoformat(),
+    }
+    (dest / "provenance.json").write_text(
+        json.dumps({"bundle": row, "pages": pages}, indent=2), encoding="utf-8")
+    return row
+
+
+def needs_ocr(path: Path) -> bool:
+    """
+    Does this PDF actually need OCR?
+
+    Re-reading a searchable PDF costs minutes per file and produces a WORSE
+    transcript than the text layer it already had. So the same floor the
+    inventory uses decides it here: a PDF whose own text layer is thin enough
+    to fail a search is the only one worth rendering and reading.
+    """
+    try:
+        out = subprocess.run(["pdftotext", str(path), "-"],
+                             capture_output=True, text=True, timeout=90)
+        return meaningful_chars(out.stdout) < NATIVE_TEXT_MIN_CHARS
+    except Exception:
+        # If pdftotext cannot run, we do not know. Attempting OCR is the
+        # answer that cannot hide a document; skipping is the one that can.
+        return True
+
+
 def process_bundle(src: Path, outroot: Path) -> dict:
     """Process one bundle. Returns a manifest row. Raises Skip if unusable."""
     size = src.stat().st_size
     if size == 0:
         raise Skip("empty file — zero bytes, nothing to read")
     if not zipfile.is_zipfile(src):
-        raise Skip("not a ZIP bundle")
+        if is_pdf(src):
+            return process_scanned_pdf(src, outroot)
+        raise Skip("not a ZIP bundle and not a PDF")
 
     sha = sha256_of(src)
     dest = outroot / f"{src.stem}__{sha[:8]}"
@@ -316,8 +450,12 @@ def main() -> int:
     if outroot == root or root in outroot.parents:
         sys.exit("--out must not be inside the source folder.")
 
+    # Both problems, not just the one this module started with: a ZIP wearing
+    # a .pdf name, AND a PDF that really is one and really has no text layer.
     candidates = sorted(p for p in root.rglob("*")
-                        if p.is_file() and zipfile.is_zipfile(p))
+                        if p.is_file()
+                        and (zipfile.is_zipfile(p)
+                             or (is_pdf(p) and needs_ocr(p))))
     if not candidates:
         # Distinguish "no bundles here" from "nothing here at all". The second
         # usually means the drive is not mounted, and reporting it as the first
