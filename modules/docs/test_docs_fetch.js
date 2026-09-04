@@ -480,6 +480,57 @@ module.exports = async function run() {
       /THIS LOOKS LIKE THE SITE/.test(fs.readFileSync(path.join(__dirname, 'cli.js'), 'utf8')));
   }
 
+  // ══ THE SAME DOCUMENT FETCHED TWICE IS ONE DOCUMENT ═══════════════════
+  //
+  // Real cost: a 277-page, 26MB seizure-warrant affidavit was fetched twice
+  // thirty seconds apart. Two byte-identical files landed in the evidence
+  // tree with no warning, and `cat evidence/documents/*docket-entries*` then
+  // produced "Extra data: line 1 column 240334" — which reads exactly like a
+  // corrupt download and is not one.
+  {
+    const os = require('os');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dedupe-'));
+    const body = Buffer.from('%PDF-1.4 AFFIDAVIT IN SUPPORT OF SEIZURE WARRANT');
+    const hash = D.sha256(body);
+    const first = path.join(dir, `2026-09-04T20-15-35-219Z__${hash.slice(0, 12)}__a.pdf`);
+    const second = path.join(dir, `2026-09-04T20-15-54-916Z__${hash.slice(0, 12)}__a.pdf`);
+    fs.writeFileSync(first, body);
+    fs.writeFileSync(second, body);
+
+    check('the earlier identical copy is found',
+      D.findIdenticalSibling(dir, second, hash) === first,
+      String(D.findIdenticalSibling(dir, second, hash)));
+
+    check('a file never reports itself as its own duplicate',
+      D.findIdenticalSibling(dir, first, hash) === second);
+
+    // A hash PREFIX in a filename is a claim. Two different documents whose
+    // hashes share twelve characters must not delete each other, so the full
+    // hash is recomputed from disk before anything is called identical.
+    const impostor = path.join(dir, `2026-09-04T21-00-00-000Z__${hash.slice(0, 12)}__b.pdf`);
+    fs.writeFileSync(impostor, Buffer.from('%PDF-1.4 A COMPLETELY DIFFERENT DOCUMENT'));
+    const found = [];
+    for (const f of [first, second]) found.push(D.findIdenticalSibling(dir, f, hash));
+    check('a filename prefix collision is NOT treated as identical',
+      !found.includes(impostor), found.join(', '));
+
+    check('a lone document has no duplicate',
+      D.findIdenticalSibling(fs.mkdtempSync(path.join(os.tmpdir(), 'dedupe2-')),
+        'nothing.pdf', hash) === null);
+
+    check('the extracted .txt beside a document is never mistaken for it',
+      (() => {
+        const solo = fs.mkdtempSync(path.join(os.tmpdir(), 'dedupe3-'));
+        const pdf = path.join(solo, `x__${hash.slice(0, 12)}__a.pdf`);
+        fs.writeFileSync(pdf, body);
+        fs.writeFileSync(path.join(solo, `x__${hash.slice(0, 12)}__a.txt`), body);
+        return D.findIdenticalSibling(solo, pdf, hash) === null;
+      })());
+
+    check('doc get removes the duplicate rather than leaving both',
+      /findIdenticalSibling/.test(fs.readFileSync(path.join(__dirname, 'cli.js'), 'utf8')));
+  }
+
   console.log(`\n  ${FAIL ? 'FAIL' : 'PASS'} — ${PASS}/${PASS + FAIL} checks\n`);
   if (FAIL) process.exitCode = 1;
   return { pass: PASS, fail: FAIL };

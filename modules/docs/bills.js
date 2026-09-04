@@ -53,10 +53,25 @@ const UNAMBIGUOUS = 'H\\.?\\s?J\\.?\\s?Res\\.?|S\\.?\\s?J\\.?\\s?Res\\.?'
   + '|H\\.?\\s?Con\\.?\\s?Res\\.?|S\\.?\\s?Con\\.?\\s?Res\\.?'
   + '|H\\.?\\s?Res\\.?|S\\.?\\s?Res\\.?|H\\.?\\s?R\\.?';
 
+// A bare "S." is also the last two characters of "U.S.", and an FBI affidavit
+// about election interference says "the U.S. 2024 presidential election" on
+// page after page. That read as Senate bill 2024 -- a confident, specific,
+// checkable-looking citation to a bill the document never mentions, printed
+// under the heading "Bills named in this document". A false bill number is
+// worse than a missed one because it looks like a finding, so the bare-"S."
+// branch refuses any match preceded by a letter-and-period: U.S., P.S., and
+// a sentence ending in an initial are all excluded.
+//
+// What this still cannot see: a middle initial followed by a number
+// ("Robert S. 2024"). Nothing in a real filing or affidavit is written that
+// way -- a middle initial is followed by a surname -- so the guard stops here
+// rather than growing a name heuristic that would start refusing real bills.
+const NOT_AN_ABBREVIATION = '(?<![A-Za-z]\\.)(?<![A-Za-z]\\.\\s)';
+
 const BILL_RE = new RegExp(
   '\\b(?:'
   + `(${UNAMBIGUOUS})\\s?(\\d{1,5})`      // H.Res. 9 is fine
-  + '|(S\\.)\\s?(\\d{2,5})'            // bare "S." needs two digits
+  + `|${NOT_AN_ABBREVIATION}(S\\.)\\s?(\\d{2,5})`  // bare "S." needs two digits AND no "U." in front
   + ')\\b',
   'gi');
 

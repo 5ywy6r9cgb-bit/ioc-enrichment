@@ -113,6 +113,32 @@ async function cmdGet(url, opts) {
     process.exit(1);
   }
 
+  // ---- have we already got these exact bytes? ------------------------
+  //
+  // Real cost: a 26MB, 277-page affidavit fetched twice, thirty seconds
+  // apart, wrote two byte-identical copies into the evidence tree. Nothing
+  // warned. Later that reads as two documents, and a `cat` across the glob
+  // hands the JSON parser two concatenated documents and an "Extra data"
+  // error that looks like corruption.
+  //
+  // The duplicate is only removed when its full sha256 is recomputed from
+  // the file already on disk and matches -- a filename hash prefix is a
+  // claim, not proof, and nothing gets deleted on a claim.
+  try {
+    const prior = D.findIdenticalSibling(path.dirname(got.file), got.file, got.sha256);
+    if (prior) {
+      fs.unlinkSync(got.file);
+      got.file = prior;
+      console.log('');
+      console.log(`  ${C.y('You already had this document — byte-identical.')}`);
+      console.log(C.dim(`  Kept  ${path.relative(process.cwd(), prior)}`));
+      console.log(C.dim('  The second copy was removed. Two files with one hash is not two'));
+      console.log(C.dim('  records, and a `cat` across both breaks any parser you point at it.'));
+      console.log(C.dim('  The re-fetch is still logged: the source served the same bytes twice,'));
+      console.log(C.dim('  which is a fact worth having about the source.'));
+    }
+  } catch { /* a dedupe that fails must never cost you the document */ }
+
   // A server that answers a bad path with HTTP 200 and a friendly error page
   // puts a hashed nothing into the evidence tree — indistinguishable, later,
   // from a real record that happens to be short.

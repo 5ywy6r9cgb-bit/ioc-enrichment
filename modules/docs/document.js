@@ -562,11 +562,40 @@ async function fetchDocument(url, request, opts = {}) {
   };
 }
 
+/**
+ * An earlier, byte-identical copy of a just-fetched file, or null.
+ *
+ * Fetching the same 26MB affidavit twice thirty seconds apart wrote two
+ * identical files into the evidence tree with nothing to say so. Two files
+ * under one hash is not two records, and a `cat` across the pair hands any
+ * JSON parser two concatenated documents.
+ *
+ * The filename carries a hash PREFIX, which is a claim. This recomputes the
+ * full sha256 of the candidate from disk before agreeing it is the same file,
+ * because nothing should be deleted on the strength of a filename.
+ */
+function findIdenticalSibling(dir, file, hash) {
+  let names;
+  try { names = fs.readdirSync(dir); }
+  catch { return null; }
+  const hits = names
+    .filter((n) => n.includes(`__${hash.slice(0, 12)}__`))
+    .map((n) => path.join(dir, n))
+    .filter((f) => path.resolve(f) !== path.resolve(file) && !f.endsWith('.txt'))
+    .filter((f) => {
+      try { return sha256(fs.readFileSync(f)) === hash; }
+      catch { return false; }
+    })
+    .sort();
+  return hits.length ? hits[0] : null;
+}
+
 module.exports = {
   explainTlsError,
   rewriteForMachines,
   looksLikePlaceholder, looksLikeErrorPage,
   fetchDocument, extractText, extractHtmlText, pageCount, nameFor, sha256,
+  findIdenticalSibling,
   haveTool, sniff,
   SCAN_THRESHOLD_CHARS_PER_PAGE, HTML_MIN_CHARS,
 };

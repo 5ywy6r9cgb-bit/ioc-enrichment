@@ -51,6 +51,32 @@ module.exports = async function run() {
       B.billsIn('nonsense S. 1 but also S. 4207').has('S. 4207'));
   }
 
+  // ══ 2b. "U.S. 2024" IS NOT SENATE BILL 2024 ═══════════════════════════
+  //
+  // Real failure: a 277-page FBI seizure-warrant affidavit about Russian
+  // interference in the 2024 election (E.D. Pa. 2:24-mj-01395). `doc get`
+  // printed "Bills named in this document: S. 2024, S. 82" over a document
+  // that names no legislation at all. The source was "the U.S. 2024
+  // presidential election" -- the bare-"S." branch matching the tail of the
+  // abbreviation. It read as a specific, checkable citation, which is the
+  // exact shape of a false finding.
+  {
+    const affidavit = 'to influence the U.S. 2024 presidential election, and '
+      + 'approximately U.S. 82 percent of the accounts were dormant.';
+    ok('"U.S. 2024" is not read as a Senate bill',
+      B.billsIn(affidavit).size === 0, [...B.billsIn(affidavit).keys()].join(', '));
+
+    ok('spaced "U. S. 2024" is not read as a Senate bill either',
+      B.billsIn('the U. S. 2024 election').size === 0);
+
+    // The guard must not cost a real bill that happens to sit near the
+    // abbreviation -- a fix that suppresses true positives is not a fix.
+    const mixed = B.billsIn('U.S. persons were targeted; the firm lobbied on '
+      + 'S. 3878 and H.R. 9126.');
+    ok('a real bill in a sentence containing "U.S." is still found',
+      mixed.has('S. 3878') && mixed.has('H.R. 9126'), [...mixed.keys()].join(', '));
+  }
+
   // ══ 3. CONTEXT IS KEPT, BECAUSE A BARE NUMBER IS UNCHECKABLE ══════════
   {
     const b = B.billsIn('Specific lobbying issues: H.R. 9126 regarding data '
