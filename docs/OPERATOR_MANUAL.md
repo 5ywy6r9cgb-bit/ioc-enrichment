@@ -365,6 +365,40 @@ reported separately from real failures, because that silence was caused by
 the scan, not by DOJ, and **re-running clears it**: everything already read
 comes from cache, so each pass covers more of the register than the last.
 
+### `connect farascan --intermediaries` — who is behind the principal
+
+FARA makes the registrant name the foreign principal. It never asks whether
+that principal is the party with the interest or a conduit standing in front
+of one — but registrants write it into the name field anyway:
+
+```
+ZTE Corporation (through Hogan Lovells US LLP)
+Drift Advisors, SL on behalf of United Republic of Tanzania
+NSO Group via Pillsbury Winthrop Shaw Pittman LLP
+```
+
+```
+bin/sentinel connect farascan --intermediaries
+bin/sentinel connect farascan --intermediaries --verbose
+```
+
+Runs entirely off the cache a scan already wrote — **no network calls** — so
+it is exactly as complete as your last scan's coverage, and it says so at the
+top.
+
+**The grammar inverts.** `X through Y` puts the client on the left; `X on
+behalf of Y` puts the client on the right. Read left-to-right, the same
+parser would assert that Hogan Lovells is a foreign principal of the Chinese
+state. The split is therefore an *interpretation of wording*, not a field on
+the form, and the raw string is printed under every row so the reading can be
+checked. Names carrying more than one layer are flagged rather than
+truncated.
+
+Rows are grouped by whether the conduit looks like the registrant's own
+affiliate (Mercury Public Affairs → Mercury International UK Ltd). That is a
+name-overlap heuristic: it misses The Burson Group → BCW Asia Pacific, so a
+firm absent from that group is **not** thereby unrelated to its conduit.
+
 **Write patterns with word boundaries.** `land` matches Iceland, Somaliland,
 Finland, Switzerland, Poland and every Islands. Use `\bfarmland\b` or
 `agricultur` instead. A pattern that floods is worse than one that misses,

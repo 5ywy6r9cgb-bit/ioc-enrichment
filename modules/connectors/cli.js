@@ -1672,6 +1672,72 @@ async function cmdFaraScan(pattern, opts = {}) {
   console.log(C.dim('  clients of the same firm. Pull the Exhibit AB before writing anything.\n'));
 }
 
+
+/**
+ * sentinel connect farascan --intermediaries
+ *
+ * Who is actually behind the foreign principal, read out of the name field.
+ * Runs entirely off the farascan cache — no network calls at all — so it is
+ * only as complete as the last scan's coverage, and it says so.
+ */
+function cmdFaraLayers(opts = {}) {
+  const out = FSCAN.intermediaries(opts);
+  if (!out.ok) {
+    console.error(`\n  ${C.r(out.error)}\n`);
+    process.exit(1);
+  }
+
+  console.log(`\n${C.b('FARA — the layer behind the principal')}`);
+  console.log(C.dim('  read from the cache written by `connect farascan`; no network calls'));
+  console.log('');
+  console.log(`  ${C.b('COVERAGE')}  ${out.registrantsRead} registrant file(s) read`
+    + `, ${out.principalsSeen} named principal(s)`
+    + `, ${out.layered} of them name a layer`);
+  if (out.unreadable) {
+    console.log(C.y(`  ${out.unreadable} cache file(s) were unreadable and are unknown, not empty.`));
+  }
+  console.log(C.dim('  This is only as complete as your last scan. If that scan did not read'));
+  console.log(C.dim('  the whole register, neither did this.'));
+
+  if (!out.rows.length) {
+    console.log(`\n  ${C.y('No principal in the cache names a conduit.')}\n`);
+    return;
+  }
+
+  console.log('');
+  const self = out.rows.filter((r) => r.selfAffiliated);
+  if (self.length) {
+    console.log(`  ${C.b('ROUTED THROUGH THE REGISTRANT\'S OWN AFFILIATE')}  ${C.dim(`${self.length}`)}`);
+    console.log(C.dim('  (name-overlap heuristic — it catches Mercury/Mercury and misses'));
+    console.log(C.dim('   Burson/BCW, so a firm absent here is not thereby unrelated)'));
+    for (const r of self) print(r);
+    console.log('');
+  }
+
+  const rest = out.rows.filter((r) => !r.selfAffiliated);
+  if (rest.length) {
+    console.log(`  ${C.b('ROUTED THROUGH A THIRD PARTY')}  ${C.dim(`${rest.length}`)}`);
+    for (const r of rest.slice(0, opts.verbose ? 9999 : 40)) print(r);
+    if (!opts.verbose && rest.length > 40) {
+      console.log(C.dim(`\n    …and ${rest.length - 40} more (--verbose for all)`));
+    }
+  }
+
+  console.log('\n  ' + C.y('The split is an INTERPRETATION OF WORDING, not a field on the form.'));
+  console.log(C.dim('  FARA never asks which side is the conduit. "X through Y" and "X on'));
+  console.log(C.dim('  behalf of Y" put the client on opposite sides, so the raw string is'));
+  console.log(C.dim('  printed under every row. Check the reading before you use it.\n'));
+
+  function print(r) {
+    const span = r.first === r.last ? String(r.first || '').slice(0, 10)
+      : `${String(r.first || '').slice(0, 10)}..${String(r.last || '').slice(0, 10)}`;
+    console.log(`\n    ${C.b(r.party)}${r.country ? C.dim(`  [${r.country}]`) : ''}`);
+    console.log(`      via   ${r.conduit}${r.ambiguous ? C.y('   ← more than one layer, split may be incomplete') : ''}`);
+    console.log(C.dim(`      filed ${r.registrant} #${r.regNumber}  ·  ${r.docs} doc(s)  ·  ${span}`));
+    console.log(C.dim(`      as    "${r.raw}"`));
+  }
+}
+
 async function main() {
   const argv = process.argv.slice(2);
   const opts = { dryRun: argv.includes('--dry-run') };
@@ -1729,6 +1795,9 @@ async function main() {
       return argv[i + 1] && !argv[i + 1].startsWith('--') ? argv[i + 1] : null;
     };
     const num = (v) => (v === null ? undefined : parseInt(v, 10));
+    if (argv.includes('--intermediaries') || argv.includes('--layers')) {
+      return cmdFaraLayers({ verbose: argv.includes('--verbose') });
+    }
     return cmdFaraScan(flagVal('--match') || args.slice(1).join(' '), {
       limit: num(flagVal('--limit')),
       freshDays: num(flagVal('--fresh-days')),
@@ -1810,4 +1879,4 @@ if (require.main === module) {
   main().catch((e) => { console.error(e); process.exit(1); });
 }
 
-module.exports = { verdictFor, cmdTest, cmdFaraScan, wrap, parseAllArgs, cmdLobby, cmdGraph, cmdRegistrant, cmdExpand, cmdSweep, cmdBrief };
+module.exports = { verdictFor, cmdTest, cmdFaraScan, cmdFaraLayers, wrap, parseAllArgs, cmdLobby, cmdGraph, cmdRegistrant, cmdExpand, cmdSweep, cmdBrief };

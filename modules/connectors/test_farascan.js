@@ -160,7 +160,7 @@ module.exports = function run() {
             check('an unparseable pattern is refused, not run as zero hits',
               bad.ok === false && /not a valid pattern/.test(bad.error), bad.error);
             fs.rmSync(dir, { recursive: true, force: true });
-            return rateLimitTests();
+            return layerTests();
           });
         });
       });
@@ -177,6 +177,70 @@ module.exports = function run() {
  * was reporting, and nothing in the output said the fix was simply to slow
  * down and go again.
  */
+/**
+ * ══ THE GRAMMAR INVERTS, AND GETTING IT BACKWARDS INVERTS THE FINDING ═══
+ *
+ * "X through Y" puts the client on the LEFT. "X on behalf of Y" puts the
+ * client on the RIGHT. A parser that read both left-to-right would publish a
+ * table asserting that Hogan Lovells is a foreign principal of the Chinese
+ * state, and that Tanzania is a pass-through for a Spanish consultancy. Both
+ * sentences are defamatory and both would be the tool's fault.
+ */
+function layerTests() {
+  const S = F.splitPrincipal;
+
+  const zte = S('ZTE Corporation (through Hogan Lovells US LLP)');
+  check('"through" puts the client on the left',
+    zte.party === 'ZTE Corporation' && zte.conduit === 'Hogan Lovells US LLP',
+    JSON.stringify(zte));
+
+  const tz = S('Drift Advisors, SL on behalf of United Republic of Tanzania');
+  check('"on behalf of" puts the client on the RIGHT — the opposite side',
+    tz.party === 'United Republic of Tanzania' && tz.conduit === 'Drift Advisors, SL',
+    JSON.stringify(tz));
+
+  const nso = S('NSO Group via Pillsbury Winthrop Shaw Pittman LLP');
+  check('"via" reads like "through", not like "on behalf of"',
+    nso.party === 'NSO Group' && nso.conduit === 'Pillsbury Winthrop Shaw Pittman LLP',
+    JSON.stringify(nso));
+
+  const bgr = S('BGR Gabara, Ltd. (for Bidzina Ivanishvili)');
+  check('"(for …)" names the client inside the parenthesis',
+    bgr.party === 'Bidzina Ivanishvili' && bgr.conduit === 'BGR Gabara, Ltd',
+    JSON.stringify(bgr));
+
+  // The connector is usually inside a parenthetical, so the character before
+  // it is "(" and not a space. Requiring plain whitespace missed every
+  // parenthesised layer in the register — which is most of them.
+  const haiti = S('Presidency of the Republic of Haiti (through Mercury International UK Ltd)');
+  check('a layer opened by a bracket is found, not skipped',
+    haiti && haiti.conduit === 'Mercury International UK Ltd', JSON.stringify(haiti));
+  check('and the closing bracket is not left glued to the name',
+    haiti && !/[()]/.test(haiti.conduit), haiti && haiti.conduit);
+
+  check('a principal that names no layer returns null rather than a guess',
+    S('Kingdom of Morocco') === null);
+  check('an empty name is not split', S('') === null);
+  check('a connector with nothing on one side is not split',
+    S('through Hogan Lovells') === null);
+
+  const deep = S('A Ltd on behalf of B through C');
+  check('a name with two layers is flagged rather than silently truncated',
+    deep && deep.ambiguous === true, JSON.stringify(deep));
+
+  // Routing through your own affiliate is a different fact from routing
+  // through an unrelated law firm.
+  check('a firm passing work through its own affiliate is detected',
+    F.looksSelfAffiliated('Mercury Public Affairs, LLC', 'Mercury International UK Ltd'));
+  check('and generic corporate words do not create a false match',
+    !F.looksSelfAffiliated('Sitrick Group, LLC', 'Vogel Group LLC'));
+  check('a real affiliate whose name shares nothing is MISSED — a heuristic, '
+    + 'so absence here is not evidence of independence',
+    !F.looksSelfAffiliated('The Burson Group LLC', 'BCW Asia Pacific'));
+
+  return rateLimitTests();
+}
+
 function rateLimitTests() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'farascan429-'));
   const listFile = path.join(dir, 'captures', 'farascan', 'active_registrants.json');

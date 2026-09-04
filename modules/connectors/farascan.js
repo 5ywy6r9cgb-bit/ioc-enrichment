@@ -349,9 +349,211 @@ function coverageLine(out) {
   return bits.join('; ');
 }
 
+
+/* ══ WHO IS ACTUALLY BEHIND THE PRINCIPAL ═════════════════════════════
+ *
+ * FARA makes the registrant name the foreign principal. It does not make
+ * anyone say whether that principal is the party with the interest or a
+ * conduit standing in front of one. But registrants write it down anyway,
+ * in the name field, in plain English:
+ *
+ *   "ZTE Corporation (through Hogan Lovells US LLP)"
+ *   "Drift Advisors, SL on behalf of United Republic of Tanzania"
+ *   "NSO Group via Pillsbury Winthrop Shaw Pittman LLP"
+ *   "BGR Gabara, Ltd. (for Bidzina Ivanishvili)"
+ *
+ * That layer is where the chain of control actually lives, and nobody
+ * parses it because it is prose inside a name column.
+ *
+ * ── The trap ────────────────────────────────────────────────────────────
+ *
+ * The grammar INVERTS depending on the connector, and getting it backwards
+ * would flip every single row:
+ *
+ *   "X through Y"        → X is the party,   Y is the conduit
+ *   "X on behalf of Y"   → X is the conduit, Y is the party
+ *
+ * So "ZTE through Hogan Lovells" means ZTE is the client and the law firm
+ * is the pass-through, while "Drift Advisors on behalf of Tanzania" means
+ * Tanzania is the client and Drift is the pass-through. Same shape, opposite
+ * meaning. A parser that treated both as left-to-right would publish a table
+ * asserting that Hogan Lovells is a foreign principal of the Chinese state.
+ *
+ * ── What this is and is not ─────────────────────────────────────────────
+ *
+ * This is an INTERPRETATION OF WORDING, not a field the form provides. The
+ * raw string is therefore carried on every row and printed, so the reading
+ * can be checked against what the registrant actually wrote. Where the
+ * wording is ambiguous the row is returned with `ambiguous: true` rather
+ * than guessed at.
+ */
+
+// The connector is often inside a parenthetical — "ZTE Corporation (through
+// Hogan Lovells US LLP)" — so the boundary before it may be an opening
+// bracket rather than a space. Requiring plain whitespace missed every
+// parenthesised layer in the register, which is most of them.
+const LAYERS = [
+  // party first, conduit second
+  { re: /[\s(]+through\s+/i,          label: 'through',      partyFirst: true },
+  { re: /[\s(]+via\s+/i,              label: 'via',          partyFirst: true },
+  // conduit first, party second
+  { re: /[\s(]+on\s+behalf\s+of\s+/i, label: 'on behalf of', partyFirst: false },
+  { re: /[\s(]+o\/b\/o\s+/i,          label: 'o/b/o',        partyFirst: false },
+  { re: /[\s(]+f\/b\/o\s+/i,          label: 'f/b/o',        partyFirst: false },
+];
+
+/** Trim the punctuation that survives a split out of a parenthetical. */
+function tidy(s) {
+  return String(s || '')
+    .replace(/^[\s("'\u201c\u2018\[]+/, '')
+    .replace(/[\s()"'\u201d\u2019\].,;]+$/, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * Split a principal name into (party with the interest, conduit in front).
+ * Returns null when the name names no layer at all — which is most of them.
+ */
+function splitPrincipal(name) {
+  const raw = String(name || '');
+  if (!raw) return null;
+  for (const L of LAYERS) {
+    const m = L.re.exec(raw);
+    if (!m) continue;
+    const left = tidy(raw.slice(0, m.index));
+    const right = tidy(raw.slice(m.index + m[0].length));
+    if (!left || !right) continue;
+    return {
+      raw,
+      connector: L.label,
+      party: L.partyFirst ? left : right,
+      conduit: L.partyFirst ? right : left,
+      // More than one connector in one name means the layering is deeper
+      // than this two-way split can express. Say so rather than truncate it.
+      ambiguous: LAYERS.filter((o) => o.re.test(raw)).length > 1,
+    };
+  }
+  // "(for Someone)" is the same construction without a word this splits on.
+  const paren = /\(\s*for\s+([^)]+)\)/i.exec(raw);
+  if (paren) {
+    const conduit = tidy(raw.slice(0, paren.index));
+    const party = tidy(paren[1]);
+    if (conduit && party) {
+      return { raw, connector: '(for …)', party, conduit, ambiguous: false };
+    }
+  }
+  return null;
+}
+
+/**
+ * Does the conduit look like the registrant's own affiliate?
+ *
+ * "Mercury Public Affairs" routing through "Mercury International UK Ltd" is
+ * a different fact from routing through an unrelated law firm — it is the
+ * firm passing work through itself. Detected by a shared distinctive word,
+ * which is a HEURISTIC and is labelled as one: it catches Mercury/Mercury,
+ * and it will miss "The Burson Group" routing through "BCW Asia Pacific"
+ * because those names share nothing. A miss here is not evidence of
+ * independence.
+ */
+const STOPWORDS = new Set(['the', 'group', 'llc', 'ltd', 'inc', 'llp', 'plc',
+  'company', 'co', 'corp', 'corporation', 'international', 'global', 'usa',
+  'us', 'associates', 'partners', 'strategies', 'strategy', 'consulting',
+  'communications', 'affairs', 'public', 'advisors', 'and', 'of', 'pllc', 'pc']);
+
+function looksSelfAffiliated(registrant, conduit) {
+  const words = (s) => String(s || '').toLowerCase()
+    .replace(/[^a-z0-9 ]+/g, ' ').split(/\s+/)
+    .filter((w) => w.length > 2 && !STOPWORDS.has(w));
+  const a = new Set(words(registrant));
+  return words(conduit).some((w) => a.has(w));
+}
+
+/**
+ * Read every cached registrant and return the layered principals.
+ *
+ * Runs entirely off the farascan cache — no network. A full scan must have
+ * been run first, and how much of the register that scan covered is the
+ * denominator for everything here, so it is counted and returned.
+ */
+function intermediaries(opts = {}) {
+  const dir = cacheDir(opts.evidenceRoot);
+  if (!fs.existsSync(dir)) {
+    return { ok: false, error: 'no farascan cache — run a scan first so there '
+      + 'is a register to read' };
+  }
+  const files = fs.readdirSync(dir).filter((f) => /^regdocs_\d+\.json$/.test(f));
+  if (!files.length) {
+    return { ok: false, error: 'the cache holds no registrant documents yet — '
+      + 'run `connect farascan --match ...` once to fill it' };
+  }
+
+  const found = new Map();
+  let registrantsRead = 0;
+  let unreadable = 0;
+  let principalsSeen = 0;
+
+  for (const f of files) {
+    let rows;
+    try {
+      rows = R.CONNECTORS.faradocs.parse(
+        JSON.parse(decodeCache(path.join(dir, f))));
+    } catch { unreadable += 1; continue; }
+    registrantsRead += 1;
+
+    for (const r of rows) {
+      if (!namesPrincipal(r)) continue;
+      principalsSeen += 1;
+      const split = splitPrincipal(r.name);
+      if (!split) continue;
+      const key = `${r.registrant}||${split.raw}`;
+      const e = found.get(key) || {
+        registrant: r.registrant || '(unnamed registrant)',
+        regNumber: (f.match(/regdocs_(\d+)/) || [])[1] || '',
+        party: split.party,
+        conduit: split.conduit,
+        connector: split.connector,
+        ambiguous: split.ambiguous,
+        raw: split.raw,
+        country: r.country || '',
+        docs: 0,
+        first: r.filed,
+        last: r.filed,
+        sample: r.url,
+        selfAffiliated: looksSelfAffiliated(r.registrant, split.conduit),
+      };
+      e.docs += 1;
+      if (r.filed && (!e.first || r.filed < e.first)) e.first = r.filed;
+      if (r.filed && (!e.last || r.filed > e.last)) e.last = r.filed;
+      if (!e.sample && r.url) e.sample = r.url;
+      found.set(key, e);
+    }
+  }
+
+  const rows = [...found.values()].sort((a, b) => b.docs - a.docs);
+  return {
+    ok: true,
+    rows,
+    registrantsRead,
+    unreadable,
+    principalsSeen,
+    layered: rows.length,
+    // The share of named principals that carry a layer at all. Without this
+    // "37 intermediaries" is a number with no size to compare it against.
+    share: principalsSeen ? rows.reduce((n, r) => n + r.docs, 0) / principalsSeen : 0,
+  };
+}
+
+/** Read a cache file through the same charset handling as a live response. */
+function decodeCache(file) {
+  return R.decodeBody(fs.readFileSync(file));
+}
+
 module.exports = {
   VERSION, DEFAULT_INTERVAL_MS,
   cacheDir, cachePath, isFresh,
   activeRegistrants, fetchDocs, retryAfterMs, MAX_429_RETRIES,
   namesPrincipal, matches, summarise, scan, coverageLine,
+  splitPrincipal, looksSelfAffiliated, intermediaries, tidy,
 };
