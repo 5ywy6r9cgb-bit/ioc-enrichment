@@ -244,12 +244,22 @@ def process_scanned_pdf(src: Path, outroot: Path) -> dict:
         f"[source: {src}]\n[sha256: {sha}]\n" + "".join(combined),
         encoding="utf-8")
 
+    # SAME KEYS as the ZIP path, deliberately. The manifest is one stream and
+    # the report is one table; a second row shape means the CSV either loses
+    # columns or refuses to write at all, which is exactly what happened —
+    # after every page had already been read.
     row = {
-        "source_path": str(src), "sha256": sha, "bytes": size,
-        "kind": "scanned_pdf", "pages": len(images),
-        "native_pages": 0, "ocr_pages": n_ocr, "failed_pages": n_failed,
-        "out_dir": str(dest),
-        "processed_at": datetime.now(timezone.utc).isoformat(),
+        "source_file": src.name,
+        "source_sha256": sha,
+        "output_dir": dest.name,
+        "pages": len(images),
+        "native": 0,                  # a scan has no text layer by definition
+        "ocr": n_ocr,
+        "failed": n_failed,
+        "chars_total": sum(p["chars"] for p in pages),
+        "status": "ok" if n_failed == 0 else "partial",
+        "reason": "",
+        "processed_utc": datetime.now(timezone.utc).isoformat(),
     }
     (dest / "provenance.json").write_text(
         json.dumps({"bundle": row, "pages": pages}, indent=2), encoding="utf-8")
@@ -570,10 +580,26 @@ def main() -> int:
         except Exception:
             pass
     if all_rows:
-        with report.open("w", newline="") as fh:
-            w = csv.DictWriter(fh, fieldnames=list(all_rows[0].keys()))
-            w.writeheader()
-            w.writerows(all_rows)
+        # Union of every row's keys, in first-seen order, and never raise on a
+        # row carrying an unexpected one. The pages are already read and
+        # written by the time this runs: losing the summary is an annoyance,
+        # but throwing here ends the process with a traceback that reads like
+        # the OCR itself failed. It did not, and the operator cannot tell.
+        fields = []
+        for r in all_rows:
+            for k in r:
+                if k not in fields:
+                    fields.append(k)
+        try:
+            with report.open("w", newline="") as fh:
+                w = csv.DictWriter(fh, fieldnames=fields, extrasaction="ignore",
+                                   restval="")
+                w.writeheader()
+                w.writerows(all_rows)
+        except Exception as e:
+            print(f"\n  Could not write {report.name}: {e}", file=sys.stderr)
+            print("  The transcripts themselves are on disk and unaffected.",
+                  file=sys.stderr)
 
     ok = sum(1 for r in rows if r["status"] == "ok")
     part = sum(1 for r in rows if r["status"] == "partial")

@@ -10,6 +10,7 @@ command that could not help, by a tool that would not say so.
 """
 from __future__ import annotations
 
+import re
 import sys
 import zipfile
 from pathlib import Path
@@ -98,6 +99,33 @@ def main() -> int:
         # ══ MISSING TOOLS ARE NAMED BEFORE THE RUN, NOT DURING ════════════
         check("poppler is required up front, not discovered mid-folder",
               'pdftoppm' in src and 'brew install poppler' in src)
+
+        # ══ ONE MANIFEST, ONE TABLE ═══════════════════════════════════════
+        #
+        # The scanned-PDF path first shipped with its own row keys. The report
+        # writer takes its columns from the FIRST row and refuses any row with
+        # a field it has not seen — so a folder holding both kinds of file
+        # read every page, wrote every transcript, and then died with a
+        # traceback at the summary step. The work was done and on disk; the
+        # run looked like a total failure.
+        zip_keys = set(re.findall(r'"(\w+)":', src.split(
+            'return {')[1].split('}')[0]))
+        pdf_block = src.split('row = {')[1].split('}')[0]
+        pdf_keys = set(re.findall(r'"(\w+)":', pdf_block))
+        check("both paths emit the same manifest schema",
+              zip_keys == pdf_keys, f"zip-only={zip_keys - pdf_keys} "
+                                    f"pdf-only={pdf_keys - zip_keys}")
+        check("a scan reports zero native pages, since it has no text layer",
+              '"native": 0,' in src)
+
+        check("the report takes the UNION of every row's keys, not the first row's",
+              'for k in r:' in src and 'if k not in fields' in src)
+        check("an unexpected field is ignored rather than raised on",
+              'extrasaction="ignore"' in src)
+        check("a missing field writes empty rather than failing the row",
+              'restval=""' in src)
+        check("and a failed summary never reads as failed OCR",
+              'transcripts themselves are on disk and unaffected' in src)
 
     print(f"\n  {'FAIL' if FAIL else 'PASS'} — {PASS}/{PASS + FAIL} checks\n")
     return 1 if FAIL else 0
