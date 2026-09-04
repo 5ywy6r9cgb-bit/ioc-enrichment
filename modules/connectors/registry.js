@@ -537,7 +537,28 @@ const CONNECTORS = {
     keyVar: 'OPENSANCTIONS_API_KEY',
     keyRequired: true,
     calls: 1,
-    describe: (q) => `POST https://api.opensanctions.org/match/default?algorithm=logic-v2  (subject: ${q})`,
+    /**
+     * ── THE WORST BUG IN THIS FILE, AND IT WAS SILENT ────────────────────
+     *
+     * This asked OpenSanctions to match every subject as `schema: 'Person'`.
+     * A company is not a Person in the FollowTheMoney model, so every
+     * organisation ever searched here came back with zero results — Internet
+     * Research Agency, Social Design Agency, Structura National Technology,
+     * all of them — while "Yevgeny Prigozhin" scored 1.0 and looked like
+     * proof the connector worked.
+     *
+     * And the zero printed as "A clean result is not proof of absence — it is
+     * one source saying nothing", which reads as a considered null. It was
+     * not. The question was malformed: the desk had been asking a sanctions
+     * database whether a company was a person, and reporting "no" as though
+     * it meant "not sanctioned".
+     *
+     * Two queries now go in the same single POST — one Person, one
+     * Organization — and the results are merged. It is still one call, as
+     * announced, and an organisation can finally be found.
+     */
+    describe: (q) => 'POST https://api.opensanctions.org/match/default?algorithm=logic-v2'
+      + `  (subject: ${q} — matched as BOTH a person and an organisation)`,
     probe: (key) => ({
       method: 'GET',
       url: 'https://api.opensanctions.org/search/default?q=test&limit=1',
@@ -547,20 +568,58 @@ const CONNECTORS = {
       method: 'POST',
       url: 'https://api.opensanctions.org/match/default?algorithm=logic-v2',
       headers: { Authorization: `ApiKey ${key}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ queries: { q1: { schema: 'Person', properties: { name: [q] } } } }),
+      body: JSON.stringify({
+        queries: {
+          person: { schema: 'Person', properties: { name: [q] } },
+          org: { schema: 'Organization', properties: { name: [q] } },
+        },
+      }),
     }),
     parse: (json) => {
-      const results = (json.responses && json.responses.q1 && json.responses.q1.results) || [];
-      return results.map((r) => ({
-        external_id: r.id,
-        name: r.caption,
-        schema: r.schema,
-        topics: (r.properties && r.properties.topics) || [],
-        score: r.score,
-        url: `https://www.opensanctions.org/entities/${r.id}/`,
-      }));
+      const bag = (json && json.responses) || {};
+      const rows = [];
+      const seen = new Set();
+      for (const key of Object.keys(bag)) {
+        for (const r of (bag[key] && bag[key].results) || []) {
+          if (!r || seen.has(r.id)) continue;      // the same entity can match
+          seen.add(r.id);                          // both queries; count once
+          rows.push({
+            external_id: r.id,
+            name: r.caption,
+            schema: r.schema,
+            topics: (r.properties && r.properties.topics) || [],
+            score: r.score,
+            matched_as: key,
+            url: `https://www.opensanctions.org/entities/${r.id}/`,
+          });
+        }
+      }
+      return rows.sort((a, b) => (b.score || 0) - (a.score || 0));
     },
     identify: (r) => r.external_id,
+    /**
+     * A zero here still has two very different causes, and the operator must
+     * be able to tell them apart: the entity really is not in the database,
+     * or the /match endpoint scored every candidate below its threshold.
+     * /match is entity RESOLUTION, not search — it is deliberately strict,
+     * and a near-miss on a name is dropped rather than shown.
+     */
+    diagnose: (json) => {
+      const bag = (json && json.responses) || {};
+      const keys = Object.keys(bag);
+      if (!keys.length) {
+        return 'The response carried no query results at all — that is a '
+          + 'malformed request, not an empty database.';
+      }
+      const total = keys.reduce((n, k) => n + ((bag[k] && bag[k].total
+        && bag[k].total.value) || 0), 0);
+      return `Matched as ${keys.join(' and ')}; ${total} candidate(s) considered, `
+        + 'none above the matching threshold. This endpoint is entity '
+        + 'RESOLUTION, not full-text search: a near-miss on spelling is '
+        + 'dropped rather than shown. Try the exact registered name, or the '
+        + 'name in the original language, before concluding the entity is '
+        + 'not sanctioned.';
+    },
   },
 
   courtlistener: {
@@ -571,24 +630,44 @@ const CONNECTORS = {
     minIntervalMs: 13000,
     keyRequired: false, // anonymous search works; the token raises rate limits
     calls: 1,
-    describe: (q) => `GET https://www.courtlistener.com/api/rest/v4/search/  (q: ${q})`,
+    /**
+     * Two failures the live desk hit on one search.
+     *
+     * 1. "Internet Research Agency" was sent unquoted and OR'd, returning
+     *    Hachette v. Internet Archive and FCC v. Consumers' Research. The
+     *    phrase fix had been applied to the Federal Register and
+     *    Regulations.gov and never here.
+     *
+     * 2. type=o searches OPINIONS. An indictment, a criminal complaint and a
+     *    seizure affidavit are none of those — they are filings on a docket,
+     *    which live in the RECAP archive under type=r. Searching opinions for
+     *    a charging document returns zero forever, and the zero looks like an
+     *    answer. `--dockets` asks the right index.
+     */
+    describe: (q, o = {}) => 'GET https://www.courtlistener.com/api/rest/v4/search/'
+      + `  (q: ${q} — ${o.dockets ? 'RECAP DOCKETS (filings, indictments, affidavits)'
+        : 'OPINIONS ONLY — charging documents are not opinions; use --dockets'}`
+      + `, sent ${phraseMode(q, o)})`,
     probe: (key) => ({
       method: 'GET',
       url: 'https://www.courtlistener.com/api/rest/v4/search/?q=test&type=o',
       headers: key ? { Authorization: `Token ${key}` } : {},
     }),
-    run: (q, key) => ({
+    run: (q, key, o = {}) => ({
       method: 'GET',
-      url: `https://www.courtlistener.com/api/rest/v4/search/?q=${encodeURIComponent(q)}&type=o&order_by=score%20desc`,
+      url: 'https://www.courtlistener.com/api/rest/v4/search/'
+        + `?q=${encodeURIComponent(phrase(q, o))}`
+        + `&type=${o.dockets ? 'r' : 'o'}&order_by=score%20desc`,
       headers: key ? { Authorization: `Token ${key}` } : {},
     }),
     parse: (json) => (json.results || []).map((r) => ({
-      external_id: String(r.id || r.cluster_id || ''),
+      external_id: String(r.id || r.cluster_id || r.docket_id || ''),
       name: r.caseName || r.case_name || '(untitled)',
       court: r.court || r.court_id || '',
       date: r.dateFiled || r.date_filed || '',
       docket: r.docketNumber || r.docket_number || '',
-      url: r.absolute_url ? `https://www.courtlistener.com${r.absolute_url}` : '',
+      url: r.absolute_url ? `https://www.courtlistener.com${r.absolute_url}`
+        : (r.docket_id ? `https://www.courtlistener.com/docket/${r.docket_id}/` : ''),
     })),
     identify: (r) => r.external_id,
   },
@@ -1255,7 +1334,8 @@ async function runConnector(name, query, opts = {}) {
   }
 
   const spec = c.run(query, key,
-    { mode: opts.mode, page: opts.page, exact: opts.exact, any: opts.any });
+    { mode: opts.mode, page: opts.page, exact: opts.exact, any: opts.any,
+      dockets: opts.dockets });
 
   if (opts.dryRun) {
     return { ok: true, dryRun: true,

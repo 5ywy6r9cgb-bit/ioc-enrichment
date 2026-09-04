@@ -335,9 +335,38 @@ bin/sentinel connect graph --push            # write it into Neo4j
 bin/sentinel connect graph --dashboard       # → evidence/graph-dashboard.html
 bin/sentinel connect graph --dashboard --side-a "ENERGY|POWER|GAS" --side-b "AWS|META|MICROSOFT"
 bin/sentinel connect <connector> "<query>"   # one source only
+bin/sentinel connect courtlistener "<party>" --dockets     # indictments, not opinions
 bin/sentinel connect federalregister "<query>" --exact   # force a phrase search
 bin/sentinel connect federalregister "<query>" --any      # force separate terms
 ```
+
+### OpenSanctions searches people AND organisations
+
+Every subject goes out as two queries in one call — one `Person`, one
+`Organization`. Until this was fixed the connector asked only about people,
+so **every company ever searched came back empty** while a person's name
+scored 1.0 and made it look healthy.
+
+A zero from this connector still needs reading carefully: `/match` is entity
+**resolution**, not full-text search. It scores candidates and drops
+near-misses. The diagnosis line now says how many candidates were considered
+and tells you to try the exact registered name, or the name in the original
+language, before concluding an entity is not sanctioned.
+
+### CourtListener: opinions vs. dockets
+
+The default search is `type=o` — **opinions**. An indictment, a criminal
+complaint and a seizure affidavit are none of those; they are filings on a
+docket, in the RECAP archive.
+
+```
+bin/sentinel connect courtlistener "Internet Research Agency" --dockets
+```
+
+Searching opinions for a charging document returns zero forever, and the zero
+looks like an answer. The request line now states which index it searched.
+Multi-word party names are also phrase-quoted here (they weren't — "Internet
+Research Agency" was returning *Hachette v. Internet Archive*).
 
 ### Phrase vs. terms on the full-text sources
 

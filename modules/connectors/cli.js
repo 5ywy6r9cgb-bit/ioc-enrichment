@@ -1488,7 +1488,8 @@ async function cmdSearch(name, query, opts) {
   console.log('\n' + C.b(`${c.label} — authorized run`));
   console.log(`  subject     ${query}`);
   console.log(`  calls       ${c.calls} (exactly)`);
-  console.log(`  request     ${c.describe(query, { exact: opts.exact, any: opts.any })}`);
+  console.log(`  request     ${c.describe(query,
+    { exact: opts.exact, any: opts.any, dockets: opts.dockets })}`);
   console.log(`  key         ${key ? C.g('present, sent in Authorization header only')
     : (keyMissing ? C.r(`MISSING — set ${c.keyVar} in .env`)
       : (c.keyVar ? C.y('none (anonymous)') : C.dim('none needed')))}`);
@@ -1521,7 +1522,7 @@ async function cmdSearch(name, query, opts) {
   }
 
   const out = await R.runConnector(name, query,
-    { env, exact: opts.exact, any: opts.any });
+    { env, exact: opts.exact, any: opts.any, dockets: opts.dockets });
   if (!out.ok) {
     console.error(C.r(`\n  ${out.error} — nothing written.`));
     if (out.status === 401 || out.status === 403) console.error('  The key was rejected. Run: sentinel connect test\n');
@@ -1927,12 +1928,14 @@ async function main() {
   if (action === 'search') {
     return cmdSearch(args[1], positional(2).join(' '),
       Object.assign({}, opts, { into: intoOf(argv),
-        exact: argv.includes('--exact'), any: argv.includes('--any') }));
+        exact: argv.includes('--exact'), any: argv.includes('--any'),
+        dockets: argv.includes('--dockets') }));
   }
   if (R.CONNECTORS[action]) {
     return cmdSearch(action, positional(1).join(' '),
       Object.assign({}, opts, { into: intoOf(argv),
-        exact: argv.includes('--exact'), any: argv.includes('--any') }));
+        exact: argv.includes('--exact'), any: argv.includes('--any'),
+        dockets: argv.includes('--dockets') }));
   }
 
   console.error(`unknown action: ${action}`);

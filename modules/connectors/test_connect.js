@@ -643,6 +643,82 @@ module.exports = function run() {
       /No hits\. A clean result is not proof of absence/.test(cli));
   }
 
+  // ══ ASKING A SANCTIONS DATABASE IF A COMPANY IS A PERSON ═════════════
+  //
+  // The connector hardcoded schema:'Person'. A company is not a Person in
+  // FollowTheMoney, so EVERY organisation ever searched came back empty —
+  // Internet Research Agency, Social Design Agency, Structura — while
+  // "Yevgeny Prigozhin" scored 1.0 and made the connector look healthy.
+  //
+  // The zero then printed as "a clean result is not proof of absence", which
+  // reads as a considered null. It was a malformed question, and the desk had
+  // been treating "is this company a person?" as "is this company sanctioned?"
+  {
+    const O = R.CONNECTORS.opensanctions;
+    const body = JSON.parse(O.run('Internet Research Agency', 'K').body);
+    const schemas = Object.values(body.queries).map((q) => q.schema).sort();
+    check('an organisation is searched AS an organisation',
+      schemas.includes('Organization'), schemas.join(','));
+    check('and a person is still searched as a person',
+      schemas.includes('Person'), schemas.join(','));
+    check('both go in ONE request, so the announced call count stays true',
+      Object.keys(body.queries).length === 2);
+    check('the announced request says it covers both',
+      /person and an organisation/i.test(O.describe('X')), O.describe('X'));
+
+    // The same entity can match both queries. Counting it twice would
+    // manufacture a second sanctioned party out of one.
+    const dupe = { responses: {
+      person: { results: [{ id: 'Q1', caption: 'A', schema: 'Person', score: 0.9 }] },
+      org: { results: [{ id: 'Q1', caption: 'A', schema: 'Person', score: 0.9 },
+                        { id: 'Q2', caption: 'B', schema: 'Organization', score: 0.95 }] },
+    } };
+    const parsed = O.parse(dupe);
+    check('an entity matching both queries is counted once', parsed.length === 2,
+      String(parsed.length));
+    check('and results are ordered by score, best first',
+      parsed[0].external_id === 'Q2', parsed[0].external_id);
+    check('each row records which query found it',
+      parsed.every((r) => r.matched_as));
+
+    check('a zero explains that /match is resolution, not search',
+      /RESOLUTION, not full-text search/.test(
+        O.diagnose({ responses: { person: { results: [], total: { value: 3 } } } })));
+    check('and a response with no query results at all is called malformed',
+      /malformed request/.test(O.diagnose({})));
+  }
+
+  // ══ AN INDICTMENT IS NOT AN OPINION ══════════════════════════════════
+  //
+  // Searching "Internet Research Agency" returned Hachette v. Internet
+  // Archive and FCC v. Consumers' Research — the words OR'd, because the
+  // phrase fix had been applied to two connectors and not this one. And
+  // type=o searches OPINIONS: a charging document, a criminal complaint and
+  // a seizure affidavit are docket filings, in RECAP, under type=r. Searching
+  // opinions for an indictment returns zero forever and the zero looks like
+  // an answer.
+  {
+    const C = R.CONNECTORS.courtlistener;
+    check('a multi-word case party is sent as a phrase, not OR\'d words',
+      C.run('Internet Research Agency', null, {}).url.includes('%22Internet%20Research%20Agency%22'),
+      C.run('Internet Research Agency', null, {}).url);
+    check('the default search is still opinions',
+      /type=o/.test(C.run('X', null, {}).url));
+    check('--dockets searches the RECAP filing archive instead',
+      /type=r/.test(C.run('X', null, { dockets: true }).url));
+    check('and the request line warns that opinions exclude charging documents',
+      /charging documents are not opinions/.test(C.describe('X', {})), C.describe('X', {}));
+    check('while the docket mode says what it is searching',
+      /indictments, affidavits/.test(C.describe('X', { dockets: true })));
+
+    // A RECAP row carries docket_id rather than an opinion id; without this
+    // every docket result would render with an empty link.
+    const recap = C.parse({ results: [{ docket_id: 987, caseName: 'US v. X',
+      court: 'dcd', dateFiled: '2018-02-16', docketNumber: '1:18-cr-00032' }] })[0];
+    check('a docket result still produces a usable identifier and link',
+      recap.external_id === '987' && /docket\/987/.test(recap.url), recap.url);
+  }
+
   // ══ QUOTING EVERYTHING TRADED ONE FAILURE FOR A WORSE ONE ════════════
   //
   // Quoting fixed OR'd junk: "Magnet Forensics" had been returning EPA
