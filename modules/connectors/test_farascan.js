@@ -205,8 +205,12 @@ function layerTests() {
     JSON.stringify(nso));
 
   const bgr = S('BGR Gabara, Ltd. (for Bidzina Ivanishvili)');
+  // Note "Ltd." keeps its period. An earlier version of tidy() stripped
+  // trailing punctuation blindly and produced "BGR Gabara, Ltd" — a
+  // truncation of the company's actual name, and one more way a principal
+  // stops matching itself in the next source you look it up in.
   check('"(for …)" names the client inside the parenthesis',
-    bgr.party === 'Bidzina Ivanishvili' && bgr.conduit === 'BGR Gabara, Ltd',
+    bgr.party === 'Bidzina Ivanishvili' && bgr.conduit === 'BGR Gabara, Ltd.',
     JSON.stringify(bgr));
 
   // The connector is usually inside a parenthetical, so the character before
@@ -237,6 +241,65 @@ function layerTests() {
   check('a real affiliate whose name shares nothing is MISSED — a heuristic, '
     + 'so absence here is not evidence of independence',
     !F.looksSelfAffiliated('The Burson Group LLC', 'BCW Asia Pacific'));
+
+  // ══ A NESTED BRACKET IS DEBRIS, NOT PART OF THE NAME ═════════════════
+  //
+  // Principals are written with a parenthetical inside a parenthetical, and
+  // blind trailing-punctuation stripping leaves the wreckage glued on:
+  // "Mercury International UK Ltd.) (MFA". A name mangled that way never
+  // matches the same entity anywhere else — the same failure as the mojibake
+  // in the Türkiye principal, reached by a different route.
+  {
+    const z = S('Ministry of Foreign Affairs and International Trade of Zimbabwe '
+      + '(through Mercury International UK Ltd.) (MFA)');
+    check('the conduit ends where its own bracket closes',
+      z.conduit === 'Mercury International UK Ltd.', z.conduit);
+
+    const adb = S('African Development Bank (through Actum International UK Ltd.) ("ADB")');
+    check('a trailing quoted abbreviation is not welded onto the conduit',
+      adb.conduit === 'Actum International UK Ltd.', adb.conduit);
+
+    const sar = S('Saudi Arabia Railways ("SAR") , through HIll +Knowlton Strategies GMBH');
+    check('a PAIRED quote inside the client name survives — it is the name',
+      sar.party === 'Saudi Arabia Railways ("SAR")', sar.party);
+
+    const qfc = S('Education Above All Foundation (through Portland PR Limited (QFC Branch))');
+    check('nesting is respected, so a real inner bracket is kept',
+      qfc.conduit === 'Portland PR Limited (QFC Branch)', qfc.conduit);
+
+    check('balanceParens cuts at the first unmatched close and nowhere else',
+      F.balanceParens('A Ltd.) (B)') === 'A Ltd.'
+      && F.balanceParens('A (B) C') === 'A (B) C',
+      F.balanceParens('A Ltd.) (B)'));
+  }
+
+  // ══ WHEN GRAMMAR AND MEANING DISAGREE, REFUSE TO ANSWER ══════════════
+  //
+  // Live in the register: "Ministry of Economy of the Argentine Republic …
+  // (on behalf of Sullivan & Cromwell LLP)". The connector rule makes the law
+  // firm the foreign principal and the finance ministry its pass-through.
+  // That is the inversion this module exists to prevent, and it cannot be
+  // resolved from the string — so it must not be resolved.
+  {
+    const arg = S('Ministry of Economy of the Argentine Republic - Legal and '
+      + 'Administrative Secretariat (on behalf of Sullivan & Cromwell LLP)');
+    check('a law firm named as the principal OF a ministry is flagged contested',
+      arg.contested === true, JSON.stringify(arg));
+
+    const palau = S('Akin, Gump, Strauss, Hauer & Feld, on behalf of the '
+      + 'Government of the Republic of Palau');
+    check('the same construction written correctly is NOT flagged',
+      palau.contested === false && palau.party === 'the Government of the Republic of Palau',
+      `${palau.contested} / ${palau.party}`);
+
+    const isr = S('State of Israel via Havas Media Germany GmbH');
+    check('a state client with a corporate conduit is not flagged',
+      isr.contested === false && isr.party === 'State of Israel', isr.party);
+
+    check('looksContested needs BOTH signals, not either one',
+      !F.looksContested('Some Firm LLP', 'Another Firm LLC')
+      && !F.looksContested('Republic of X', 'Ministry of Y'));
+  }
 
   return rateLimitTests();
 }

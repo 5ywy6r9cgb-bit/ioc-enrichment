@@ -402,14 +402,84 @@ const LAYERS = [
   { re: /[\s(]+f\/b\/o\s+/i,          label: 'f/b/o',        partyFirst: false },
 ];
 
+/**
+ * Cut a string at the first ")" that closes nothing.
+ *
+ * Principals are routinely written with a parenthetical INSIDE a
+ * parenthetical:
+ *
+ *   "Ministry of ... Zimbabwe (through Mercury International UK Ltd.) (MFA)"
+ *
+ * Splitting on "through" leaves "Mercury International UK Ltd.) (MFA)" — the
+ * conduit plus the debris of the bracket it was sitting in. Blind trailing
+ * punctuation stripping cannot fix that: it removes the final ")" and stops
+ * on the "A", leaving "Mercury International UK Ltd.) (MFA". A name mangled
+ * that way will never match the same entity in Companies House, in
+ * OpenCorporates, or in the next filing — the same failure as the mojibake
+ * in the Türkiye principal, arrived at by a different route.
+ *
+ * The conduit ends where its enclosing bracket closes. Nesting is respected,
+ * so "Portland PR Limited (QFC Branch)" survives intact.
+ */
+function balanceParens(s) {
+  let depth = 0;
+  for (let i = 0; i < s.length; i += 1) {
+    const c = s[i];
+    if (c === '(') depth += 1;
+    else if (c === ')') {
+      if (depth === 0) return s.slice(0, i);
+      depth -= 1;
+    }
+  }
+  return s;
+}
+
 /** Trim the punctuation that survives a split out of a parenthetical. */
 function tidy(s) {
-  return String(s || '')
-    .replace(/^[\s("'\u201c\u2018\[]+/, '')
-    .replace(/[\s()"'\u201d\u2019\].,;]+$/, '')
-    .replace(/\s+/g, ' ')
-    .trim();
+  let t = String(s || '').replace(/\s+/g, ' ').trim();
+  t = t.replace(/^[\s("'\u201c\u2018\[]+/, '');
+  t = balanceParens(t);
+  t = t.replace(/[\s,;\u201d\u2019\]]+$/, '');
+  // A quote opened and never closed is debris; one that is paired is part of
+  // the name ("SAR", "ADB") and stays.
+  if ((t.match(/"/g) || []).length % 2 === 1) t = t.replace(/"\s*$/, '');
+  return t.trim();
 }
+
+/* ── When the wording and the meaning disagree ────────────────────────
+ *
+ * The connector rule is a rule about grammar, and registrants do not all
+ * write the same grammar. This is in the live register:
+ *
+ *   "Ministry of Economy of the Argentine Republic - Legal and
+ *    Administrative Secretariat (on behalf of Sullivan & Cromwell LLP)"
+ *
+ * By the connector rule that makes Sullivan & Cromwell the foreign principal
+ * and the Argentine finance ministry its pass-through, which is nonsense and
+ * is precisely the inversion this module was built to avoid. The registrant
+ * either wrote it backwards or meant something the form has no field for.
+ *
+ * There is no way to resolve that from the string. So it is NOT resolved: a
+ * row whose grammar puts a law firm in the client position and a state body
+ * in the conduit position is returned `contested`, and the caller prints it
+ * without asserting a direction. Refusing to answer is the correct output
+ * when the record does not say.
+ */
+const STATE_LIKE = new RegExp([
+  'ministry', 'ministr', 'government', 'govt\\b', 'embassy', 'consulate',
+  'republic', 'kingdom', 'state of', 'presidency', 'president of',
+  'federation', 'parliament', 'royal', 'national assembly', 'prime minister',
+  'people\'s', 'sultanate', 'emirate', 'secretariat',
+].join('|'), 'i');
+
+const FIRM_LIKE = /\b(LLP|LLC|PLLC|L\.L\.P|P\.C|Inc|Ltd|GmbH|S\.A\.S|PLC|Partners|Associates|Counsel|Law\b)/i;
+
+function looksContested(party, conduit) {
+  // Only flag the one asymmetry that is actually implausible: a law firm or
+  // agency named as the foreign principal of a sovereign body.
+  return FIRM_LIKE.test(party) && !STATE_LIKE.test(party) && STATE_LIKE.test(conduit);
+}
+
 
 /**
  * Split a principal name into (party with the interest, conduit in front).
@@ -432,6 +502,7 @@ function splitPrincipal(name) {
       // More than one connector in one name means the layering is deeper
       // than this two-way split can express. Say so rather than truncate it.
       ambiguous: LAYERS.filter((o) => o.re.test(raw)).length > 1,
+      contested: looksContested(L.partyFirst ? left : right, L.partyFirst ? right : left),
     };
   }
   // "(for Someone)" is the same construction without a word this splits on.
@@ -507,14 +578,28 @@ function intermediaries(opts = {}) {
       principalsSeen += 1;
       const split = splitPrincipal(r.name);
       if (!split) continue;
-      const key = `${r.registrant}||${split.raw}`;
+      // KEYED ON THE REGISTRATION NUMBER, NOT THE REGISTRANT'S NAME.
+      //
+      // REGISTRANT_NAME is not stable across a single registrant's own
+      // filings. Mercury's documents carry "Mercury Public Affairs, LLC",
+      // "mercury", "Mercury Public Affairs, LLC/dba Mercury/Clark &
+      // Weinstock", and — on some rows — the literal string "6170". Keyed on
+      // that field, one relationship became four rows with the documents
+      // divided between them, so the Haiti engagement read as 20 documents
+      // when it is 82. The registration number is the identity; the name is
+      // a label, and the variants are kept so the instability is visible
+      // rather than silently averaged away.
+      const regNumber = (f.match(/regdocs_(\d+)/) || [])[1] || '';
+      const key = `${regNumber}||${split.raw}`;
       const e = found.get(key) || {
         registrant: r.registrant || '(unnamed registrant)',
-        regNumber: (f.match(/regdocs_(\d+)/) || [])[1] || '',
+        nameVariants: new Set(),
+        regNumber,
         party: split.party,
         conduit: split.conduit,
         connector: split.connector,
         ambiguous: split.ambiguous,
+        contested: split.contested,
         raw: split.raw,
         country: r.country || '',
         docs: 0,
@@ -524,6 +609,11 @@ function intermediaries(opts = {}) {
         selfAffiliated: looksSelfAffiliated(r.registrant, split.conduit),
       };
       e.docs += 1;
+      if (r.registrant) e.nameVariants.add(r.registrant);
+      // Prefer the longest name seen as the label — the short ones are
+      // truncations and bare registration numbers.
+      if (r.registrant && r.registrant.length > e.registrant.length
+          && !/^\d+$/.test(r.registrant)) e.registrant = r.registrant;
       if (r.filed && (!e.first || r.filed < e.first)) e.first = r.filed;
       if (r.filed && (!e.last || r.filed > e.last)) e.last = r.filed;
       if (!e.sample && r.url) e.sample = r.url;
@@ -531,7 +621,9 @@ function intermediaries(opts = {}) {
     }
   }
 
-  const rows = [...found.values()].sort((a, b) => b.docs - a.docs);
+  const rows = [...found.values()]
+    .map((e) => Object.assign(e, { nameVariants: [...e.nameVariants] }))
+    .sort((a, b) => b.docs - a.docs);
   return {
     ok: true,
     rows,
@@ -556,4 +648,5 @@ module.exports = {
   activeRegistrants, fetchDocs, retryAfterMs, MAX_429_RETRIES,
   namesPrincipal, matches, summarise, scan, coverageLine,
   splitPrincipal, looksSelfAffiliated, intermediaries, tidy,
+  balanceParens, looksContested,
 };

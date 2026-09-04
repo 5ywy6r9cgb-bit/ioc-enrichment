@@ -394,6 +394,19 @@ the form, and the raw string is printed under every row so the reading can be
 checked. Names carrying more than one layer are flagged rather than
 truncated.
 
+Rows whose grammar puts a **law firm in the client position and a sovereign
+body in the conduit position** are printed under `DIRECTION UNRESOLVED` with
+no direction asserted. That happens in the live register — one filing reads
+"Ministry of Economy of the Argentine Republic … (on behalf of Sullivan &
+Cromwell LLP)" — and it cannot be settled from the string. Refusing to answer
+is the correct output when the record does not say.
+
+Rows are keyed on the **registration number**, not the registrant's name:
+`REGISTRANT_NAME` is not stable across one registrant's own filings (Mercury
+appears as "Mercury Public Affairs, LLC", "mercury", a dba string, and the
+bare number "6170"), and keying on it split one engagement into four rows
+with the documents divided between them.
+
 Rows are grouped by whether the conduit looks like the registrant's own
 affiliate (Mercury Public Affairs → Mercury International UK Ltd). That is a
 name-overlap heuristic: it misses The Burson Group → BCW Asia Pacific, so a

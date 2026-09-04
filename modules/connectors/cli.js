@@ -1714,12 +1714,28 @@ function cmdFaraLayers(opts = {}) {
     console.log('');
   }
 
-  const rest = out.rows.filter((r) => !r.selfAffiliated);
+  const rest = out.rows.filter((r) => !r.selfAffiliated && !r.contested);
   if (rest.length) {
     console.log(`  ${C.b('ROUTED THROUGH A THIRD PARTY')}  ${C.dim(`${rest.length}`)}`);
     for (const r of rest.slice(0, opts.verbose ? 9999 : 40)) print(r);
     if (!opts.verbose && rest.length > 40) {
       console.log(C.dim(`\n    …and ${rest.length - 40} more (--verbose for all)`));
+    }
+  }
+
+  // Rows where the grammar puts a law firm in the client position and a
+  // sovereign body in the conduit position. Printed with NO direction
+  // asserted, because the record does not support one.
+  const contested = out.rows.filter((r) => r.contested);
+  if (contested.length) {
+    console.log(`\n  ${C.y('DIRECTION UNRESOLVED')}  ${C.dim(`${contested.length}`)}`);
+    console.log(C.dim('  The wording puts a firm where the client should be and a state body'));
+    console.log(C.dim('  where the conduit should be. Either the registrant wrote it backwards'));
+    console.log(C.dim('  or meant something the form has no field for. Not guessed at:'));
+    for (const r of contested) {
+      console.log(`\n    ${r.party}  ${C.y('\u27f7')}  ${r.conduit}`);
+      console.log(C.dim(`      filed ${r.registrant} #${r.regNumber}  ·  ${r.docs} doc(s)`));
+      console.log(C.dim(`      as    "${r.raw}"`));
     }
   }
 
@@ -1733,7 +1749,9 @@ function cmdFaraLayers(opts = {}) {
       : `${String(r.first || '').slice(0, 10)}..${String(r.last || '').slice(0, 10)}`;
     console.log(`\n    ${C.b(r.party)}${r.country ? C.dim(`  [${r.country}]`) : ''}`);
     console.log(`      via   ${r.conduit}${r.ambiguous ? C.y('   ← more than one layer, split may be incomplete') : ''}`);
-    console.log(C.dim(`      filed ${r.registrant} #${r.regNumber}  ·  ${r.docs} doc(s)  ·  ${span}`));
+    const variants = (r.nameVariants && r.nameVariants.length > 1)
+      ? C.dim(`  (filed under ${r.nameVariants.length} different registrant names)`) : '';
+    console.log(C.dim(`      filed ${r.registrant} #${r.regNumber}  ·  ${r.docs} doc(s)  ·  ${span}`) + variants);
     console.log(C.dim(`      as    "${r.raw}"`));
   }
 }
