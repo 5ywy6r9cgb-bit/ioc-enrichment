@@ -245,6 +245,10 @@ function index(captures) {
             // together, which is a different and false story.
             period: r.period || '',
             year: (String(r.period || '').match(/\b(19|20)\d{2}\b/) || [])[0] || null,
+            // WHICH filing. The LDA gives every filing a uuid, and without it
+            // one filing found under three searches counts as three. See the
+            // dedupe in concentrated().
+            filing_id: r.external_id || r.url || '',
             subject: cap.subject, url: r.url || '',
           });
         }
@@ -310,8 +314,14 @@ function sharedRegistrants(edges, opts = {}) {
     if (g.clients.size < min) continue;
     out.push({
       registrant: g.registrant,
+      // Distinct FILINGS, by uuid — same reason as in concentrated(). One
+      // filing found under three searches is one filing, and counting rows
+      // measured how often the operator searched.
       clients: [...g.clients.values()].map((c) => ({
-        client: c.client, filings: c.filings.length,
+        client: c.client,
+        filings: new Set(c.filings.map((f) => f.filing_id
+          || `${f.registrant_key}::${f.client_key}::${f.period || '?'}`)).size,
+        rows: c.filings.length,
         subjects: [...new Set(c.filings.map((f) => f.subject))],
       })),
       client_count: g.clients.size,
@@ -383,10 +393,34 @@ function concentrated(edges, opts = {}) {
     }
     const g = byReg.get(e.registrant_key);
     if (!g.clients.has(e.client_key)) {
-      g.clients.set(e.client_key, { client: e.client, subjects: new Set(), filings: 0, years: new Set() });
+      g.clients.set(e.client_key, {
+        client: e.client, subjects: new Set(), seen: new Set(), rows: 0, years: new Set(),
+      });
     }
     const c = g.clients.get(e.client_key);
-    c.filings++;
+
+    // ── COUNT FILINGS, NOT ROWS ──────────────────────────────────────────
+    //
+    // This used to be `c.filings++` on every edge, and an edge is a row in a
+    // capture. The same filing comes back under "ShotSpotter" and again under
+    // "SoundThinking", and again on every re-run of either search — so the
+    // count measured HOW OFTEN THE OPERATOR SEARCHED, not how much lobbying
+    // happened.
+    //
+    // It reported Becker & Poliakoff at 98 filings for SoundThinking across
+    // 2014-2026, which reads as a deep, sustained engagement. The
+    // registrant-scoped pull of the same firm shows 4. The 98 was one set of
+    // filings counted over and over, and it was the number that made the row
+    // look like a finding.
+    //
+    // The LDA gives every filing a uuid. Use it. A row with no id falls back
+    // to registrant+client+period, which collapses re-runs of the same
+    // quarter — the common case — and at worst under-counts, which is the
+    // safe direction for a number that argues something.
+    const id = e.filing_id
+      || `${e.registrant_key}::${e.client_key}::${e.period || '?'}`;
+    c.seen.add(id);
+    c.rows++;
     if (e.subject) c.subjects.add(e.subject);
     if (e.year) c.years.add(Number(e.year));
   }
@@ -404,7 +438,8 @@ function concentrated(edges, opts = {}) {
     const matched = onSubjects
       .map((c) => ({
         client: c.client,
-        filings: c.filings,
+        filings: c.seen.size,
+        rows: c.rows,
         subjects: [...c.subjects],
         from: c.years.size ? Math.min(...c.years) : null,
         to: c.years.size ? Math.max(...c.years) : null,

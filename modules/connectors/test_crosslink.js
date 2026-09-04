@@ -425,6 +425,54 @@ module.exports = function run() {
       !/runConnector\(|R\.request\(|https\.request/.test(code));
   }
 
+  // ══ COUNT FILINGS, NOT HOW OFTEN YOU SEARCHED ═════════════════════════
+  //
+  // An edge is a ROW IN A CAPTURE. The same filing comes back under
+  // "ShotSpotter" and again under "SoundThinking", and again on every re-run
+  // of either — so counting edges measured the operator's search history, not
+  // the lobbying.
+  //
+  // It reported Becker & Poliakoff at 98 filings for SoundThinking across
+  // 2014-2026, which reads as a deep, sustained engagement and was the number
+  // that made the row look like a finding. The registrant-scoped pull of the
+  // same firm shows 4.
+  {
+    const one = (subject, id) => ({
+      client: 'SOUNDTHINKING INC.', registrant: 'BECKER & POLIAKOFF, P.A.',
+      client_key: 'SOUNDTHINKING', registrant_key: 'BECKER POLIAKOFF',
+      filing_id: id, period: '2025 Q1', year: '2025', subject, amount: '', issues: '',
+    });
+    // One filing, found under two searches, plus a re-run of each.
+    const edges = [one('ShotSpotter', 'uuid-1'), one('SoundThinking', 'uuid-1'),
+                   one('ShotSpotter', 'uuid-1'), one('SoundThinking', 'uuid-2')];
+
+    const shared = X.sharedRegistrants(edges, { minClients: 1 });
+    const c = shared[0].clients[0];
+    check('one filing seen under four searches counts once per uuid',
+      c.filings === 2, `filings=${c.filings}`);
+    check('and the raw row count is still reported, so the fold is checkable',
+      c.rows === 4, `rows=${c.rows}`);
+
+    // A row with no uuid must still collapse re-runs of the same quarter,
+    // rather than counting each capture again.
+    const noId = [one('ShotSpotter', ''), one('SoundThinking', ''), one('ShotSpotter', '')];
+    const s2 = X.sharedRegistrants(noId, { minClients: 1 });
+    check('with no uuid, registrant+client+period collapses the re-runs',
+      s2[0].clients[0].filings === 1, String(s2[0].clients[0].filings));
+
+    // Genuinely different filings must NOT be collapsed — under-counting a
+    // real engagement is the other way to get this wrong.
+    const two = [one('ShotSpotter', 'uuid-1'), one('ShotSpotter', 'uuid-2')];
+    check('two different filings stay two',
+      X.sharedRegistrants(two, { minClients: 1 })[0].clients[0].filings === 2);
+
+    const src = fs.readFileSync(require.resolve('./crosslink.js'), 'utf8');
+    check('concentrated() counts distinct filings too, not rows',
+      /filings: c\.seen\.size/.test(src));
+    check('and the edge carries the filing id that makes that possible',
+      /filing_id: r\.external_id/.test(src));
+  }
+
   console.log(`\n  ${FAIL === 0 ? 'PASS' : 'FAIL'} — ${PASS}/${PASS + FAIL} checks\n`);
   return FAIL;
 };
