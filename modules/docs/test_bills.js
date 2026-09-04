@@ -125,6 +125,36 @@ module.exports = async function run() {
       r.shared.length === 0 && r.docs.length === 0);
   }
 
+  // ══ 8. `doc get` AND `doc bills` MUST NOT DISAGREE ════════════════════
+  //
+  // They did. `doc get` carried its own inline regex — bare "S." plus a single
+  // digit, no canonical spelling — and it ran only on the HTML branch. So the
+  // same file on disk could produce one bill list at fetch time and a
+  // different one from `doc bills`, and a PDF filing produced none at all.
+  //
+  // The operator reads the fetch-time line first and acts on it. If the two
+  // ever drift apart again, the careless one is the one that gets believed.
+  {
+    const src = fs.readFileSync(path.join(__dirname, 'cli.js'), 'utf8');
+    ok('doc get asks bills.js for the bill list',
+      /require\('\.\/bills\.js'\)/.test(src) && /B\.billsIn\(/.test(src));
+    ok('and carries no bill regex of its own',
+      !/match\(\/\\b\(\?:H/.test(src));
+    ok('the bill print is not fenced inside the HTML branch',
+      /readable === true && textPath/.test(src));
+    ok('a document that names nothing shows its own issue text instead',
+      /B\.issueTextIn\(/.test(src));
+  }
+
+  // And the strict matcher must still reject what the loose one accepted,
+  // or removing the loose one changed nothing.
+  {
+    ok('a bare single-digit "S. 1" is still not a bill',
+      !B.billsIn('signed S. 1 of the agreement').has('S. 1'));
+    ok('canonical spelling is one form, so the two commands can be grepped together',
+      [...B.billsIn('H.R.4024 and HR 4024 and H. R. 4024').keys()].join('|') === 'H.R. 4024');
+  }
+
   console.log(`\n  ${FAIL ? 'FAIL' : 'PASS'} — ${PASS}/${PASS + FAIL} checks\n`);
   if (FAIL) process.exitCode = 1;
   return { pass: PASS, fail: FAIL };

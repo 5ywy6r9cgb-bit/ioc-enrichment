@@ -12,6 +12,7 @@
 const fs = require('fs');
 const path = require('path');
 const D = require('./document.js');
+const B = require('./bills.js');
 const R = require('../connectors/registry.js');
 const P = require('../../core/provenance/provenance.js');
 
@@ -53,6 +54,7 @@ async function cmdGet(url, opts) {
 
   let pages = null;
   let readable = null;
+  let textPath = null;
 
   if (got.isPdf) {
     const ex = D.extractText(got.file);
@@ -66,6 +68,7 @@ async function cmdGet(url, opts) {
       pages = ex.pages;
       const txt = got.file.replace(/\.[^.]*$/, '') + '.txt';
       fs.writeFileSync(txt, ex.text);
+      textPath = txt;
       console.log(`  ${C.dim('pages')}   ${ex.pages === null ? 'unknown' : ex.pages}`);
       console.log(`  ${C.g('text')}    ${path.relative(process.cwd(), txt)}  `
         + C.dim(`${ex.chars.toLocaleString()} chars`
@@ -100,6 +103,7 @@ async function cmdGet(url, opts) {
     const ex = D.extractHtmlText(fs.readFileSync(got.file));
     const txt = got.file.replace(/\.[^.]*$/, '') + '.txt';
     fs.writeFileSync(txt, ex.text);
+    textPath = txt;
     console.log(`  ${C.g('text')}    ${path.relative(process.cwd(), txt)}  `
       + C.dim(`${ex.chars.toLocaleString()} chars`));
     if (ex.likelyEmpty) {
@@ -110,15 +114,48 @@ async function cmdGet(url, opts) {
       console.log(C.dim('  from JavaScript. It is saved and hashed, but it is not the record.'));
     } else {
       readable = true;
-      const bills = [...new Set((ex.text.match(/\b(?:H\.?R\.?|S\.?)\s?\d{1,5}\b/g) || []))];
-      if (bills.length) {
-        // The bill numbers are the reason to open a lobbying filing at all.
-        console.log(`\n  ${C.b('Bills named in this document:')} ${bills.slice(0, 12).join(', ')}`
-          + (bills.length > 12 ? ` … +${bills.length - 12}` : ''));
-      }
     }
   } else {
     console.log(C.dim(`\n  Not a PDF (looks like: ${got.magic}) — saved as fetched, no extraction attempted.`));
+  }
+
+  // ---- what legislation this document names ---------------------------
+  //
+  // This used to be a second, looser regex written inline here -- bare "S."
+  // plus a single digit, no canonical spelling. So `doc get` and `doc bills`
+  // could disagree about the same file on disk, and the one the operator read
+  // first was the careless one. Worse, it only ran on the HTML branch: fetch a
+  // filing as a PDF and the single most useful line never printed at all.
+  //
+  // Both now ask bills.js, which is the module that has actually thought about
+  // what a bill designation looks like.
+  if (readable === true && textPath) {
+    let text = '';
+    try { text = fs.readFileSync(textPath, 'utf8'); } catch { /* printed below */ }
+    const found = [...B.billsIn(text).keys()];
+
+    if (found.length) {
+      console.log(`\n  ${C.b('Bills named in this document:')} ${found.slice(0, 12).join(', ')}`
+        + (found.length > 12 ? ` … +${found.length - 12}` : ''));
+      console.log(C.dim('  A named bill is what the registrant swore it lobbied on. It does not'));
+      console.log(C.dim('  say which side. To see who else named the same bill:'));
+      console.log(C.dim('    bin/sentinel doc bills'));
+    } else if (text) {
+      // "No bills" is an assertion the operator cannot check, and it has two
+      // very different causes: a filing that genuinely describes its work in
+      // prose, or a matcher that missed the format. Showing the filing's own
+      // issue text separates them -- and a filing whose entire description is
+      // "Energy and tax issues generally" is itself the finding.
+      const issue = B.issueTextIn(text);
+      console.log(`\n  ${C.y('No bill designation appears in this document.')}`);
+      if (issue) {
+        console.log(C.dim('  What it says it lobbied on, in its own words:'));
+        console.log(C.dim(`    ${issue.slice(0, 240)}`));
+      } else {
+        console.log(C.dim('  And no lobbying-issue field was found either — check the text file'));
+        console.log(C.dim('  yourself before treating this as a document that names nothing.'));
+      }
+    }
   }
 
   // ---- provenance ----------------------------------------------------
