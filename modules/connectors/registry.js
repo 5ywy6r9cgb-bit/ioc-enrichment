@@ -51,6 +51,28 @@ function phrase(q) {
   return `"${s.replace(/"/g, '')}"`;
 }
 
+/**
+ * Find the array of records in a JSON body whose shape you do not know.
+ *
+ * Government APIs wrap their data differently and inconsistently — a bare
+ * array, `{ROW: [...]}`, `{RESULTS: {ROW: [...]}}`. Hard-coding one shape
+ * means a body that arrives in another parses to nothing and reports a clean
+ * zero, which is indistinguishable from "there is nothing there".
+ *
+ * So: take the deepest single array of objects and say what was found.
+ */
+function findRecordArray(json, depth = 0) {
+  if (Array.isArray(json)) {
+    return json.every((x) => x && typeof x === 'object') ? json : [];
+  }
+  if (!json || typeof json !== 'object' || depth > 6) return [];
+  for (const v of Object.values(json)) {
+    const found = findRecordArray(v, depth + 1);
+    if (found.length) return found;
+  }
+  return [];
+}
+
 // ---------------------------------------------------------------- env
 function loadEnv() {
   // Keys live in a .env the operator controls. Read it, never echo it.
@@ -873,6 +895,88 @@ const CONNECTORS = {
    * hide in that gap. A null from this connector does not rule out a federal
    * loan. Check the LPO's own portfolio page for that.
    */
+  /**
+   * FARA — who is paid by a foreign principal to influence Americans.
+   *
+   * ─────────────────────────────────────────────────────────────────────
+   * WHY THIS SOURCE AND NOT A THEORY
+   *
+   * "Which companies are paid by foreign interests to shape American
+   * political opinion" is not a question that needs speculating about. Since
+   * 1938 it has been a REGISTRATION REQUIREMENT: 22 U.S.C. 611 et seq. makes
+   * anyone acting in the United States as an agent of a foreign principal —
+   * for political or public-relations purposes — file with the Justice
+   * Department, name the principal, state the activity, and report what they
+   * were paid. Failing to register is a felony.
+   *
+   * So the answer is a public database, and this is it. What it will show is
+   * PR firms, law firms and consultancies working for foreign governments and
+   * companies, disclosed under oath. What it will not show is a secret
+   * network, because a secret network by definition does not register — and
+   * the absence of one here is a fact about FARA's coverage, not proof that
+   * none exists.
+   *
+   * ─────────────────────────────────────────────────────────────────────
+   * WHY THE PARSER DOES NOT ASSUME A SCHEMA
+   *
+   * DOJ publishes the whole active-registrant list at one URL; there is no
+   * search endpoint, so the filtering is local. The exact field names were
+   * not verifiable when this was written, and a parser that guesses them
+   * fetches successfully, matches nothing, and reports a clean zero — the
+   * worst failure this desk has: a confident wrong null.
+   *
+   * So it finds the record array wherever it sits, matches the query against
+   * every string value in a record, and reports the record's OWN field names
+   * back to the operator. It cannot silently mismatch a schema it never
+   * claimed to know.
+   */
+  fara: {
+    label: 'FARA (foreign agents registration)',
+    keyVar: null,
+    keyRequired: false,
+    calls: 1,
+    describe: (q) => 'GET https://efile.fara.gov/api/v1/Registrants/json/Active'
+      + `  (whole active list, filtered locally for: ${q})`,
+    probe: () => ({
+      method: 'GET',
+      url: 'https://efile.fara.gov/api/v1/Registrants/json/Active',
+      headers: { Accept: 'application/json' },
+    }),
+    run: () => ({
+      method: 'GET',
+      url: 'https://efile.fara.gov/api/v1/Registrants/json/Active',
+      headers: { Accept: 'application/json' },
+    }),
+    parse: (json, query) => {
+      const rows = findRecordArray(json);
+      if (!rows.length) return [];
+      const q = String(query || '').toLowerCase().trim();
+      if (!q) return [];
+      const hits = rows.filter((r) => r && typeof r === 'object'
+        && Object.values(r).some((v) => typeof v === 'string'
+          && v.toLowerCase().includes(q)));
+      return hits.slice(0, 25).map((r) => {
+        const k = Object.keys(r);
+        const pick = (re) => {
+          const key = k.find((n) => re.test(n));
+          return key ? String(r[key]) : '';
+        };
+        return {
+          external_id: pick(/registration.?number|reg.?num/i) || pick(/^id$/i),
+          name: pick(/registrant.?name|^name$/i) || '(see fields)',
+          // The foreign principal is the whole point of the record.
+          principal: pick(/foreign.?principal|principal/i),
+          state: pick(/^state$|jurisdiction/i),
+          registered: pick(/registration.?date|date/i),
+          address: '',                       // deliberately NOT collected
+          // What the record actually called its columns, so a mismatch is
+          // visible rather than silent.
+          fields: k.join(', ').slice(0, 200),
+        };
+      });
+    },
+    identify: (r) => r.external_id || r.name,
+  },
   federalgrants: {
     label: 'USAspending (grants & cooperative agreements)',
     keyVar: null,
@@ -980,7 +1084,10 @@ async function runConnector(name, query, opts = {}) {
   let results = [];
   let parseError = null;
   try {
-    results = c.parse(JSON.parse(res.body.toString('utf8')));
+    // The query is passed because one connector (fara) serves a whole dataset
+    // rather than a search: DOJ publishes the full active-registrant list and
+    // the filtering happens here. Every other parser ignores the argument.
+    results = c.parse(JSON.parse(res.body.toString('utf8')), query);
   } catch (e) {
     parseError = e.message;
   }
@@ -1023,7 +1130,7 @@ async function runConnector(name, query, opts = {}) {
 }
 
 module.exports = {
-  phrase,
+  phrase, findRecordArray,
   explainHttpError, looksLikeSubstringMatch,
   checkKeyShape, KEY_SHAPES,
   stripAuth, AUTH_HEADERS, MAX_REDIRECTS,

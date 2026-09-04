@@ -543,6 +543,54 @@ module.exports = function run() {
       !lda.url.includes('%22'), lda.url);
   }
 
+  // ══ FARA: A SCHEMA THIS DESK NEVER CLAIMED TO KNOW ════════════════════
+  //
+  // DOJ publishes the whole active-registrant list at one URL — no search
+  // endpoint — and the exact column names were not verifiable when this was
+  // written. A parser that guesses them fetches successfully, matches
+  // nothing, and reports a clean zero: the worst failure here, a confident
+  // wrong null.
+  {
+    const F = R.CONNECTORS.fara;
+    const body = { REGISTRANTS_ACTIVE: { ROW: [
+      { Registration_Number: '1234', Registrant_Name: 'ACME PUBLIC AFFAIRS LLC',
+        Foreign_Principal: 'Ministry of X', State: 'DC', Registration_Date: '2024-01-05' },
+      { Registration_Number: '9', Registrant_Name: 'UNRELATED CORP',
+        Foreign_Principal: 'Y', State: 'NY', Registration_Date: '2020-01-01' },
+    ] } };
+
+    const hits = F.parse(body, 'acme');
+    check('the record array is found inside a wrapper it was not told about',
+      hits.length === 1, String(hits.length));
+    check('the registrant name is picked out', hits[0].name === 'ACME PUBLIC AFFAIRS LLC');
+    check('and the FOREIGN PRINCIPAL, which is the point of the record',
+      hits[0].principal === 'Ministry of X');
+    check('the record reports its OWN column names, so a mismatch is visible',
+      /Registrant_Name/.test(hits[0].fields), hits[0].fields);
+
+    // The shape-finder must handle the other wrappers too.
+    check('a bare array of records is found', R.findRecordArray([{ a: 1 }]).length === 1);
+    check('an object with no array yields none rather than throwing',
+      R.findRecordArray({ a: 1 }).length === 0);
+    check('null and a string do not throw',
+      R.findRecordArray(null).length === 0 && R.findRecordArray('x').length === 0);
+    check('an array of strings is not mistaken for records',
+      R.findRecordArray(['a', 'b']).length === 0);
+
+    check('an empty query matches nothing rather than everything',
+      F.parse(body, '').length === 0 && F.parse(body, '   ').length === 0);
+    check('a query matching no registrant returns none',
+      F.parse(body, 'zzzznotreal').length === 0);
+    check('the connector needs no key', F.keyRequired === false && F.keyVar === null);
+    check('and announces that it filters locally',
+      /filtered locally/.test(F.describe('x')));
+
+    // Addresses of registrants are in that dataset. This desk does not
+    // collect them: the notification guard refuses street addresses, and a
+    // capture is not the place to start keeping them either.
+    check('no address is carried into a result row', hits[0].address === '');
+  }
+
   console.log(`\n  ${FAIL === 0 ? 'PASS' : 'FAIL'} — ${PASS}/${PASS + FAIL} checks\n`);
   return FAIL;
 };

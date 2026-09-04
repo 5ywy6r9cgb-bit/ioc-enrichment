@@ -310,7 +310,7 @@ PRA_MAIL_MAX_PER_RUN=5          # cap on one `send`
 
 ```bash
 bin/sentinel connect test                    # which keys are set, and reachable
-bin/sentinel connect list                    # the ten connectors and their key variables
+bin/sentinel connect list                    # the eleven connectors and their key variables
 bin/sentinel connect all "<subject>"         # search every source at once
 bin/sentinel connect all "<subject>" --into <investigation>
 bin/sentinel connect all "<subject>" --dry-run
@@ -335,7 +335,7 @@ bin/sentinel connect graph --dashboard --side-a "ENERGY|POWER|GAS" --side-b "AWS
 bin/sentinel connect <connector> "<query>"   # one source only
 ```
 
-### The ten connectors
+### The eleven connectors
 
 | Name | Source | Key variable |
 |---|---|---|
@@ -349,6 +349,7 @@ bin/sentinel connect <connector> "<query>"   # one source only
 | `opencorporates` | OpenCorporates | `OPENCORPORATES_API_KEY` |
 | `usaspending` | USAspending federal awards — **procurement contracts only** | none needed |
 | `federalgrants` | USAspending grants & cooperative agreements | none needed |
+| `fara` | FARA — agents of foreign principals (22 U.S.C. 611) | none needed |
 
 `connect all` deliberately **skips `bls`** — it takes series IDs, not names,
 so a company name against it is meaningless.
@@ -1777,7 +1778,7 @@ This is the single most useful page in the manual, because the failure it
 prevents is concluding that a record *doesn't exist* when you simply asked
 the wrong government.
 
-The ten connectors are **federal**. The following are **not** federal
+The eleven connectors are **federal**. The following are **not** federal
 records and will never appear in a `connect all`, no matter how you phrase
 the subject:
 

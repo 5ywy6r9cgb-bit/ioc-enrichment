@@ -6,7 +6,7 @@
  * ─────────────────────────────────────────────────────────────────────────
  * THE PROBLEM
  *
- * This system has eleven modules, four browser surfaces, ten connectors and
+ * This system has eleven modules, four browser surfaces, eleven connectors and
  * roughly sixty commands, and no way in. Everything is reachable and nothing
  * is findable. At 11pm the question is not "what is the architecture", it is
  * "where do I click to see my FOIAs" — and the honest answer was to remember
