@@ -228,6 +228,40 @@ module.exports = async function run() {
       D.nameFor('https://x.gov/a.pdf', 'application/pdf') === 'a.pdf');
   }
 
+  // ══ FINDING A TOOL ON PATH DOES NOT INVOLVE A SHELL ═══════════════════
+  //
+  // haveTool() used to run `command -v <bin>` with { shell: true }. Node
+  // deprecation-warned on it (DEP0190) on every fetch and every test run, and
+  // the tool name is a caller-supplied option — so the moment it comes from a
+  // config file or env var, the lookup is arbitrary command execution.
+  {
+    // Strip comments first. The guard is about CODE — and the explanation of
+    // why this was removed necessarily quotes the thing it removed. A guard
+    // that fires on its own rationale is a guard that gets deleted.
+    const src = fs.readFileSync(path.join(__dirname, 'document.js'), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/^\s*\/\/.*$/gm, '');
+    check('no command runs through a shell in this module',
+      !/shell:\s*true/.test(src));
+
+    // Behaviour, not just absence: it must still answer correctly.
+    check('a binary that is really on PATH is found',
+      D.haveTool(process.platform === 'win32' ? 'cmd' : 'sh'));
+    check('a name that is on no PATH is not found',
+      !D.haveTool('sentinel-definitely-not-a-real-binary-xyz'));
+    check('an explicit path is checked where it points, not looked up',
+      D.haveTool(process.execPath));
+    check('an explicit path that does not exist is not found',
+      !D.haveTool('/definitely/not/here/pdftotext'));
+
+    // A shell would happily accept these. execFileSync would not, so
+    // answering "yes" to them is answering the wrong question.
+    check('a name with shell metacharacters is not reported as runnable',
+      !D.haveTool('sh; echo pwned') && !D.haveTool('$(echo sh)'));
+    check('an empty or non-string tool name is refused rather than guessed at',
+      !D.haveTool('') && !D.haveTool(null) && !D.haveTool(undefined));
+  }
+
   console.log(`\n  ${FAIL ? 'FAIL' : 'PASS'} — ${PASS}/${PASS + FAIL} checks\n`);
   if (FAIL) process.exitCode = 1;
   return { pass: PASS, fail: FAIL };

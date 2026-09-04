@@ -1,5 +1,5 @@
 {
-  "//": "Named subject sets for `sentinel connect sweep <set>`. Edit this file as you learn names \u2014 every abatement agreement and utility filing names the actual contracting entity, and that name is the one worth searching. A subject here is a SEARCH STRING, not a claim that the entity is involved in anything.",
+  "//": "Named subject sets for `sentinel connect sweep <set>`. Edit this file as you learn names — every abatement agreement and utility filing names the actual contracting entity, and that name is the one worth searching. A subject here is a SEARCH STRING, not a claim that the entity is involved in anything.",
   "datacenters": {
     "into": "datacenters",
     "note": "Operators and the single-purpose entities they file under.",
@@ -154,6 +154,30 @@
       "Fervo Energy",
       "Excelsior Energy Capital",
       "Enhanced Geothermal Systems Deployment Coalition"
+    ]
+  },
+  "shell_entities": {
+    "into": "shell-entities",
+    "note": "The LLCs that actually appear on the records -- OPSB dockets, a county auditor's parcel file, a federal docket caption, a company's own blog. Not a list of suspicious names: a shell LLC for land assembly is ordinary and legal, and two of these (SIDECAT, LIAMES) are confirmed to Meta by Meta and by the regulator respectively. The reason to run them is that an LLC is the one thing in this investigation that OpenCorporates and CourtListener can actually answer about -- registration date, jurisdiction, agent, and whether it has ever been a party. NO NATURAL PERSON IS IN THIS SET. A registered agent's name is checked deliberately, one query at a time, not swept across nine sources including a sanctions database.",
+    "subjects": [
+      "Sidecat LLC",
+      "Liames LLC",
+      "DB Stu LLC",
+      "J5 LLC",
+      "Orla LLC",
+      "Laidley LLC",
+      "Pelican Leap LLC",
+      "Wurldwide LLC",
+      "Goat Systems LLC",
+      "Will-Power OH LLC",
+      "Cologix COL5 LLC",
+      "Cologix COL6 LLC",
+      "Williams Companies",
+      "PowerConneX",
+      "EdgeConneX",
+      "Stonepeak Infrastructure Partners",
+      "SB Energy",
+      "Bloom Energy"
     ]
   }
 }

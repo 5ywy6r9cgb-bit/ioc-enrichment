@@ -95,12 +95,45 @@ function nameFor(url, contentType) {
  * Checked rather than assumed, because the failure mode of assuming is a
  * thrown ENOENT in the middle of an otherwise successful fetch — the
  * document is already on disk and the run looks like it failed.
+ *
+ * This used to run `command -v <bin>` through a SHELL. Three things wrong
+ * with that, in increasing order of seriousness:
+ *
+ *   1. Node prints a DeprecationWarning (DEP0190) on every single fetch and
+ *      every test run. A warning that always fires is a warning nobody reads,
+ *      and it was sitting on top of the one command this desk runs most.
+ *   2. It spawned a shell to answer a question about a directory listing.
+ *   3. Under `shell: true` the arguments are concatenated into a command
+ *      line, not passed as arguments. The tool name is a caller-supplied
+ *      option (`opts.pdftotext`), so the moment that ever comes from a
+ *      config file, an env var, or anything a fetched document influences,
+ *      `command -v` becomes arbitrary command execution. Nothing supplies it
+ *      today. That is exactly the kind of "safe for now" that stops being
+ *      true without anyone editing this function.
+ *
+ * So: no subprocess and no shell. Walk PATH and ask the filesystem, which is
+ * what `command -v` was going to do anyway — and is stricter, because it
+ * answers the question we actually have ("can execFileSync run this?")
+ * rather than the shell's question, which also says yes to builtins and
+ * aliases that execFileSync cannot run.
  */
 function haveTool(bin) {
-  try {
-    execFileSync('command', ['-v', bin], { shell: true, stdio: 'ignore' });
-    return true;
-  } catch { return false; }
+  if (!bin || typeof bin !== 'string') return false;
+
+  // An explicit path is not a PATH lookup — check it where it points.
+  if (bin.includes(path.sep) || bin.startsWith('.')) {
+    try { fs.accessSync(bin, fs.constants.X_OK); return true; }
+    catch { return false; }
+  }
+
+  const dirs = (process.env.PATH || '').split(path.delimiter).filter(Boolean);
+  for (const dir of dirs) {
+    try {
+      fs.accessSync(path.join(dir, bin), fs.constants.X_OK);
+      return true;
+    } catch { /* next directory */ }
+  }
+  return false;
 }
 
 /** Page count, or null when nothing can tell us. */
