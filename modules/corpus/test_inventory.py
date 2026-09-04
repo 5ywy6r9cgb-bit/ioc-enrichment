@@ -253,6 +253,42 @@ sys.exit(I.main())
                   chars is None, str(chars))
             check("and the file says the check did not happen",
                   "did not happen" in body and "NOT a document that says nothing" in body)
+
+            # ── THE INVISIBLE ONE ──────────────────────────────────────
+            # A subset font with a broken ToUnicode map yields thousands of
+            # characters that decode to the wrong glyphs. It is not empty, so
+            # the scan check passes; the run did not fail, so the unknown
+            # check passes. It lands marked "searchable" with a healthy
+            # character count, and every keyword search over it returns
+            # nothing, silently, forever. A 15-page piping specification in
+            # this corpus came out exactly this way.
+            TEXT_FLOOR = I.TEXT_LAYER_MIN_CHARS
+            I.pdf_text = lambda p: '!!"# $%&\'( $%)*%+% + $%,*&\'(%*&& /&(\'&( ' * 400
+            chars, dest = I.save_text(readable, "d" * 64, tdir)
+            body = Path(dest).read_text()
+            check("a healthy character count is NOT taken as readable text",
+                  chars and chars > TEXT_FLOOR, str(chars))
+            check("text that is not words is called out",
+                  "IT IS NOT WORDS" in body, body[:160])
+            check("and it is not mistaken for a scan, which needs a different fix",
+                  "NO TEXT LAYER" not in body)
+            check("both possible causes are named, since they need different fixes",
+                  "ToUnicode" in body and "too crude" in body)
+
+            # And the verdict must follow, or inventory.csv still says searchable.
+            row = {"size_bytes": 10, "sha256": "d" * 64, "ext": ".pdf",
+                   "real_type": "PDF document", "text_chars": 5000,
+                   "text_readable": False}
+            check("the CSV verdict does not call it searchable",
+                  I.classify(row) == "TEXT IS NOT WORDS — encoding broken, needs OCR",
+                  I.classify(row))
+            row["text_readable"] = True
+            check("but genuinely readable text still reads as searchable",
+                  I.classify(row) == "searchable", I.classify(row))
+            row["text_readable"] = None
+            check("and a document never checked for readability is not condemned",
+                  I.classify(row) == "searchable", I.classify(row))
+
         finally:
             I.pdf_text = real
 

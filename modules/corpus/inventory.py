@@ -98,6 +98,54 @@ def pdf_text_chars(path: Path) -> int | None:
     return None if t is None else len(t.strip())
 
 
+# Words that appear in essentially any English document of any length. Used
+# only to tell readable text from a stream of correctly-decompressed garbage.
+_COMMON = (" the ", " and ", " of ", " to ", " for ", " is ", " in ", " on ",
+           " that ", " with ", " this ", " be ", " will ", " at ", " from ")
+
+
+def text_looks_readable(text: str) -> bool:
+    """
+    Is this actually words, or is it a font-encoding failure?
+
+    ─────────────────────────────────────────────────────────────────────
+    THE THIRD FAILURE MODE, AND THE WORST OF THEM
+
+    Two bad PDFs are already handled: the scan with no text layer, and the
+    file where the extractor could not run. Both are visible — one extracts
+    to nothing, the other reports a check that did not happen.
+
+    This is the one that is invisible. A PDF built with a subset font and a
+    missing or broken ToUnicode map has a real text layer, real font objects,
+    and thousands of extractable characters — and every one of them decodes
+    to the wrong glyph. A 15-page piping specification came out of this
+    corpus as:
+
+        !!"# $%&'( $%)*%+% + $%,*&'(%*&&
+
+    It is not empty, so the scan check passes. It is not a failed run, so the
+    unknown check passes. It lands in the corpus marked "searchable", with a
+    healthy character count, and every keyword search over it returns nothing
+    — forever, silently, while the file looks perfectly fine in the index.
+
+    A document that cannot be searched and does not say so is worse than one
+    that is plainly unreadable, because nobody goes back for it.
+
+    NOTE ON CAUSE: broken encoding is one cause; a weak extractor is another.
+    `pdftotext` reads ToUnicode maps that cruder readers ignore. So this
+    reports "this text is not words", never "this document is corrupt".
+    """
+    if not text:
+        return False
+    sample = text[:20000].lower()
+    letters = sum(c.isalpha() or c.isspace() for c in sample)
+    if letters / max(1, len(sample)) < 0.55:
+        return False
+    # A page of real prose in any register hits several of these. Zero hits
+    # across 20,000 characters means the bytes decoded to the wrong glyphs.
+    return sum(w in sample for w in _COMMON) >= 3
+
+
 def save_text(path: Path, sha: str, outdir: Path) -> tuple[int | None, str]:
     """
     Extract a PDF's text and keep it, named by the hash of the bytes it
@@ -147,6 +195,20 @@ def save_text(path: Path, sha: str, outdir: Path) -> tuple[int | None, str]:
             "[NO TEXT LAYER — this document is almost certainly a scan.]\n"
             "[It will match no keyword search regardless of what it says.]\n"
             "[OCR it first:  bin/sentinel corpus ocr <folder> --out <folder>_derived]\n")
+    elif not text_looks_readable(text):
+        header += (
+            "[TEXT EXTRACTED BUT IT IS NOT WORDS — font encoding problem.]\n"
+            f"[{chars} characters came out and none of them read as English.]\n"
+            "[This file has a text layer, so it does NOT look like a scan and\n"
+            " will be reported as searchable by anything that only counts\n"
+            " characters. It is not. Every keyword search over it will return\n"
+            " nothing, silently, forever.]\n"
+            "[Two possible causes, and they need different fixes:\n"
+            "  1. The PDF uses a subset font with a broken or missing\n"
+            "     ToUnicode map. OCR it like a scan.\n"
+            "  2. The extractor here is too crude for it. Confirm by opening\n"
+            "     it and trying to select and copy a sentence — if that works\n"
+            "     in a viewer, the document is fine and the tooling is not.]\n")
     dest.write_text(header + "\n" + text, encoding="utf-8")
     return chars, str(dest)
 
@@ -169,6 +231,10 @@ def classify(row: dict) -> str:
             return "UNKNOWN — readability never tested"
         if row["text_chars"] < TEXT_LAYER_MIN_CHARS:
             return "NO TEXT LAYER — needs OCR"
+        if row.get("text_readable") is False:
+            # Characters came out; words did not. Calling this "searchable"
+            # is the one verdict that would send the operator away satisfied.
+            return "TEXT IS NOT WORDS — encoding broken, needs OCR"
         return "searchable"
     return "ok"
 
@@ -263,8 +329,14 @@ def scan(root: Path, shelf_name: str = "", volume_id: str = "",
                 # the text for the corpus. Extracting twice would double the
                 # slowest step in the scan for no gain.
                 row["text_chars"], row["text_file"] = save_text(p, row["sha256"], text_dir)
+                row["text_readable"] = None
+                if row["text_file"]:
+                    body = Path(row["text_file"]).read_text(encoding="utf-8", errors="replace")
+                    row["text_readable"] = "TEXT EXTRACTED BUT IT IS NOT WORDS" not in body
             else:
-                row["text_chars"] = pdf_text_chars(p)
+                t = pdf_text(p)
+                row["text_chars"] = None if t is None else len(t.strip())
+                row["text_readable"] = None if t is None else text_looks_readable(t)
         row["verdict"] = classify(row)
         rows.append(row)
 
@@ -496,7 +568,7 @@ def main() -> int:
     csv_path = outdir / ("inventory.csv" if complete else "inventory.PARTIAL.csv")
     fields = ["shelf", "volume_id", "filename", "relpath", "ext", "size_bytes",
               "size_kb", "real_type", "sha256", "text_chars", "verdict",
-              "text_file"]
+              "text_readable", "text_file"]
     with csv_path.open("w", newline="") as fh:
         w = csv.DictWriter(fh, fieldnames=fields, extrasaction="ignore")
         w.writeheader()

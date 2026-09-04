@@ -923,6 +923,20 @@ keyword search over it returns a confident, wrong null. A file where
 `pdftotext` could not run at all is recorded as a check that *did not happen* —
 never as zero characters.
 
+**A third failure mode, and the worst of them.** A PDF built with a subset
+font and a broken `ToUnicode` map has a real text layer, real font objects and
+thousands of extractable characters — every one decoding to the wrong glyph. A
+15-page piping specification in this corpus came out as
+`!!"# $%&'( $%)*%+%`. It is not empty, so the scan check passes. The run did
+not fail, so the unknown check passes. It lands marked *searchable* with a
+healthy character count, and every keyword search over it returns nothing,
+silently, forever. The inventory now tests whether the extracted text is
+actually words and reports `TEXT IS NOT WORDS — encoding broken, needs OCR`.
+It names both causes, because they need different fixes: the PDF's encoding
+may be broken, or the extractor may simply be too crude for it. Open the file
+and try to select and copy a sentence — if that works in a viewer, the
+document is fine and the tooling is not.
+
 Do not write the output to the Desktop. It is the least protected folder on
 the machine: screen-shared, cloud-synced, and shown to whoever is looking over
 your shoulder. `evidence/` is gitignored and CI-enforced.
