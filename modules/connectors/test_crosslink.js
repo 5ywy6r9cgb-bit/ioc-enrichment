@@ -544,6 +544,70 @@ module.exports = function run() {
       /also answered the search/.test(cli));
   }
 
+  // ══ "BRIDGES 4 OF 4" IS TRUE OF EVERY FIRM ════════════════════════════
+  //
+  // Real failure, reported to the operator as a finding: Brownstein Hyatt led
+  // this section "bridging 4 of your threads across 4 client(s) the library
+  // knows" — Skydio, Bloom Energy, American Electric Power, Palantir, all
+  // overlapping in time. A registrant-scoped pull then returned 384 clients
+  // from the first 500 of the firm's 16,026 filings, including Alibaba,
+  // Tencent, NVIDIA, McDonald's and Yale. A firm that size bridges four of
+  // anyone's subjects by arithmetic.
+  //
+  // The tell was in the data and was not printed: every client the library
+  // knew for that firm had come from the operator's own subject searches, so
+  // the denominator WAS the search list and the ratio is 1.0 for any firm.
+  {
+    const mk = (reg, cli, subject, year) => ({
+      registrant: reg, client: cli,
+      registrant_key: X.normalise(reg), client_key: X.normalise(cli),
+      subject, year, period: `Q1 ${year}`, filing_id: `${reg}|${cli}|${year}`,
+    });
+
+    // Known only through the operator's own searches.
+    const searchOnly = [
+      mk('BIG FIRM LLP', 'SKYDIO', 'Skydio', 2025),
+      mk('BIG FIRM LLP', 'PALANTIR TECHNOLOGIES INC.', 'Palantir Technologies', 2025),
+    ];
+    // Also holds clients that arrived some other way — a real, partial floor.
+    const surveyed = [
+      mk('BOUTIQUE LLC', 'AXON ENTERPRISE, INC.', 'Axon Enterprise', 2025),
+      mk('BOUTIQUE LLC', 'BRINC DRONES, INC.', 'BRINC Drones', 2025),
+      ...Array.from({ length: 26 }, (_, i) => ({
+        registrant: 'BOUTIQUE LLC', client: `OTHER CLIENT ${i}`,
+        registrant_key: X.normalise('BOUTIQUE LLC'), client_key: `other client ${i}`,
+        subject: '', year: 2025, period: 'Q1 2025', filing_id: `o${i}`,
+      })),
+    ];
+
+    const rows = X.concentrated([...searchOnly, ...surveyed],
+      { minClients: 2, minSubjects: 2 });
+    const big = rows.find((r) => r.registrant === 'BIG FIRM LLP');
+    const bou = rows.find((r) => r.registrant === 'BOUTIQUE LLC');
+
+    check('a firm known only through your own searches is flagged as having no denominator',
+      big.denominator_is_search_list === true);
+    check('a firm with clients found other ways is NOT flagged',
+      bou.denominator_is_search_list === false);
+    check('the full client count is carried so the ratio can be seen',
+      big.client_count === 2 && bou.client_count === 28,
+      `${big.client_count} / ${bou.client_count}`);
+
+    // The boutique bridges the same number of threads off a real denominator,
+    // so it must outrank the firm whose denominator is the question itself.
+    check('the boutique outranks the firm with no denominator',
+      rows.indexOf(bou) < rows.indexOf(big),
+      rows.map((r) => r.registrant).join(' > '));
+
+    const cli = fs.readFileSync(require.resolve('./cli.js'), 'utf8');
+    check('the CLI prints the warning rather than leaving it in the data',
+      /NO DENOMINATOR/.test(cli));
+    check('and tells the operator exactly how to get one',
+      /--registrant "\$\{g\.registrant\}"/.test(cli));
+    check('the displayed count now shows on-subject clients OUT OF clients known',
+      /clients_on_subjects\} of \$\{g\.client_count\}/.test(cli));
+  }
+
   console.log(`\n  ${FAIL === 0 ? 'PASS' : 'FAIL'} — ${PASS}/${PASS + FAIL} checks\n`);
   return FAIL;
 };

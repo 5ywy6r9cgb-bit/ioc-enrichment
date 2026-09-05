@@ -556,6 +556,27 @@ function concentrated(edges, opts = {}) {
       // registrant connects. That is a fact about the filings, not an estimate
       // about the firm.
       threads: subjects.size,
+      // ── IS THERE A DENOMINATOR AT ALL? ───────────────────────────────────
+      //
+      // Real failure, in this session: Brownstein Hyatt topped this list
+      // "bridging 4 of your threads across 4 clients the library knows", and
+      // was reported to the operator as the strongest structural finding on
+      // the desk. A registrant-scoped pull then returned 384 clients from the
+      // first 500 of the firm's 16,026 filings -- Alibaba, Tencent, NVIDIA,
+      // McDonald's, Yale, the Washington Commanders. A firm that size bridges
+      // four of anyone's subjects by arithmetic.
+      //
+      // The tell was available and unprinted: every client the library knew
+      // for that firm had arrived from the operator's OWN subject searches.
+      // When clients_known === clients_on_subjects, the denominator is the
+      // search list itself, so the ratio is 1.0 for any firm at all and the
+      // row establishes nothing about concentration. It is not a weak finding;
+      // it is not a finding.
+      //
+      // Firms whose library entry also holds clients found some other way --
+      // a registrant pull, another thread's search -- do have a denominator,
+      // partial and a floor, but real.
+      denominator_is_search_list: clients.length === onSubjects.length,
       // Kept for ORDERING and never printed. As a displayed statistic it
       // overclaims (the denominator is only what you searched, and it can
       // exceed 1.0 when one client matches two spellings of the same
@@ -578,6 +599,19 @@ function concentrated(edges, opts = {}) {
     // rather than at either end, because unknown is not the same as no.
     const rank = (x) => (x.concurrent === true ? 0 : x.concurrent === null ? 1 : 2);
     if (rank(a) !== rank(b)) return rank(a) - rank(b);
+
+    // A firm whose every known client came from the operator's own searches
+    // scores _rank 1.0 — the maximum — for the single reason that nothing else
+    // about it has been looked up. That is how Brownstein Hyatt (16,026
+    // filings, 384 clients in the first 500) came to head this list on
+    // "4 of 4" and be reported as the desk's strongest structural finding.
+    //
+    // _rank is a concentration estimate. A row with no denominator has no
+    // estimate, and unknown must not sort as maximum. It ranks below every
+    // row that has one, and is labelled where it lands.
+    const blind = (x) => (x.denominator_is_search_list ? 1 : 0);
+    if (blind(a) !== blind(b)) return blind(a) - blind(b);
+
     if (b._rank !== a._rank) return b._rank - a._rank;
     if (b.threads !== a.threads) return b.threads - a.threads;
     if (a.client_count !== b.client_count) return a.client_count - b.client_count;

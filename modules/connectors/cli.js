@@ -485,8 +485,18 @@ function cmdCrosslink(opts) {
           : C.dim('dates unknown');
       console.log(`    ${C.b(g.registrant)}  ${when}`);
       console.log(C.dim(`      bridges ${g.threads} of your threads`
-        + ` across ${g.clients_on_subjects} client(s) the library knows`
+        + ` across ${g.clients_on_subjects} of ${g.client_count} client(s) the library knows`
         + (g.span ? `  ·  ${g.span.from}–${g.span.to}` : '')));
+      // Without this line, a firm the library knows only through the
+      // operator's own searches looks maximally concentrated -- because the
+      // denominator IS the search list. Brownstein Hyatt led this section on
+      // 4-of-4 and turned out to have 16,026 filings.
+      if (g.denominator_is_search_list) {
+        console.log(C.y('      NO DENOMINATOR — every client known for this firm came from your'));
+        console.log(C.dim('      own searches, so "bridges N of N" is true of any firm at all.'));
+        console.log(C.dim(`      Pull its book before believing this row:`));
+        console.log(C.dim(`        sentinel connect senatelda --registrant "${g.registrant}" --pages 20`));
+      }
       for (const m of g.matched.slice(0, opts.verbose ? 999 : 5)) {
         const yrs = m.from === null ? '' : (m.from === m.to ? ` ${m.from}` : ` ${m.from}–${m.to}`);
         console.log(`      ${m.client.slice(0, 44).padEnd(46)}`
