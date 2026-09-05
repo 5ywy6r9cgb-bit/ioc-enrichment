@@ -390,6 +390,30 @@ function foreignEntitySummary(list) {
   }).join('; ');
 }
 
+/**
+ * Is an LDA country field domestic?
+ *
+ * Written because a one-off scan tested `/^(US|United States)$/` against the
+ * LDA's own spelling -- "United States of America" -- and reported that all
+ * 25,526 filings read had a principal place of business outside the US. Every
+ * domestic client counted as foreign, in a number whose whole job was to say
+ * how much foreign ownership is declared.
+ *
+ * Takes the CODE when there is one: `country` is "US" or "KY" or "JP" and is
+ * not subject to spelling. The display string is the fallback, and it is
+ * matched loosely on purpose.
+ *
+ * Returns null when there is nothing to judge. Unknown is not domestic, and
+ * counting it as either would be inventing the answer.
+ */
+function isDomesticCountry(code, display) {
+  const c = String(code || '').trim().toUpperCase();
+  if (c) return c === 'US' || c === 'USA';
+  const d = String(display || '').trim();
+  if (!d) return null;
+  return /^(u\.?\s?s\.?\s?a?\.?|united states(\s+of\s+america)?)$/i.test(d);
+}
+
 function requestOnce(method, url, headers, body) {
   return new Promise((resolve) => {
     let u;
@@ -1634,7 +1658,7 @@ async function runConnector(name, query, opts = {}) {
 
 module.exports = {
   phrase, phraseMode, PHRASE_WORD_LIMIT, findRecordArray, decodeBody,
-  foreignEntitySummary,
+  foreignEntitySummary, isDomesticCountry,
   explainHttpError, looksLikeSubstringMatch,
   checkKeyShape, KEY_SHAPES,
   stripAuth, AUTH_HEADERS, MAX_REDIRECTS,

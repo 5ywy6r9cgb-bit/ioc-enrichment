@@ -1027,6 +1027,27 @@ module.exports = function run() {
     // every company in the library into two.
     check('the client — registrant name field is unchanged',
       au.name === 'WOODSIDE ENERGY — A FIRM LLP', au.name);
+
+    // ── "UNITED STATES OF AMERICA" IS THE UNITED STATES ──────────────────
+    //
+    // A scan across 1,192 captures tested /^(US|United States)$/ against the
+    // LDA's own spelling and reported that all 25,526 filings read had a
+    // principal place of business outside the US. Every domestic client
+    // counted as foreign, in the one number meant to say how much foreign
+    // ownership is declared.
+    const dom = R.isDomesticCountry;
+    check('the LDA spelling "United States of America" is domestic',
+      dom('', 'United States of America') === true);
+    check('so are US, USA and U.S.A.',
+      dom('', 'United States') === true && dom('', 'USA') === true
+        && dom('', 'U.S.A.') === true);
+    check('the two-letter code wins over any spelling',
+      dom('US', 'Cayman Islands') === true && dom('KY', 'United States') === false);
+    check('a real foreign country is foreign',
+      dom('KY', 'Cayman Islands') === false && dom('', 'Japan') === false);
+    // Unknown is not domestic. Counting it as either invents the answer.
+    check('nothing to judge returns null rather than a guess',
+      dom('', '') === null && dom(null, null) === null);
   }
 
   console.log(`\n  ${FAIL === 0 ? 'PASS' : 'FAIL'} — ${PASS}/${PASS + FAIL} checks\n`);
