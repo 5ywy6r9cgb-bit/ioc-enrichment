@@ -337,8 +337,23 @@ module.exports = function run() {
 
     check('a line maps to the page stamp that precedes it',
       G.pageAtLine(t, 5) === 15, String(G.pageAtLine(t, 5)));
+    // NOT `t` -- every line of that fixture has a stamp above it, so this
+    // would have passed on a lookup that guessed page 1 for line 1 and on one
+    // that reported 14 correctly. The property under test is what happens with
+    // NO stamp above the line: extraction routinely drops the stamp off the
+    // first page (cover sheets, civil cover, a caption that wrapped), and an
+    // operator sent to "page 1" for a paragraph on an unstamped page opens the
+    // wrong page and reports the wrong thing. Unknown must read as unknown.
+    const unstamped = [
+      'UNITED STATES DISTRICT COURT',
+      ' 22           41.     Meta corporate website represents the leaders',
+      'Case 4:23-cv-05448-YGR Document 1 Filed 10/24/23 Page 15 of 233',
+      '  4          43.     In addition to sharing a headquarters,',
+    ].join('\n');
     check('a line before any stamp maps to null, not page 1',
-      G.pageAtLine(t, 1) === null);
+      G.pageAtLine(unstamped, 1) === null, String(G.pageAtLine(unstamped, 1)));
+    check('and a line after the first stamp still resolves in the same text',
+      G.pageAtLine(unstamped, 3) === 15, String(G.pageAtLine(unstamped, 3)));
     check('a paragraph with no surviving predecessor yields no page rather than a guess',
       G.pagesToCheck(t, [1], r.seen)[0].pages.length === 0);
 
