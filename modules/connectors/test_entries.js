@@ -8,6 +8,17 @@ const fs = require('fs');
 const E = require('./entries.js');
 
 let PASS = 0; let FAIL = 0;
+
+// ONE CHAIN, NOT TWO.
+//
+// This file had two independent floating promise chains. Whichever settled
+// first printed the "PASS — n/n" summary and set the exit code while the
+// other was still running, so a short count or a premature exit code was
+// always possible. Concurrency in a test file buys nothing and costs the one
+// thing a test must have: a definite end.
+//
+// Every async block chains onto PENDING, in file order.
+let PENDING = Promise.resolve();
 function check(name, cond, got) {
   if (cond) { PASS += 1; console.log(`    PASS  ${name}`); }
   else { FAIL += 1; console.log(`    FAIL  ${name}${got === undefined ? '' : `  (${got})`}`); }
@@ -140,7 +151,7 @@ console.log('\n  entries — how a case ended\n');
   const okBody = { status: 200, body: Buffer.from(JSON.stringify({
     count: 1, results: [{ description: 'Notice of Voluntary Dismissal' }] })) };
 
-  Promise.resolve()
+  PENDING = PENDING
     .then(() => {
       // Throttled twice, then answers. The docket IS readable.
       let n = 0;
@@ -242,7 +253,7 @@ console.log('\n  entries — how a case ended\n');
   check('the entries URL asks for one docket, newest first',
     /docket=69442801/.test(url) && /order_by=-date_filed/.test(url), url);
 
-  Promise.resolve()
+  PENDING = PENDING
     .then(() => E.readDocket(1, { request: async () => ({ status: 429, body: Buffer.from('') }) }))
     .then((r) => {
       check('a rate-limited docket is UNREAD, not UNCLASSIFIED',
