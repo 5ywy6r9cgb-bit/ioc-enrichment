@@ -2053,7 +2053,7 @@ async function cmdScreen(opts = {}) {
   let rows = p.rows;
   if (opts.country) {
     const want = String(opts.country).toUpperCase();
-    rows = rows.filter((r) => String(r.country || '').toUpperCase().includes(want));
+    rows = rows.filter((r) => (r.countries || []).some((c) => String(c).toUpperCase().includes(want)));
   }
   const total = rows.length;
   if (opts.limit) rows = rows.slice(0, opts.limit);
@@ -2061,7 +2061,7 @@ async function cmdScreen(opts = {}) {
 
   console.log(`\n${C.b('FARA PRINCIPALS × SANCTIONS DATA')}`);
   console.log(`  cache       ${p.registrantsRead} registrant(s) read, `
-    + `${p.principalsSeen} principal row(s)`);
+    + `${p.principalsSeen} principal row(s) → ${p.distinct} distinct`);
   console.log(`  principals  ${total} distinct`
     + `${opts.country ? ` in ${opts.country}` : ''}`
     + `${opts.limit && total > opts.limit ? C.y(` — screening the first ${opts.limit}`) : ''}`);
@@ -2069,8 +2069,23 @@ async function cmdScreen(opts = {}) {
   console.log(C.dim('              a Person and an Organization, because a company is not a'));
   console.log(C.dim('              Person and asking returns a confident, meaningless zero.\n'));
 
+  // A READER THAT SAW ROWS AND PRODUCED NONE IS A BUG, NOT AN EMPTY
+  // REGISTER. The first version of this command printed "0 distinct" over
+  // a cache holding 19,384 principal rows and then said "No principals
+  // selected" -- which reads as a clean, considered null. It was a field
+  // name mismatch. The two must never print the same way again.
+  if (!p.distinct && p.principalsSeen) {
+    console.log('  ' + C.r('THE CACHE HOLDS ROWS BUT THE READER RETURNED NONE.'));
+    console.log(C.dim(`  ${p.principalsSeen} principal row(s) across ${p.registrantsRead} `
+      + 'registrant(s) went in and 0 distinct names came out. That is a bug in'));
+    console.log(C.dim('  the reader, not a register with nothing in it. Do not read this'));
+    console.log(C.dim('  as a clean result.\n'));
+    process.exit(1);
+  }
   if (!names.length) {
-    console.log('  ' + C.y('No principals selected.') + '\n');
+    console.log('  ' + C.y('No principals selected.')
+      + C.dim(opts.country ? ` Nothing in the cache is filed under ${opts.country}.` : '')
+      + C.dim(`  (${p.distinct} distinct principals are in the cache.)`) + '\n');
     return;
   }
 
@@ -2100,8 +2115,8 @@ async function cmdScreen(opts = {}) {
   for (const r of g.NOTABLE) {
     const meta = byName.get(r.asked) || {};
     console.log(`\n    ${C.r(r.asked)}`);
-    console.log(C.dim(`      FARA: ${meta.country || 'country not stated'}`
-      + ` · ${(meta.registrants || []).length} registrant(s) · ${meta.documents || 0} doc(s)`));
+    console.log(C.dim(`      FARA: ${(meta.countries || []).join(' / ') || 'country not stated'}`
+      + ` · ${(meta.registrants || []).length} registrant(s) · ${meta.docs || 0} doc(s)`));
     console.log(`      matched ${C.b(r.matched_name)} (${r.schema})`
       + `  score ${r.score === null ? '?' : r.score.toFixed(2)}`);
     console.log(C.dim(`      topics: ${r.topics.join(', ') || 'none'}`));

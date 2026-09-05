@@ -848,6 +848,77 @@ function intermediaries(opts = {}) {
   };
 }
 
+/**
+ * Every distinct foreign principal in the cache, layered or not.
+ *
+ * DELIBERATELY NOT `intermediaries()`. That function answers a narrower
+ * question -- which principals are named THROUGH a conduit -- and drops
+ * every row `splitPrincipal` cannot layer. Feeding it to a screen that
+ * claims to cover "every principal" reported 0 of 19,384: the screen was
+ * reading a filtered set and calling it the register.
+ *
+ * Lives here, beside the other cache reader, because two readers of one
+ * cache drift and the one that drifts is always the one nobody tests.
+ */
+function principals(opts = {}) {
+  const dir = cacheDir(opts.evidenceRoot);
+  if (!fs.existsSync(dir)) {
+    return { ok: false, error: 'no farascan cache — run a scan first so there '
+      + 'is a register to read' };
+  }
+  const files = fs.readdirSync(dir).filter((f) => /^regdocs_\d+\.json$/.test(f));
+  if (!files.length) {
+    return { ok: false, error: 'the cache holds no registrant documents yet — '
+      + 'run `connect farascan --match ...` once to fill it' };
+  }
+
+  const found = new Map();
+  let registrantsRead = 0;
+  let unreadable = 0;
+  let principalsSeen = 0;
+
+  for (const f of files) {
+    let rows;
+    try {
+      rows = R.CONNECTORS.faradocs.parse(
+        JSON.parse(decodeCache(path.join(dir, f))));
+    } catch { unreadable += 1; continue; }
+    registrantsRead += 1;
+
+    for (const r of rows) {
+      if (!namesPrincipal(r)) continue;
+      principalsSeen += 1;
+      const name = String(r.name).trim();
+      const key = name.toUpperCase();
+      const e = found.get(key) || {
+        principal: name,
+        // A SET, not a string. One principal name can carry more than one
+        // country across filings, and collapsing that to the first one seen
+        // hides a disagreement the register is telling you about.
+        countries: new Set(),
+        registrants: new Set(),
+        docs: 0,
+        first: r.filed || '',
+        last: r.filed || '',
+      };
+      if (r.country) e.countries.add(r.country);
+      if (r.registrant) e.registrants.add(r.registrant);
+      e.docs += 1;
+      if (r.filed && (!e.first || r.filed < e.first)) e.first = r.filed;
+      if (r.filed && (!e.last || r.filed > e.last)) e.last = r.filed;
+      found.set(key, e);
+    }
+  }
+
+  const rows = [...found.values()]
+    .map((e) => Object.assign({}, e, {
+      countries: [...e.countries], registrants: [...e.registrants],
+    }))
+    .sort((a, b) => b.docs - a.docs || a.principal.localeCompare(b.principal));
+
+  return { ok: true, rows, registrantsRead, unreadable, principalsSeen, distinct: rows.length };
+}
+
 /** Read a cache file through the same charset handling as a live response. */
 function decodeCache(file) {
   return R.decodeBody(fs.readFileSync(file));
@@ -858,6 +929,7 @@ module.exports = {
   cacheDir, cachePath, isFresh,
   activeRegistrants, fetchDocs, retryAfterMs, MAX_429_RETRIES,
   namesPrincipal, matches, matchesCountry, countryKey, summarise, scan, coverageLine,
+  principals,
   splitPrincipal, looksSelfAffiliated, intermediaries, tidy,
   conduitTokens, conduitJurisdictions, jurisdictionsConflict, nearDuplicateConduits,
   balanceParens, looksContested,

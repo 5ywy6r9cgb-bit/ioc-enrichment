@@ -105,40 +105,29 @@ function topicClass(topics) {
 /**
  * Every distinct foreign principal in the farascan cache.
  *
- * Deliberately reuses farascan's own cache reader rather than re-walking
- * the directory: two readers of one cache drift, and the one that drifts
- * is always the one nobody tests.
+ * Reuses farascan's own reader rather than re-walking the directory: two
+ * readers of one cache drift, and the one that drifts is always the one
+ * nobody tests.
  */
 function principals(opts = {}) {
-  const inter = FS.intermediaries(opts);
-  if (!inter.ok) return inter;
-
-  const byName = new Map();
-  for (const row of inter.rows || []) {
-    const name = String(row.principal || row.name || '').trim();
-    if (!name) continue;
-    const k = name.toUpperCase();
-    const cur = byName.get(k) || {
-      principal: name, country: row.country || '', registrants: new Set(), documents: 0,
-    };
-    if (row.registrant) cur.registrants.add(row.registrant);
-    cur.documents += Number(row.documents || 0) || 0;
-    if (!cur.country && row.country) cur.country = row.country;
-    byName.set(k, cur);
-  }
-  const rows = [...byName.values()]
-    .map((r) => ({ ...r, registrants: [...r.registrants] }))
-    .sort((a, b) => b.documents - a.documents || a.principal.localeCompare(b.principal));
-
+  const p = FS.principals(opts);
+  if (!p.ok) return p;
   return {
     ok: true,
-    rows,
+    // Field names come from farascan's own reader. The first version of
+    // this function GUESSED them -- `principal`/`documents` against a
+    // reader that returns `docs` -- and matched nothing, which printed as
+    // "0 distinct principals" over a cache holding 19,384 rows. A shape
+    // guess that returns zero looks exactly like a register with nothing
+    // in it, so the reader that owns the cache now owns the shape too.
+    rows: p.rows,
     // COVERAGE TRAVELS WITH THE ANSWER. A screen of 40 principals out of a
     // cache built from 12 registrants is not a screen of the register, and
     // the two must never be printed as though they were.
-    registrantsRead: inter.registrantsRead,
-    principalsSeen: inter.principalsSeen,
-    unreadable: inter.unreadable,
+    registrantsRead: p.registrantsRead,
+    principalsSeen: p.principalsSeen,
+    distinct: p.distinct,
+    unreadable: p.unreadable,
   };
 }
 

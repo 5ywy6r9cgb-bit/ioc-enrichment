@@ -102,6 +102,36 @@ console.log('\n  screen — FARA principals against sanctions data\n');
     /It has rediscovered the purpose of/.test(src));
 }
 
+// ══ 3b. THE READER'S SHAPE IS THE READER'S TO DEFINE ═════════════════
+//
+// The first version of principals() guessed farascan's field names --
+// `principal` and `documents` against a reader that returns `docs` -- and
+// matched nothing. Over a cache of 536 registrants and 19,384 principal
+// rows it printed "0 distinct principals", which is indistinguishable
+// from a register with nothing in it. A shape guess that returns zero is
+// the most dangerous kind of wrong: it looks like an answer.
+{
+  const FSC = require('./farascan.js');
+  check('farascan owns the principal reader',
+    typeof FSC.principals === 'function');
+
+  // A cache that is missing must say so, NOT return an empty list. An
+  // empty list reads as "the register holds no principals".
+  const missing = FSC.principals({ evidenceRoot: '/nonexistent-path-for-test' });
+  check('a missing cache is an error, never an empty result',
+    missing.ok === false && /run a scan first/.test(missing.error || ''),
+    JSON.stringify(missing).slice(0, 90));
+  check('and screen passes that error straight through rather than screening 0 names',
+    S.principals({ evidenceRoot: '/nonexistent-path-for-test' }).ok === false);
+
+  const src = fs.readFileSync(require.resolve('./farascan.js'), 'utf8');
+  check('the reader records why it is not intermediaries()',
+    /DELIBERATELY NOT `intermediaries\(\)`/.test(src));
+  const ssrc = fs.readFileSync(require.resolve('./screen.js'), 'utf8');
+  check('and the shape-guess bug is recorded where it happened',
+    /reader that returns `docs` -- and matched nothing/.test(ssrc));
+}
+
 // ══ 4. AN INTERRUPTED SCREEN HAS NOT CLEARED WHAT IT NEVER SENT ══════
 //
 // This is the rate-limit error one layer up: names that were never asked
