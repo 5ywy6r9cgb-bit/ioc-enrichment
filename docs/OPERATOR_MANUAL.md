@@ -372,6 +372,35 @@ Research Agency" was returning *Hachette v. Internet Archive*).
 
 ### FARA is not the foreign-influence register — the LDA holds the rest
 
+```bash
+bin/sentinel connect foreign                      # every declared foreign owner
+bin/sentinel connect foreign --country Luxembourg # one jurisdiction
+bin/sentinel connect foreign --client tiktok      # one company
+bin/sentinel connect foreign --verbose            # all of it
+```
+
+Offline — it reads Senate LDA captures already on disk, so it costs nothing
+and can be re-run after every `--registrant` pull. It states coverage before
+any finding, counts **filings not rows** (25,526 rows on disk were 14,104
+filings), collapses punctuation variants (`EDGECONNEX` and `EDGECONNEX, INC.`
+are one client), and counts the country rollup **in clients, not rows** —
+EdgeConneX alone declared seven Luxembourg vehicles, and counted by row that
+one company's structure would put Luxembourg at the top of the table.
+
+Three things it flags rather than silently resolving:
+
+- **A US country inside the foreign-entity field.** `MASDAR TG CORPORATION
+  C/O MASDAR AMERICAS LLC [United States of America]` is Emirati money
+  disclosed through its US arm. The field *understates* foreignness there.
+- **A client naming itself as its own foreign owner.** Either a filer
+  shortcut for a foreign parent of the same name, or a junk row.
+- **A 0.00% declaration.** A declared foreign *interest* that is not equity —
+  a coalition member, a fund. Counting it as ownership would be false;
+  dropping it would hide a disclosure.
+
+None of the three is filtered away. The operator decides.
+
+
 **22 U.S.C. §613(h)** exempts an agent from FARA registration when the agent
 has registered under the **Lobbying Disclosure Act** for a foreign principal
 that is *not* a foreign government or foreign political party. A foreign

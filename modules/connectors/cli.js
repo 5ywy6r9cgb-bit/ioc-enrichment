@@ -441,6 +441,123 @@ async function cmdAll(query, opts) {
 /**
  * Cross-reference everything already captured. No network call.
  */
+
+/**
+ * `sentinel connect foreign` — who owns the companies that lobby Congress.
+ *
+ * Reads captures already on disk. No network call, so it costs nothing and can
+ * be re-run after every senatelda pull.
+ */
+function cmdForeign(opts = {}) {
+  const F = require('./foreign.js');
+  console.log(`\n  ${C.b('FOREIGN OWNERSHIP DECLARED IN LOBBYING FILINGS')}`);
+
+  const { filings, captures, unparsed } = F.readFilings(R.CAPTURES);
+  if (!filings.length) {
+    console.log(C.y('\n  No Senate LDA captures on disk yet.'));
+    console.log(C.dim('  Pull a firm\'s book first:'));
+    console.log(C.dim('    bin/sentinel connect senatelda --registrant "FIRM NAME" --pages 20\n'));
+    return;
+  }
+
+  const { clients, byCountry, flags, totals } = F.collect(filings);
+
+  // ── COVERAGE FIRST, ALWAYS ────────────────────────────────────────────
+  // Every number below is drawn from what the operator happened to search.
+  // Said here, before any finding, because a denominator quoted after a
+  // result reads as a caveat and a denominator quoted before it is a fact.
+  console.log(C.dim(`  ${captures} capture(s) · ${totals.filings.toLocaleString()} distinct filing(s)`
+    + ` · no network call`));
+  if (unparsed) console.log(C.y(`  ${unparsed} capture(s) would not parse and are NOT in this analysis`));
+  console.log(C.dim(`  ${totals.withForeign} filing(s) declared a foreign owner`
+    + `  ·  ${totals.clientsWithForeign} distinct client(s)`));
+  console.log(C.dim(`  ${totals.foreignPPB} filing(s) list a principal place of business outside the US`
+    + (totals.unknownPPB ? `  ·  ${totals.unknownPPB} did not state one` : '')));
+  console.log(C.dim(`  ${totals.govClients} filing(s) name a government client`));
+  console.log(C.y('\n  THIS IS A FLOOR, NOT A CENSUS. It covers the filings you have pulled,'));
+  console.log(C.dim('  not the LDA. A company absent here has not been shown to declare nothing.'));
+
+  // ── by country ────────────────────────────────────────────────────────
+  const roll = F.countryRollup(byCountry);
+  if (roll.length && !opts.client) {
+    console.log(`\n  ${C.b('DECLARED OWNER COUNTRIES')}  ${C.dim('(counted in clients, not filings)')}`);
+    for (const r of roll.slice(0, opts.verbose ? 999 : 20)) {
+      console.log(`    ${String(r.clients).padStart(4)}  ${r.country}`);
+    }
+    if (!opts.verbose && roll.length > 20) {
+      console.log(C.dim(`    …and ${roll.length - 20} more (--verbose for all)`));
+    }
+  }
+
+  // ── client → owner, with the chain the filer wrote ────────────────────
+  const rows = F.clientRows(clients, opts);
+  if (!rows.length) {
+    console.log(C.y('\n  No client matches that filter.'));
+    console.log(C.dim('  That is a fact about your filter and your captures, not about the LDA.\n'));
+    return;
+  }
+  console.log(`\n  ${C.b('CLIENT AND ITS DECLARED FOREIGN OWNERS')}`);
+  for (const row of rows.slice(0, opts.verbose ? 999 : 25)) {
+    console.log(`\n    ${C.b(row.client.slice(0, 62))}`
+      + (row.government ? C.y('  [government client]') : '')
+      + C.dim(`  ${row.filings} filing(s)`));
+    for (const o of row.owners) {
+      const pct = o.pct === null ? '   ?' : `${String(Number(o.pct).toFixed(0)).padStart(3)}%`;
+      console.log(`      ${C.g(pct)}  ${o.display.slice(0, 52).padEnd(54)}`
+        + C.dim(`[${o.country || 'no country given'}]`));
+      // The filer's own words about the structure. This is the most valuable
+      // text in the record and it lives inside a name field.
+      if (o.chain) {
+        console.log(C.dim(`             via ${o.chain.pct}% of ${o.chain.via.slice(0, 60)}`));
+      } else if (o.note) {
+        console.log(C.dim(`             ${o.note.slice(0, 72)}`));
+      }
+    }
+  }
+  if (!opts.verbose && rows.length > 25) {
+    console.log(C.dim(`\n    …and ${rows.length - 25} more client(s) (--verbose for all)`));
+  }
+
+  // ── what is wrong with the data, said out loud ────────────────────────
+  const anyFlag = flags.domesticInForeignField.length || flags.selfReference.length
+    || flags.zeroPercent.length;
+  if (anyFlag) {
+    console.log(`\n  ${C.y('READ THESE BEFORE CITING ANY ROW ABOVE')}`);
+    if (flags.domesticInForeignField.length) {
+      console.log(C.dim(`\n    ${flags.domesticInForeignField.length} row(s) name a US country INSIDE the foreign-entity field.`));
+      console.log(C.dim('    The field UNDERSTATES foreignness there — a foreign parent disclosed'));
+      console.log(C.dim('    through its US arm. Do not read them as domestic:'));
+      for (const f of flags.domesticInForeignField.slice(0, opts.verbose ? 999 : 4)) {
+        console.log(C.dim(`      ${f.client.slice(0, 34)}  <=  ${f.owner.slice(0, 40)}`));
+      }
+    }
+    if (flags.selfReference.length) {
+      console.log(C.dim(`\n    ${flags.selfReference.length} row(s) name the CLIENT ITSELF as its own foreign owner.`));
+      console.log(C.dim('    Either a filer shortcut for a foreign parent of the same name, or a'));
+      console.log(C.dim('    junk row. This tool will not decide which — read the filing:'));
+      for (const f of flags.selfReference.slice(0, opts.verbose ? 999 : 4)) {
+        console.log(C.dim(`      ${f.client.slice(0, 34)}  [${f.country}]`));
+      }
+    }
+    if (flags.zeroPercent.length) {
+      console.log(C.dim(`\n    ${flags.zeroPercent.length} row(s) declare 0.00% ownership.`));
+      console.log(C.dim('    That is a declared foreign INTEREST that is not equity — a coalition'));
+      console.log(C.dim('    member, a fund. Counting it as ownership would be false; dropping it'));
+      console.log(C.dim('    would hide a disclosure. It is shown with its stated 0%.'));
+    }
+  }
+
+  console.log('\n' + C.dim('  ' + '─'.repeat(74)));
+  console.log(C.y('  OWNERSHIP IS NOT CONTROL, AND IT IS NOT AGENCY.'));
+  console.log(C.dim('  A declared foreign owner says nothing about who directed the lobbying,'));
+  console.log(C.dim('  what position was taken, or whether any government was involved. The'));
+  console.log(C.dim('  disclosure exists so that the ownership is NOT a secret — reporting it'));
+  console.log(C.dim('  as though it were is the easiest false claim available here.'));
+  console.log(C.dim('\n  22 U.S.C. 613(h) is why this lives in the LDA and not in FARA: an agent'));
+  console.log(C.dim('  who registers under the LDA for a foreign principal that is not a foreign'));
+  console.log(C.dim('  government or political party is exempt from FARA registration.\n'));
+}
+
 function cmdCrosslink(opts) {
   const X = require('./crosslink.js');
   const dir = require('path').join(R.EVIDENCE, 'captures');
@@ -1831,9 +1948,26 @@ async function main() {
   const args = argv.filter((a) => !a.startsWith('--'));
   const action = args[0] || 'test';
 
+  // A flag takes exactly the next token, and only when that token is not
+  // itself a flag. `--country --verbose` means no country, not a country
+  // called "--verbose".
+  const flagValue = (name) => {
+    const eq = argv.find((a) => a.startsWith(`${name}=`));
+    if (eq) return eq.slice(name.length + 1) || null;
+    const i = argv.indexOf(name);
+    return i >= 0 && argv[i + 1] && !argv[i + 1].startsWith('--') ? argv[i + 1] : null;
+  };
+
   if (action === 'test') return cmdTest();
   if (action === 'list') return cmdList();
   if (action === 'crosslink') return cmdCrosslink({ verbose: argv.includes('--verbose') });
+  if (action === 'foreign') {
+    return cmdForeign({
+      verbose: argv.includes('--verbose'),
+      country: flagValue('--country'),
+      client: flagValue('--client'),
+    });
+  }
   if (action === 'lobby') {
     // --chart writes to the default path; --chart <path> or --chart=<path>
     // writes where you say. A bare --chart followed by another flag is the
@@ -1935,7 +2069,7 @@ async function main() {
     for (let i = 0; i < argv.length; i++) {
       const a = argv[i];
       if (a.startsWith('--')) {
-        if (/^--(into|only|skip|pages|limit|chart)$/.test(a)
+        if (/^--(into|only|skip|pages|limit|chart|country|client|registrant|match|as)$/.test(a)
             && argv[i + 1] && !argv[i + 1].startsWith('--')) i++;
         continue;
       }
