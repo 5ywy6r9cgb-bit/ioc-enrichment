@@ -223,7 +223,45 @@ module.exports = function run() {
   // ══ 7. THE WARNING IS PRINTED WHERE IT CANNOT BE MISSED ══════════════
   {
     const cli = fs.readFileSync(require.resolve('./cli.js'), 'utf8');
-    check('the CLI calls checkFilters on every connector that has it',
+    // ── THE COMPANY FILTER, WHICH WENT UNCHECKED ────────────────────────
+  //
+  // A live run of --company "Early Warning Services" returned rows whose
+  // company was TRUIST, U.S. BANCORP, CITIBANK and FIFTH THIRD. The
+  // CFPB's field=company does not restrict to that company; a narrative
+  // that MENTIONS the firm brings its own company along. Unchecked, the
+  // capture reads as "100 complaints about Early Warning Services" when
+  // most are complaints about other banks that merely name it.
+  {
+    const mixed = [
+      { company: 'Early Warning Services, LLC', state: 'TX' },
+      { company: 'TRUIST FINANCIAL CORPORATION', state: 'GA' },
+      { company: 'U.S. BANCORP', state: 'NY' },
+      { company: 'CITIBANK, N.A.', state: 'NJ' },
+    ];
+    const f = R.CONNECTORS.cfpb.checkFilters(mixed, { company: 'Early Warning Services' });
+    const row = f.find((x) => x.filter === 'company');
+    check('a company filter that did not restrict is caught',
+      !!row && row.applied === false, JSON.stringify(f));
+    check('and it reports how many rows are actually AGAINST that company',
+      /1 of 4 row\(s\) are filed AGAINST/.test(row.note), row && row.note);
+    check('and names the other companies that came back',
+      row.observed.includes('TRUIST FINANCIAL CORPORATION'), JSON.stringify(row.observed));
+    check('and refuses to let the two be totalled as one figure',
+      /Never total them as one figure/.test(row.note));
+
+    const clean = R.CONNECTORS.cfpb.checkFilters(
+      [{ company: 'Early Warning Services, LLC' }], { company: 'Early Warning Services' });
+    check('a filter that DID restrict raises nothing',
+      !clean.some((x) => x.filter === 'company'), JSON.stringify(clean));
+    check('and no company filter asked for raises nothing',
+      !R.CONNECTORS.cfpb.checkFilters(mixed, {}).some((x) => x.filter === 'company'));
+    check('a case difference is not treated as a different company',
+      !R.CONNECTORS.cfpb.checkFilters(
+        [{ company: 'EARLY WARNING SERVICES, LLC' }], { company: 'early warning services' })
+        .some((x) => x.filter === 'company'));
+  }
+
+  check('the CLI calls checkFilters on every connector that has it',
       /connFor\.checkFilters/.test(cli));
     check('and calls it a wider scope rather than a failure',
       /SCOPE IS WIDER THAN REQUESTED/.test(cli));

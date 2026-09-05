@@ -1207,6 +1207,41 @@ const CONNECTORS = {
           });
         }
       }
+      // THE COMPANY FILTER WENT UNCHECKED, AND IT IS THE ONE THAT MATTERS
+      // MOST.
+      //
+      // A live run of `--company "Early Warning Services"` returned rows
+      // whose company was TRUIST, U.S. BANCORP, CITIBANK and FIFTH THIRD.
+      // The CFPB's `field=company` does not restrict to that company: it
+      // searches, and a narrative that MENTIONS the firm brings its own
+      // company along. Read without this check, the capture looks like
+      // "100 complaints about Early Warning Services" when most of them
+      // are complaints about other banks that happen to name it.
+      //
+      // That is the same error `checkFilters` exists to catch, in the one
+      // filter it was never taught to look at.
+      if (o.company) {
+        const want = String(o.company).toLowerCase();
+        const named = rows.filter((r) => r.company
+          && r.company.toLowerCase().includes(want));
+        if (rows.length && named.length < rows.length) {
+          const others = [...new Set(rows
+            .filter((r) => r.company && !r.company.toLowerCase().includes(want))
+            .map((r) => r.company))].sort();
+          out.push({
+            filter: 'company',
+            requested: o.company,
+            observed: others.slice(0, 8),
+            applied: false,
+            note: `${named.length} of ${rows.length} row(s) are filed AGAINST `
+              + `${o.company}; the rest are complaints about ${others.length} `
+              + 'other company(ies) whose narrative mentions it. Both are '
+              + 'useful and they are not the same thing: one is what the firm '
+              + 'is accused of, the other is what it does to other banks\' '
+              + 'customers. Never total them as one figure.',
+          });
+        }
+      }
       if (o.product) {
         const want = String(o.product).toLowerCase();
         const off = rows.filter((r) => r.product
