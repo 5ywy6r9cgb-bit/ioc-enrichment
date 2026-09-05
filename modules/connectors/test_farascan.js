@@ -159,7 +159,22 @@ module.exports = function run() {
           return F.scan('([unclosed', opts).then((bad) => {
             check('an unparseable pattern is refused, not run as zero hits',
               bad.ok === false && /not a valid pattern/.test(bad.error), bad.error);
-            fs.rmSync(dir, { recursive: true, force: true });
+            // ── THE PROGRESS LINE MUST NOT LEAVE THE PREVIOUS NAME BEHIND ────────
+    //
+    // Real output: "358  HIT  451 docs  Zeno Group, Inc.          liance LLC".
+    // The line is redrawn with a carriage return and padded with a fixed run
+    // of spaces, so a short registrant name left the tail of a longer earlier
+    // one on screen — reading as part of the matched registrant's name, in the
+    // one line the operator uses to identify a hit.
+    {
+      const src = fs.readFileSync(require.resolve('./cli.js'), 'utf8');
+      check('the scan progress line pads to a fixed width instead of a space run',
+        !/reg\.name\.slice\(0, 4[04]\)(?!\.padEnd)/.test(src));
+      check('and both the hit line and the skip line are padded',
+        (src.match(/reg\.name\.slice\(0, 4[04]\)\.padEnd\(/g) || []).length >= 2);
+    }
+
+    fs.rmSync(dir, { recursive: true, force: true });
             return layerTests();
           });
         });

@@ -1631,11 +1631,15 @@ async function cmdFaraScan(pattern, opts = {}) {
       n += 1;
       if (p.failed) {
         const why = p.throttled ? C.y('rate limited') : C.r('no answer');
-        process.stdout.write(`\r  ${String(n).padStart(4)}  ${why}  ${p.reg.number} ${p.reg.name.slice(0, 40)}          \n`);
+        process.stdout.write(`\r  ${String(n).padStart(4)}  ${why}  ${p.reg.number} ${p.reg.name.slice(0, 40).padEnd(44)}\n`);
         return;
       }
       const mark = p.hits ? C.g('HIT') : '   ';
-      process.stdout.write(`\r  ${String(n).padStart(4)}  ${mark}  ${String(p.docs).padStart(5)} docs  ${p.reg.name.slice(0, 44)}          `);
+      // padEnd, not a fixed run of spaces: the progress line is redrawn with a
+      // carriage return, so a short name leaves the TAIL of the previous, longer
+      // one on screen. "Zeno Group, Inc.          liance LLC" -- which reads as
+      // part of the registrant's name and is the tail of another registrant.
+      process.stdout.write(`\r  ${String(n).padStart(4)}  ${mark}  ${String(p.docs).padStart(5)} docs  ${p.reg.name.slice(0, 44).padEnd(46)}`);
       if (p.hits) process.stdout.write('\n');
     },
   }));
