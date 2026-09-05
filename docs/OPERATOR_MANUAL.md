@@ -809,6 +809,72 @@ substitute for reading it.
 dismissal without prejudice can be refiled; with prejudice cannot. Clerks
 frequently omit it. Silence prints as `UNSTATED` and never as "without".
 
+### `sentinel connect screen` — FARA principals against sanctions data
+
+```bash
+bin/sentinel connect screen                      # every principal in the cache
+bin/sentinel connect screen --limit 40           # the 40 with the most documents
+bin/sentinel connect screen --country ISRAEL
+```
+
+The join between two registers this desk already had and never crossed.
+**FARA** says who is paid to represent a foreign interest in the United
+States. **OpenSanctions** says which of those interests carry a sanctions,
+debarment or politically-exposed-person listing. Both are public. Neither
+needs a source or a leak. The overlap is arithmetic on two published
+registers and it is checkable row by row.
+
+Runs off the **farascan cache** for the FARA half — no FARA network calls —
+so the scan's coverage is the denominator and is printed with the answer.
+
+#### The trap this exists to not fall into
+
+A FARA principal is, very often, a foreign government or someone who works
+for one. **That is what FARA is for.** Registering as an agent of the Embassy
+of Japan is lawful, disclosed, and the system working exactly as designed.
+
+So a screen reporting *"37 FARA principals matched politically-exposed person
+data"* has discovered **nothing**. It has rediscovered the purpose of the Act
+and dressed it as a scandal — and produced a number that sounds alarming to a
+reader who does not know that. Every row is therefore classed:
+
+| class | means |
+|---|---|
+| `EXPECTED` | government, diplomatic or PEP topics. **Predicted by registering. Not a finding.** |
+| `NOTABLE` | sanctions, export control, debarment, crime. **Not** predicted by registering. |
+| `UNCLEAR` | matched, but the topics resolve neither way — read them |
+
+A sanctioned government body is `NOTABLE`, not `EXPECTED`: the sanction is the
+fact registering does not predict, and it must not be absorbed by the
+government topic sitting beside it. An **unrecognised** topic is `UNCLEAR`,
+never `EXPECTED` — silently filing an unknown listing under "nothing to see"
+is how a real one gets lost.
+
+#### A name match is not an identification
+
+Stated plainly because this one can hurt a real person. Entity resolution on
+names produces false positives constantly: surnames collide, company names
+repeat across jurisdictions. A score of 0.85 means the algorithm thinks two
+strings probably describe one entity. It does not mean they do.
+
+Nothing here is called a "hit". Every row is a **candidate** carrying its
+score, the matched entity's own name, and its OpenSanctions URL, so a human
+can open both records and compare. There is no output mode that prints a
+conclusion. Publishing a candidate as a fact is defamation.
+
+#### Both schemas, every time
+
+Each name is asked as **both** a `Person` and an `Organization`, for the
+reason recorded in the registry as the worst bug in that file: a company is
+not a `Person` in the FollowTheMoney model, so asking a sanctions database
+whether a company is a person returns a confident, meaningless zero — which
+then printed as a considered null result.
+
+#### Unscreened is not clean
+
+A screen stopped by a rate limit has **not** cleared the names it never sent.
+Those are listed separately as `UNSCREENED` so none is mistaken for a null.
+
 ### `connect cfpb` — junk fees, and the denominator it cannot give you
 
 ```bash

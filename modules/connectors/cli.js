@@ -19,6 +19,7 @@ const RECENCY = require('./recency.js');
 const FSCAN = require('./farascan.js');
 const DK = require('./dockets.js');
 const EN = require('./entries.js');
+const SC = require('./screen.js');
 
 const C = {
   b: (s) => `\x1b[1m${s}\x1b[0m`,
@@ -2023,6 +2024,121 @@ async function cmdEntries(opts = {}) {
   console.log(C.dim('  clerk did not say, NOT that it was without prejudice.\n'));
 }
 
+/**
+ * `sentinel connect screen [--limit N] [--country X]`
+ *
+ * The join between two registers the desk already had and never crossed:
+ * FARA says who is paid to represent a foreign interest in the United
+ * States; OpenSanctions says which of those interests carry a listing.
+ *
+ * Runs off the farascan CACHE for the FARA half -- no FARA network calls --
+ * so the scan's coverage is the denominator and travels with the answer.
+ */
+async function cmdScreen(opts = {}) {
+  const env = R.loadEnv();
+  const key = env.OPENSANCTIONS_API_KEY || null;
+  if (!key) {
+    console.error('\n  ' + C.r('OPENSANCTIONS_API_KEY is not set in .env')
+      + C.dim('\n  Get one at https://www.opensanctions.org/account/') + '\n');
+    process.exit(2);
+  }
+
+  const p = SC.principals({});
+  if (!p.ok) {
+    console.error('\n  ' + C.r(p.error)
+      + C.dim('\n  Run:  bin/sentinel connect farascan --match "." ') + '\n');
+    process.exit(2);
+  }
+
+  let rows = p.rows;
+  if (opts.country) {
+    const want = String(opts.country).toUpperCase();
+    rows = rows.filter((r) => String(r.country || '').toUpperCase().includes(want));
+  }
+  const total = rows.length;
+  if (opts.limit) rows = rows.slice(0, opts.limit);
+  const names = rows.map((r) => r.principal);
+
+  console.log(`\n${C.b('FARA PRINCIPALS × SANCTIONS DATA')}`);
+  console.log(`  cache       ${p.registrantsRead} registrant(s) read, `
+    + `${p.principalsSeen} principal row(s)`);
+  console.log(`  principals  ${total} distinct`
+    + `${opts.country ? ` in ${opts.country}` : ''}`
+    + `${opts.limit && total > opts.limit ? C.y(` — screening the first ${opts.limit}`) : ''}`);
+  console.log(C.dim(`  batching    ${opts.size || 5} names per call; each name is asked as BOTH`));
+  console.log(C.dim('              a Person and an Organization, because a company is not a'));
+  console.log(C.dim('              Person and asking returns a confident, meaningless zero.\n'));
+
+  if (!names.length) {
+    console.log('  ' + C.y('No principals selected.') + '\n');
+    return;
+  }
+
+  const out = await SC.screen(names, {
+    key, size: opts.size, intervalMs: opts.intervalMs,
+    onBatch: (b) => process.stdout.write(
+      `\r  batch ${b.batch}: ${b.asked}/${names.length} asked, ${b.found} candidate(s)   `),
+  });
+  process.stdout.write('\r' + ' '.repeat(60) + '\r');
+
+  if (!out.complete) {
+    console.log('  ' + C.r(`PARTIAL — ${out.stoppedBy}.`));
+    console.log(C.dim(`  ${out.unscreened.length} name(s) were never sent. UNSCREENED IS NOT CLEAN;`));
+    console.log(C.dim('  they are listed at the end so none is mistaken for a null result.\n'));
+  }
+
+  const g = SC.bySignificance(out.rows);
+  const byName = new Map(rows.map((r) => [r.principal, r]));
+
+  // NOTABLE FIRST, and it is the only class that can become a finding.
+  console.log('  ' + C.b('NOTABLE') + C.dim('  — sanctions, export control, debarment, crime.')
+    + C.dim('\n  Registering as a foreign agent does NOT predict these.'));
+  if (!g.NOTABLE.length) {
+    console.log('    ' + C.g('none in what was screened') + C.dim(' — which is a fact about '
+      + `these ${out.asked.length} names, not about the register.`));
+  }
+  for (const r of g.NOTABLE) {
+    const meta = byName.get(r.asked) || {};
+    console.log(`\n    ${C.r(r.asked)}`);
+    console.log(C.dim(`      FARA: ${meta.country || 'country not stated'}`
+      + ` · ${(meta.registrants || []).length} registrant(s) · ${meta.documents || 0} doc(s)`));
+    console.log(`      matched ${C.b(r.matched_name)} (${r.schema})`
+      + `  score ${r.score === null ? '?' : r.score.toFixed(2)}`);
+    console.log(C.dim(`      topics: ${r.topics.join(', ') || 'none'}`));
+    console.log(C.dim(`      ${r.url}`));
+  }
+
+  console.log(`\n  ${C.b('UNCLEAR')}  ${g.UNCLEAR.length}`
+    + C.dim('   matched, topics do not resolve either way — read them'));
+  for (const r of g.UNCLEAR.slice(0, 12)) {
+    console.log(C.dim(`    ${r.asked.slice(0, 40).padEnd(42)}→ ${r.matched_name.slice(0, 30)}`)
+      + C.dim(`  [${r.topics.join(',') || 'no topics'}]  ${r.score === null ? '?' : r.score.toFixed(2)}`));
+  }
+  if (g.UNCLEAR.length > 12) console.log(C.dim(`    …and ${g.UNCLEAR.length - 12} more`));
+
+  console.log(`\n  ${C.b('EXPECTED')}  ${g.EXPECTED.length}`
+    + C.dim('   government, diplomatic or PEP topics'));
+  console.log(C.dim('  THESE ARE NOT A FINDING. A FARA principal is very often a foreign'));
+  console.log(C.dim('  government, and its officers are politically exposed by definition.'));
+  console.log(C.dim('  That is what the Act is for. Reporting this count as a discovery'));
+  console.log(C.dim('  rediscovers the purpose of the statute and dresses it as a scandal.'));
+
+  if (out.unscreened.length) {
+    console.log(`\n  ${C.y('UNSCREENED')}  ${out.unscreened.length}`);
+    for (const n of out.unscreened.slice(0, 20)) console.log(C.dim(`    ${n}`));
+    if (out.unscreened.length > 20) {
+      console.log(C.dim(`    …and ${out.unscreened.length - 20} more`));
+    }
+  }
+
+  console.log('\n  ' + C.y('A NAME MATCH IS NOT AN IDENTIFICATION.'));
+  console.log(C.dim('  Entity resolution on names produces false positives constantly:'));
+  console.log(C.dim('  surnames collide, company names repeat across jurisdictions. Every'));
+  console.log(C.dim('  row above is a CANDIDATE carrying its score and the matched entity\'s'));
+  console.log(C.dim('  own name so you can open both records and disagree. Publishing a'));
+  console.log(C.dim('  candidate as a fact about a real person or company is defamation.\n'));
+}
+
 async function cmdFaraScan(pattern, opts = {}) {
   if (!pattern && !opts.countries) {
     console.error('\n  ' + C.r('farascan needs a pattern: --match "hikvision|nso|q cyber"')
@@ -2388,6 +2504,20 @@ async function main() {
       year: dv('--year'),
       save: dv('--save'),
       verbose: argv.includes('--verbose'),
+      intervalMs: dv('--interval') ? parseInt(dv('--interval'), 10) : undefined,
+    });
+  }
+  if (action === 'screen') {
+    const dv = (n) => {
+      const i = argv.findIndex((a) => a === n || a.startsWith(n + '='));
+      if (i < 0) return null;
+      if (argv[i].startsWith(n + '=')) return argv[i].slice(n.length + 1);
+      return argv[i + 1] && !argv[i + 1].startsWith('--') ? argv[i + 1] : null;
+    };
+    return cmdScreen({
+      limit: dv('--limit') ? parseInt(dv('--limit'), 10) : undefined,
+      country: dv('--country'),
+      size: dv('--size') ? parseInt(dv('--size'), 10) : undefined,
       intervalMs: dv('--interval') ? parseInt(dv('--interval'), 10) : undefined,
     });
   }
