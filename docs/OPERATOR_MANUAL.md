@@ -809,6 +809,41 @@ substitute for reading it.
 dismissal without prejudice can be refiled; with prejudice cannot. Clerks
 frequently omit it. Silence prints as `UNSTATED` and never as "without".
 
+#### The same fact stated twice is not ambiguity
+
+The first complete 28-docket run returned five `AMBIGUOUS` rows and **four were
+not ambiguous at all**:
+
+| case | signals |
+|---|---|
+| MoneyGram | `CONSENT` "STIPULATED FINAL JUDGMENT" + `COURT` "Final Judgment" |
+| MoneyLion | `CONSENT` "consent judgment" + `COURT` "final judgment" |
+| FirstCash | `CONSENT` "STIPULATED FINAL JUDGMENT" + `STIPULATED` |
+| National Collegiate | `CONSENT` "Consent Judgment" + `STIPULATED` |
+
+**A consent judgment IS entered as a final judgment.** The document says both
+because both are true of one act. Two rules, both legally grounded:
+
+- **`CONSENT` subsumes `COURT`'s "final judgment" only.** It does **not**
+  subsume summary judgment, a granted motion to dismiss, or a default
+  judgment — those are the *court deciding*, a different story from the
+  *parties agreeing*.
+- **`STIPULATED` subsumes a bare `Rule 41(a)` cite.** Rule 41(a)(1)(A)(i) is a
+  unilateral notice; (ii) is a stipulation signed by every party, and the bare
+  cite cannot say which. It does **not** subsume "notice of voluntary
+  dismissal", which is unilateral on its face — and that distinction is the
+  whole difference between a plaintiff walking away and both sides agreeing.
+
+What is removed is returned in `subsumed`, so the reduction is checkable and a
+wrong rule shows up rather than quietly deciding cases.
+
+#### The PDF, not the page describing it
+
+`connect entries` printed the CourtListener *page* for each filing. Fetching it
+returned the entry record as JSON and told the operator to read `filepath_local`
+out of 36KB by hand and fetch a second URL. The stored PDF path is now printed
+directly, so `doc get` on that line fetches the filing in one step.
+
 #### A throttle is not an answer, and reads accumulate
 
 The first live run over 28 CFPB dockets returned **25 `UNREAD`**, every one an

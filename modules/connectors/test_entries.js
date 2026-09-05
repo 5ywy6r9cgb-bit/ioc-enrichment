@@ -207,6 +207,69 @@ console.log('\n  entries — how a case ended\n');
     });
 }
 
+// ══ 4d. THE SAME FACT TWICE IS NOT AMBIGUITY ═════════════════════════
+//
+// The first complete 28-docket run returned five AMBIGUOUS rows and four
+// were not ambiguous. Every one is pinned here from the live output.
+{
+  const v = (desc) => E.disposition([{ description: desc }]).verdict;
+
+  // A consent judgment IS entered as a final judgment. One act, two true
+  // descriptions of it.
+  check('MoneyGram: stipulated final judgment + final judgment is CONSENT',
+    v('STIPULATED FINAL JUDGMENT AND ORDER; Final Judgment entered') === 'CONSENT',
+    v('STIPULATED FINAL JUDGMENT AND ORDER; Final Judgment entered'));
+  check('MoneyLion: consent judgment + final judgment is CONSENT',
+    v('consent judgment entered; final judgment') === 'CONSENT');
+
+  // Rule 41(a)(1)(A)(ii) IS the stipulation. The bare cite cannot say which
+  // subsection, so beside an explicit joint stipulation the stipulation wins.
+  check('SoLo Funds: Rule 41(a) + joint stipulation is STIPULATED',
+    v('Joint STIPULATION to Dismiss pursuant to Rule 41(a)(1)(A)(ii)') === 'STIPULATED',
+    v('Joint STIPULATION to Dismiss pursuant to Rule 41(a)(1)(A)(ii)'));
+
+  // ── AND THE TWO THAT MUST STAY AMBIGUOUS ──────────────────────────
+  // The court DECIDING is a different story from the parties AGREEING, so
+  // CONSENT never swallows a granted motion to dismiss.
+  check('a consent order beside a GRANTED motion to dismiss stays AMBIGUOUS',
+    v('Consent Order; ORDER granting Motion to Dismiss') === 'AMBIGUOUS',
+    v('Consent Order; ORDER granting Motion to Dismiss'));
+  check('and beside summary judgment too',
+    v('Consent Order; summary judgment for defendant') === 'AMBIGUOUS');
+
+  // A NOTICE of voluntary dismissal is unilateral ON ITS FACE. That it is
+  // unilateral is the whole difference between the plaintiff walking away
+  // and both sides agreeing, so it is never subsumed.
+  check('a NOTICE of voluntary dismissal is never subsumed by a stipulation',
+    v('NOTICE of Voluntary Dismissal; Stipulation of Dismissal') === 'AMBIGUOUS',
+    v('NOTICE of Voluntary Dismissal; Stipulation of Dismissal'));
+
+  const d = E.disposition([{ description: 'STIPULATED FINAL JUDGMENT; Final Judgment' }]);
+  check('what subsumption removed is returned, so the rule is checkable',
+    d.subsumed.length === 1 && d.subsumed[0].family === 'COURT',
+    JSON.stringify(d.subsumed.map((x) => x.family)));
+  check('and nothing is removed when only one family fired',
+    E.disposition([{ description: 'Consent Order' }]).subsumed.length === 0);
+
+  // The PDF, not the page describing it.
+  const docs = E.documentsOn({ recap_documents: [
+    { description: 'Stipulated Final Judgment', is_available: true,
+      absolute_url: '/docket/1/147/x/', filepath_local: 'recap/gov.uscourts.nysd.1/x.147.0.pdf' },
+    { description: 'no file', is_available: true, absolute_url: '/docket/1/148/x/' },
+  ] });
+  check('a document with a stored path yields the PDF url',
+    docs[0].pdf === 'https://storage.courtlistener.com/recap/gov.uscourts.nysd.1/x.147.0.pdf',
+    docs[0].pdf);
+  check('and one without a path yields an empty pdf rather than a broken url',
+    docs[1].pdf === '');
+
+  const src = fs.readFileSync(require.resolve('./entries.js'), 'utf8');
+  check('the two subsumption rules are justified in the source',
+    /is a unilateral notice/.test(src));
+  check('and the live rows that motivated them are named',
+    /MoneyGram/.test(src) && /FirstCash/.test(src));
+}
+
 // ══ 5. THREE KINDS OF "NO ANSWER", NEVER MERGED ══════════════════════
 //
 // UNREAD (could not fetch), UNCLASSIFIED (fetched, nothing matched) and

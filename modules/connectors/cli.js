@@ -2013,8 +2013,12 @@ async function cmdEntries(opts = {}) {
       // readable filing behind it is a pointer to nothing, and saying so is
       // the difference between a lead and a citation.
       for (const d of h.documents || []) {
-        if (d.available && d.url) {
-          console.log(`        ${C.g('doc')} ${d.url}`
+        if (d.available && (d.pdf || d.url)) {
+          // THE PDF FIRST. The CourtListener page is HTML that describes the
+          // filing; storage.courtlistener.com is the filing. Printing the
+          // page made every fetch a two-step where the operator had to read
+          // filepath_local out of 36KB of JSON by hand.
+          console.log(`        ${C.g('doc')} ${d.pdf || d.url}`
             + C.dim(d.pages ? `  (${d.pages}p)` : ''));
         } else {
           console.log(`        ${C.y('doc NOT in RECAP')}`

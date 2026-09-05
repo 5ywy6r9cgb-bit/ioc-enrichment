@@ -150,6 +150,13 @@ function documentsOn(e) {
   const docs = Array.isArray(e && e.recap_documents) ? e.recap_documents : [];
   return docs.map((d) => ({
     description: (d && d.description) || '',
+    // THE PDF ITSELF, not the page that describes it. Without this the
+    // operator fetched the entry record, was told to read filepath_local out
+    // of 36KB of JSON by hand, and fetch a second URL. Two steps where the
+    // service already handed us the path.
+    pdf: d && d.filepath_local
+      ? `https://storage.courtlistener.com/${String(d.filepath_local).replace(/^\/+/, '')}`
+      : '',
     number: d && d.document_number !== undefined ? d.document_number : null,
     attachment: d && d.attachment_number !== undefined ? d.attachment_number : null,
     pages: d && d.page_count !== undefined ? d.page_count : null,
@@ -195,6 +202,53 @@ function signalsIn(text) {
 }
 
 /**
+ * The same fact stated twice is not ambiguity.
+ *
+ * ─────────────────────────────────────────────────────────────────────────
+ * WHY THIS EXISTS
+ * ─────────────────────────────────────────────────────────────────────────
+ * The first complete 28-docket run returned FIVE AMBIGUOUS rows, and four of
+ * them were not ambiguous at all:
+ *
+ *   MoneyGram        CONSENT "STIPULATED FINAL JUDGMENT" + COURT "Final Judgment"
+ *   MoneyLion        CONSENT "consent judgment"          + COURT "final judgment"
+ *   FirstCash        CONSENT "STIPULATED FINAL JUDGMENT" + STIPULATED
+ *   Nat'l Collegiate CONSENT "Consent Judgment"          + STIPULATED
+ *
+ * A consent judgment IS entered as a final judgment. The document says both
+ * because both are true of one act, and reporting it as "more than one
+ * family, go read it" sends a human to re-derive what the code already knew.
+ *
+ * TWO RULES, both legally grounded, and nothing wider:
+ *
+ *   CONSENT subsumes COURT's "final judgment" only. A settlement entered as
+ *   a final judgment is one event. It does NOT subsume summary judgment, a
+ *   granted motion to dismiss, or a default judgment -- those are the court
+ *   deciding, which is a different story from the parties agreeing.
+ *
+ *   STIPULATED subsumes VOLUNTARY's bare "Rule 41(a)". Rule 41(a)(1)(A)(i)
+ *   is a unilateral notice; (ii) is a stipulation signed by every party. The
+ *   bare cite cannot tell them apart, so beside an explicit joint
+ *   stipulation the stipulation is the more specific fact. It does NOT
+ *   subsume "notice of voluntary dismissal", which is unilateral on its face
+ *   -- and that distinction is the whole difference between a plaintiff
+ *   walking away and both sides agreeing to end it.
+ *
+ * What is removed is returned in `subsumed`, so the reduction is checkable
+ * and a wrong rule shows up rather than quietly deciding cases.
+ */
+function subsume(hits) {
+  const fams = new Set(hits.map((h) => h.family));
+  return hits.filter((h) => {
+    if (fams.has('CONSENT') && h.family === 'COURT'
+        && h.label === 'final judgment') return false;
+    if (fams.has('STIPULATED') && h.family === 'VOLUNTARY'
+        && h.label === 'Rule 41(a) dismissal') return false;
+    return true;
+  });
+}
+
+/**
  * Read a window of entries into a disposition.
  *
  * `window` is how many of the newest entries are scanned. The default is
@@ -222,7 +276,8 @@ function disposition(entries, opts = {}) {
     }
   }
 
-  const families = [...new Set(hits.map((h) => h.family))];
+  const kept = subsume(hits);
+  const families = [...new Set(kept.map((h) => h.family))];
   let verdict;
   if (!scanned.length) verdict = 'UNREAD';
   else if (!hits.length) verdict = 'UNCLASSIFIED';
@@ -232,7 +287,10 @@ function disposition(entries, opts = {}) {
   return {
     verdict,
     families,
-    hits,
+    hits: kept,
+    // What subsumption removed, kept so the reduction is checkable and a
+    // wrong rule is visible rather than silent.
+    subsumed: hits.filter((h) => !kept.includes(h)),
     scanned: scanned.length,
     // Carried so a reader can tell "I looked at 8 of 8" from "I looked at
     // 8 of 400" -- the second is a window that may have missed the ruling.
@@ -413,6 +471,6 @@ function tally(results) {
 module.exports = {
   ENTRIES, SIGNALS, MAX_429_RETRIES, retryAfterMs,
   cacheDir, cachePath, cached, remember,
-  prejudice, entryText, documentsOn, firstPageUrl, signalsIn, disposition,
+  prejudice, entryText, documentsOn, subsume, firstPageUrl, signalsIn, disposition,
   readDocket, readMany, tally,
 };
