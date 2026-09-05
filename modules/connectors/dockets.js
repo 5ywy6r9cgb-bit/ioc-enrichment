@@ -132,6 +132,16 @@ async function sweep(query, opts = {}) {
   const maxPages = opts.maxPages || 40;
 
   const rows = [];
+  // DEDUPE BY DOCKET ID.
+  //
+  // A live sweep reported "260 docket(s) of 203" at page 13: more rows
+  // than the source said existed. CourtListener's deep paging returns
+  // OVERLAPPING pages, so appending blindly inflates the count and would
+  // have produced a denominator larger than the universe it came from --
+  // the exact error this command exists to prevent, committed by the
+  // command itself.
+  const seen = new Set();
+  let duplicates = 0;
   let reported = null;
   let pages = 0;
   let stoppedBy = null;
@@ -153,12 +163,31 @@ async function sweep(query, opts = {}) {
     if (reported === null && typeof body.count === 'number') reported = body.count;
 
     const got = Array.isArray(body.results) ? body.results : [];
-    for (const r of got) rows.push(row(r));
+    let fresh = 0;
+    for (const r of got) {
+      const id = r.docket_id;
+      const k = id === undefined || id === null ? JSON.stringify(r).slice(0, 120) : String(id);
+      if (seen.has(k)) { duplicates += 1; continue; }
+      seen.add(k);
+      rows.push(row(r));
+      fresh += 1;
+    }
     pages += 1;
+    if (opts.onPage) {
+      opts.onPage({ page, got: got.length, fresh, total: rows.length, duplicates, reported });
+    }
     if (!got.length || !body.next) break;
-    if (opts.onPage) opts.onPage({ page, got: got.length, total: rows.length, reported });
+    // A page that adds nothing NEW means the paging is looping. Walking on
+    // burns the rate limit and can never finish; stopping and saying so is
+    // the only honest option.
+    if (!fresh) { stoppedBy = `page ${page} returned only rows already seen`; break; }
     if (pause) await new Promise((r2) => setTimeout(r2, pause));
   }
+
+  // The source's own count and its own pages can disagree. When they do,
+  // neither number is trustworthy and the sweep says so rather than
+  // picking one.
+  const overshot = typeof reported === 'number' && rows.length > reported;
 
   return {
     ok: !stoppedBy || rows.length > 0,
@@ -166,11 +195,15 @@ async function sweep(query, opts = {}) {
     rows,
     pages,
     reported,
+    duplicates,
+    overshot,
     stoppedBy,
-    // COMPLETE only when the source told us a number AND we hold that many.
-    // Anything else is partial, including "the pages ran out" -- which is
-    // what a rate limit looks like from here.
-    complete: typeof reported === 'number' && rows.length >= reported && !stoppedBy,
+    // COMPLETE only when the source told us a number AND we hold exactly
+    // that many DISTINCT dockets. Anything else is partial -- including
+    // "the pages ran out", which is what a rate limit looks like from here,
+    // and including holding MORE than the source claims exist.
+    complete: typeof reported === 'number' && rows.length === reported
+      && !stoppedBy && !overshot,
   };
 }
 

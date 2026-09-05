@@ -689,6 +689,22 @@ that answers it and tells you to go read the last entry.
 what people upload; a docket nobody refreshed after judgment carries a null
 forever. Unknown gets its own bucket and is never folded into either side.
 
+#### Overlapping pages, and a count that disagrees with itself
+
+The first live sweep printed **`page 13: 260 docket(s) of 203`** — more rows
+than the source said existed. CourtListener's deep paging returns
+**overlapping pages**, and appending them blindly inflated the sweep's own
+count above the universe it came from: the exact error this command exists
+to prevent, committed by the command itself.
+
+Rows are now deduped by `docket_id`, repeats are counted and reported, and a
+page that adds nothing new **stops the sweep** — walking on burns the rate
+limit and can never finish.
+
+If the distinct total still exceeds the reported count, that prints in red as
+**`THE SOURCE DISAGREES WITH ITSELF`**. Neither number is trustworthy alone,
+and the command picks neither.
+
 #### Partial is announced, not implied
 
 CourtListener enforces its rate limit, and a sweep that stops halfway

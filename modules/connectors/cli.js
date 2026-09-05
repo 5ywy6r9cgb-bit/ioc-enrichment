@@ -1820,7 +1820,8 @@ async function cmdDockets(query, opts = {}) {
     key,
     intervalMs: opts.intervalMs,
     onPage: (p) => process.stdout.write(
-      `\r  page ${p.page}: ${p.total} docket(s)${p.reported ? ` of ${p.reported}` : ''}   `),
+      `\r  page ${p.page}: ${p.total} distinct${p.reported ? ` of ${p.reported}` : ''}`
+      + `${p.duplicates ? `  (${p.duplicates} repeat rows)` : ''}   `),
   });
   process.stdout.write('\r' + ' '.repeat(60) + '\r');
 
@@ -1840,6 +1841,17 @@ async function cmdDockets(query, opts = {}) {
       : `the source reported ${out.reported}`}`
       + `${out.stoppedBy ? ` — stopped by ${out.stoppedBy}` : ''}. `
       + 'Do not total this as the universe.')));
+  if (out.duplicates) {
+    console.log(C.dim(`  ${out.duplicates} row(s) were repeats of dockets already seen and`));
+    console.log(C.dim('  were dropped. Deep paging here returns overlapping pages, so an'));
+    console.log(C.dim('  appending sweep inflates its own count above the universe.'));
+  }
+  if (out.overshot) {
+    console.log('\n  ' + C.r('THE SOURCE DISAGREES WITH ITSELF.'));
+    console.log(C.dim(`  Its count says ${out.reported}; its pages served `
+      + `${out.rows.length} distinct dockets. Neither number is trustworthy`));
+    console.log(C.dim('  on its own — verify against the docket list before citing either.'));
+  }
 
   console.log('\n  ' + C.b('ENDED, BY YEAR'));
   for (const y of roll.years) {

@@ -107,6 +107,11 @@ module.exports = function run() {
         results: [{ docket_id: n, caseName: `X v. Y${n}`, dateFiled: '2025-01-01' }],
       })),
     });
+    // A page that repeats a docket already seen. CourtListener's deep
+    // paging really does this: a live sweep reported "260 docket(s) of
+    // 203" at page 13 -- more rows than the source said existed, because
+    // the pages overlap and nothing was deduping them.
+    const repeatOf = (n, count, next) => page(n, count, next);
 
     const twoPages = [page(1, 2, 'more'), page(2, 2, null)];
     let i = 0;
@@ -148,14 +153,55 @@ module.exports = function run() {
         check('and the reported total stays null rather than NaN',
           u.reported === null, String(u.reported));
 
-        const cli = fs.readFileSync(require.resolve('./cli.js'), 'utf8');
-        check('a partial sweep prints in red and forbids totalling it',
-          /Do not total this as the universe/.test(cli));
-        check('and an empty result is called a fact about the query',
-          /a fact about this query, not about the courts/.test(cli));
+        // OVERLAPPING PAGES. Page 2 serves the same docket as page 1.
+        // Appending blindly would report 2 dockets of a universe of 1 --
+        // a denominator larger than the thing it came from.
+        const dup = [page(1, 1, 'more'), repeatOf(1, 1, 'more'), page(2, 1, null)];
+        let m = 0;
+        return D.sweep('q', { intervalMs: 0, request: async () => dup[m++] })
+          .then((o) => {
+            check('a docket served twice is counted once',
+              o.rows.length === 1 && o.duplicates === 1,
+              JSON.stringify({ rows: o.rows.length, dup: o.duplicates }));
+            check('and a page with nothing new stops the sweep',
+              /only rows already seen/.test(o.stoppedBy || ''), o.stoppedBy);
+            check('which is never reported as complete', o.complete === false);
 
-        console.log(`\n  ${FAIL === 0 ? 'PASS' : 'FAIL'} — ${PASS}/${PASS + FAIL} checks\n`);
-        return FAIL;
+            // MORE DISTINCT DOCKETS THAN THE SOURCE CLAIMS EXIST. Neither
+            // number can be trusted, and the sweep must not pick one.
+            const over = [
+              page(1, 1, 'more'),
+              { status: 200,
+                body: Buffer.from(JSON.stringify({ count: 1, next: null,
+                  results: [{ docket_id: 2, caseName: 'A v. B', dateFiled: '2025-01-01' }] })) },
+            ];
+            let q = 0;
+            return D.sweep('q', { intervalMs: 0, request: async () => over[q++] });
+          })
+          .then((o) => {
+            check('holding more dockets than the source claims is flagged',
+              o.overshot === true && o.rows.length === 2 && o.reported === 1,
+              JSON.stringify({ n: o.rows.length, r: o.reported, o: o.overshot }));
+            check('and overshoot is never complete', o.complete === false);
+
+            const cli = fs.readFileSync(require.resolve('./cli.js'), 'utf8');
+            check('a partial sweep prints in red and forbids totalling it',
+              /Do not total this as the universe/.test(cli));
+            check('and an empty result is called a fact about the query',
+              /a fact about this query, not about the courts/.test(cli));
+            check('overshoot says the source disagrees with itself',
+              /THE SOURCE DISAGREES WITH ITSELF/.test(cli));
+            check('and that neither number is trustworthy alone',
+              /Neither number is trustworthy/.test(cli));
+            check('repeats dropped are reported, not silently swallowed',
+              /were repeats of dockets already seen/.test(cli));
+            const src = fs.readFileSync(require.resolve('./dockets.js'), 'utf8');
+            check('and the live 260-of-203 run is recorded in the source',
+              /260 docket\(s\) of 203/.test(src));
+
+            console.log(`\n  ${FAIL === 0 ? 'PASS' : 'FAIL'} — ${PASS}/${PASS + FAIL} checks\n`);
+            return FAIL;
+          });
       });
   }
 };
