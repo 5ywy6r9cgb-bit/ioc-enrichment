@@ -963,6 +963,72 @@ module.exports = function run() {
       c.run('false or duplicate accounts', null, {}).url);
   }
 
+  // ══ THE LDA CARRIES THE FOREIGN DISCLOSURE FARA DOES NOT ══════════════
+  //
+  // 22 U.S.C. 613(h) exempts an agent from FARA registration when the agent
+  // has registered under the LDA for a foreign principal that is not a foreign
+  // government or political party. A foreign CORPORATION lobbying commercially
+  // therefore appears in the LDA and not in FARA, lawfully and by design.
+  //
+  // Measured: a full sweep of the active FARA register -- 536/536 registrants,
+  // 58,287 documents -- found one of eight foreign-linked names taken off a
+  // single firm's LDA client list. The disclosure that FARA does not hold is
+  // in the LDA filing, in fields this parser was throwing away.
+  {
+    const p = R.CONNECTORS.senatelda.parse;
+    const [au, gov, odd] = p({ results: [
+      { filing_uuid: 'a1',
+        registrant: { name: 'A FIRM LLP' },
+        client: { name: 'WOODSIDE ENERGY', country_display: 'United States',
+          ppb_country_display: 'Australia', client_government_entity: false },
+        foreign_entities: [{ name: 'Woodside Energy Group Ltd',
+          country_display: 'Australia', ownership_percentage: 100 }] },
+      { filing_uuid: 'a2', registrant: { name: 'B LLP' },
+        client: { name: 'CITY OF SOMEWHERE', client_government_entity: true },
+        foreign_entities: [] },
+      { filing_uuid: 'a3', registrant: { name: 'C LLP' }, client: { name: 'Z INC' },
+        foreign_entities: [{ weird_key: '?', other: '??' }] },
+    ] });
+
+    check('a declared foreign entity is carried, with its country and share',
+      /Woodside Energy Group Ltd/.test(au.foreign_entities)
+        && /Australia/.test(au.foreign_entities) && /100%/.test(au.foreign_entities),
+      au.foreign_entities);
+
+    // A Delaware subsidiary of a foreign parent has country US and ppb_country
+    // abroad. Only the second says so, and the first alone reads as domestic.
+    check('the principal place of business is kept separately from the country',
+      au.client_country === 'United States' && au.client_ppb_country === 'Australia',
+      `${au.client_country} / ${au.client_ppb_country}`);
+
+    check('a government client is flagged — the case FARA would have covered',
+      gov.government_client === 'yes');
+    check('and a domestic commercial client is not flagged as one',
+      au.government_client === '', JSON.stringify(au.government_client));
+
+    check('a filing declaring nothing yields an empty string, not a false value',
+      gov.foreign_entities === '' && gov.foreign_count === 0);
+
+    // The faradocs defect, in a new place: a shape this parser does not
+    // recognise must not come back as "" -- that is indistinguishable from
+    // "no foreign entity declared", which is the opposite of true.
+    check('an unrecognised entity shape names the keys it saw instead of going blank',
+      /unrecognised shape/.test(odd.foreign_entities) && /weird_key/.test(odd.foreign_entities),
+      odd.foreign_entities);
+    check('and the count still reflects that something WAS declared',
+      odd.foreign_count === 1);
+
+    check('a plain string entity is passed through rather than dropped',
+      R.foreignEntitySummary(['Some Foreign Co']) === 'Some Foreign Co');
+    check('an absent array is empty, not a crash',
+      R.foreignEntitySummary(undefined) === '' && R.foreignEntitySummary(null) === '');
+
+    // The name field feeds crosslink's entity index; changing it would split
+    // every company in the library into two.
+    check('the client — registrant name field is unchanged',
+      au.name === 'WOODSIDE ENERGY — A FIRM LLP', au.name);
+  }
+
   console.log(`\n  ${FAIL === 0 ? 'PASS' : 'FAIL'} — ${PASS}/${PASS + FAIL} checks\n`);
   return FAIL;
 };

@@ -359,6 +359,37 @@ function SEC_UA() {
     : `sentinel-connectors/${VERSION} (SEC_CONTACT not set - see docs/OPERATOR_MANUAL.md)`;
 }
 
+/**
+ * Summarise an LDA filing's declared foreign entities.
+ *
+ * The array's INNER shape is not confirmed against live data: every filing in
+ * the sample on disk declared none, which is itself the common case. So this
+ * picks fields by key pattern rather than by name -- the same defence that was
+ * added to `faradocs` after it reported FOREIGN_PRINCIPAL_COUNTRY as the
+ * principal because Object.keys() happened to return it first -- and falls
+ * back to naming the keys it actually saw, so a mismatch is visible in the
+ * output instead of printing an empty string that reads as "no foreign entity".
+ */
+function foreignEntitySummary(list) {
+  if (!Array.isArray(list) || !list.length) return '';
+  return list.map((e) => {
+    if (typeof e === 'string') return e;
+    if (!e || typeof e !== 'object') return String(e);
+    const keys = Object.keys(e);
+    const pick = (re) => {
+      const k = keys.find((n) => re.test(n));
+      return k && e[k] !== null && e[k] !== undefined && e[k] !== '' ? String(e[k]) : '';
+    };
+    const name = pick(/^name$|entity.?name/i);
+    const country = pick(/country.?display/i) || pick(/country/i);
+    const pct = pick(/ownership|percent/i);
+    const parts = [name, country ? `[${country}]` : '', pct ? `${pct}%` : ''].filter(Boolean);
+    // Nothing recognised: say what the record DID call its fields rather than
+    // returning a blank that is indistinguishable from "none declared".
+    return parts.length ? parts.join(' ') : `(unrecognised shape: ${keys.join(', ')})`;
+  }).join('; ');
+}
+
 function requestOnce(method, url, headers, body) {
   return new Promise((resolve) => {
     let u;
@@ -818,14 +849,45 @@ const CONNECTORS = {
         headers: key ? { Authorization: `Token ${key}` } : {},
       };
     },
-    parse: (json) => (json.results || []).map((r) => ({
-      external_id: r.filing_uuid || r.filing_document_url || '',
-      name: `${(r.client && r.client.name) || '(client?)'} — ${(r.registrant && r.registrant.name) || '(registrant?)'}`,
-      period: `${r.filing_year || ''} ${r.filing_period_display || r.filing_period || ''}`.trim(),
-      amount: r.income || r.expenses || '',
-      issues: (r.lobbying_activities || []).map((a) => a.general_issue_code_display).filter(Boolean).join('; '),
-      url: r.filing_document_url || '',
-    })),
+    parse: (json) => (json.results || []).map((r) => {
+      const client = r.client || {};
+      return {
+        external_id: r.filing_uuid || r.filing_document_url || '',
+        name: `${client.name || '(client?)'} — ${(r.registrant && r.registrant.name) || '(registrant?)'}`,
+        period: `${r.filing_year || ''} ${r.filing_period_display || r.filing_period || ''}`.trim(),
+        amount: r.income || r.expenses || '',
+        issues: (r.lobbying_activities || []).map((a) => a.general_issue_code_display).filter(Boolean).join('; '),
+        // ── THE FOREIGN-CONNECTION FIELDS, WHICH WERE BEING THROWN AWAY ────
+        //
+        // Why they matter: 22 U.S.C. 613(h) exempts an agent from FARA
+        // registration when the agent has registered under the LDA for a
+        // foreign principal that is not a foreign government or political
+        // party. So a foreign CORPORATION lobbying commercially appears in the
+        // LDA and not in FARA -- lawfully, by design.
+        //
+        // A full sweep of the active FARA register (536/536 registrants,
+        // 58,287 documents) found exactly one of eight foreign-linked names
+        // taken off a single firm's LDA client list. Reading FARA to learn
+        // which foreign interests lobby Washington misses the commercial
+        // majority, and the LDA carries the disclosure instead -- in these
+        // fields, which this parser was discarding.
+        //
+        // ppb_country is the PRINCIPAL PLACE OF BUSINESS and is the more
+        // useful of the two: a Delaware subsidiary of a foreign parent has
+        // country US and ppb_country abroad, and only the second says so.
+        foreign_entities: foreignEntitySummary(r.foreign_entities),
+        foreign_count: Array.isArray(r.foreign_entities) ? r.foreign_entities.length : 0,
+        client_country: client.country_display || client.country || '',
+        client_ppb_country: client.ppb_country_display || client.ppb_country || '',
+        // A government client is the case FARA would have covered. Printed
+        // only when true, because "government_client: no" on every domestic
+        // row is noise that hides the rows where it is yes.
+        government_client: client.client_government_entity ? 'yes' : '',
+        affiliated: Array.isArray(r.affiliated_organizations) && r.affiliated_organizations.length
+          ? String(r.affiliated_organizations.length) : '',
+        url: r.filing_document_url || '',
+      };
+    }),
     identify: (r) => r.external_id,
   },
 
@@ -1572,6 +1634,7 @@ async function runConnector(name, query, opts = {}) {
 
 module.exports = {
   phrase, phraseMode, PHRASE_WORD_LIMIT, findRecordArray, decodeBody,
+  foreignEntitySummary,
   explainHttpError, looksLikeSubstringMatch,
   checkKeyShape, KEY_SHAPES,
   stripAuth, AUTH_HEADERS, MAX_REDIRECTS,

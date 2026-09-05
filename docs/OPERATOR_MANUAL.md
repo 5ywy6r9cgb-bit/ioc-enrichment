@@ -370,6 +370,41 @@ looks like an answer. The request line now states which index it searched.
 Multi-word party names are also phrase-quoted here (they weren't — "Internet
 Research Agency" was returning *Hachette v. Internet Archive*).
 
+### FARA is not the foreign-influence register — the LDA holds the rest
+
+**22 U.S.C. §613(h)** exempts an agent from FARA registration when the agent
+has registered under the **Lobbying Disclosure Act** for a foreign principal
+that is *not* a foreign government or foreign political party. A foreign
+corporation lobbying on commercial matters therefore appears in the LDA and
+**not** in FARA — lawfully, by design, since 1995.
+
+Measured on this desk: a full sweep of the active FARA register — 536 of 536
+registrants, 58,287 documents, no gaps — found **one** of eight foreign-linked
+names taken off a single firm's LDA client list.
+
+| Foreign principal is… | Discloses in |
+|---|---|
+| a foreign government or political party | FARA (§1(o) activities, Exhibit AB) |
+| a foreign corporation, lobbying commercially | LDA only — FARA-exempt under §613(h) |
+
+So reading FARA to learn which foreign interests lobby Washington
+systematically misses the commercial majority. The disclosure exists; it is in
+the LDA filing. `senatelda` now carries those fields:
+
+| Field | What it is |
+|---|---|
+| `foreign_entities` | Foreign entities the client declared, with country and ownership share |
+| `client_ppb_country` | **Principal place of business.** The one that matters — a Delaware subsidiary of a foreign parent has `client_country` US and `client_ppb_country` abroad |
+| `client_country` | The client's stated country |
+| `government_client` | Set only when the client is a government entity — the case FARA would have covered |
+| `affiliated` | Count of affiliated organisations declared |
+
+The inner shape of a `foreign_entities` record is matched by key pattern, not
+by exact name, and an unrecognised shape prints the keys it actually saw. A
+blank there would be indistinguishable from "no foreign entity declared",
+which is the opposite of true — the same defect `faradocs` had when it
+reported a country as the foreign principal.
+
 ### SEC EDGAR: the only sworn number on fake accounts
 
 Nobody outside a platform can count its inauthentic accounts — the data is
