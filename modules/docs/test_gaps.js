@@ -309,6 +309,48 @@ module.exports = function run() {
       /maxLines: 70/.test(cli));
   }
 
+  // ══ 12. NAME THE PAGE, AND SAY WHAT A GAP COUNT CANNOT SEE ════════════
+  //
+  // Page 15 of the filing this was built against, rendered as an image,
+  // settled a question five text-based checks could not: ¶42 is blacked out
+  // entirely — and ¶43 KEEPS ITS NUMBER while three of its lines are blacked
+  // out as well. The gap check can only see paragraphs whose NUMBER was
+  // covered, so its count is a FLOOR on redaction and never a ceiling.
+  {
+    const t = [
+      'Case 4:23-cv-05448-YGR Document 1 Filed 10/24/23 Page 14 of 233',
+      ' 22           41.     Meta corporate website represents the leaders',
+      ' 28',
+      'Case 4:23-cv-05448-YGR Document 1 Filed 10/24/23 Page 15 of 233',
+      '  4          43.     In addition to sharing a headquarters,',
+    ].join('\n');
+
+    const r = G.analyse(t);
+    check('the surviving neighbours are both found',
+      r.seen.has(41) && r.seen.has(43), [...r.seen].join(','));
+
+    const [row] = G.pagesToCheck(t, [42], r.seen);
+    check('a missing paragraph is mapped to a page to open',
+      row.pages.length > 0, JSON.stringify(row));
+    check('and a gap straddling a page break names BOTH pages, not one guess',
+      row.pages.join(',') === '14,15', row.pages.join(','));
+
+    check('a line maps to the page stamp that precedes it',
+      G.pageAtLine(t, 5) === 15, String(G.pageAtLine(t, 5)));
+    check('a line before any stamp maps to null, not page 1',
+      G.pageAtLine(t, 1) === null);
+    check('a paragraph with no surviving predecessor yields no page rather than a guess',
+      G.pagesToCheck(t, [1], r.seen)[0].pages.length === 0);
+
+    const cli = fs.readFileSync(require.resolve('./cli.js'), 'utf8');
+    check('the output says a gap count is a floor on redaction, never a ceiling',
+      /FLOOR ON REDACTION, NEVER A CEILING/.test(cli));
+    check('and explains that a partly redacted paragraph is invisible to it',
+      /keeps its number and loses half its text is invisible/.test(cli));
+    check('and tells the operator which PDF page to render',
+      /check PDF page/.test(cli));
+  }
+
   console.log(`\n  ${FAIL === 0 ? 'PASS' : 'FAIL'} — ${PASS}/${PASS + FAIL} checks\n`);
   return FAIL;
 };

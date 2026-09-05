@@ -264,7 +264,52 @@ function pageStamps(text) {
   };
 }
 
+/**
+ * Which PDF page a line of extracted text falls on.
+ *
+ * The document stamps every page ("Page 15 of 233"), so the page a missing
+ * paragraph WOULD have been on is recoverable: find the stamp that most
+ * recently preceded its surviving neighbour. That turns "¶145 is absent" into
+ * "render page N and look", which is the only step that settles anything.
+ *
+ * A paragraph whose neighbours straddle a page break is reported with the
+ * page its predecessor ended on; the redaction may be on either that page or
+ * the next, so both are named rather than one guessed at.
+ */
+function pageAtLine(text, line) {
+  const lines = String(text || '').split('\n');
+  const upto = Math.min(line, lines.length);
+  let page = null;
+  for (let i = 0; i < upto; i++) {
+    const m = /Page\s+(\d+)\s+of\s+\d+/.exec(lines[i]);
+    if (m) page = Number(m[1]);
+  }
+  return page;
+}
+
+/**
+ * For each missing paragraph, the page(s) to open.
+ *
+ * Uses the surviving paragraph BEFORE it, because the missing one left no
+ * trace to locate. When the following paragraph sits on a later page, both
+ * are named: a redaction spanning a break can be on either.
+ */
+function pagesToCheck(text, numbers, seen) {
+  const out = [];
+  for (const n of numbers) {
+    const before = [...seen].filter((x) => x < n).sort((a, b) => b - a)[0];
+    const after = [...seen].filter((x) => x > n).sort((a, b) => a - b)[0];
+    if (before === undefined) { out.push({ number: n, pages: [] }); continue; }
+    const [b, a] = locate(text, [before, after === undefined ? before : after]);
+    const p1 = b.line === null ? null : pageAtLine(text, b.line);
+    const p2 = a.line === null ? null : pageAtLine(text, a.line);
+    const pages = [...new Set([p1, p2].filter((x) => x !== null))].sort((x, y) => x - y);
+    out.push({ number: n, pages });
+  }
+  return out;
+}
+
 module.exports = {
   paragraphNumbers, risingSequence, runs, analyse, whitedOut, locate, pageStamps,
-  bracket,
+  bracket, pageAtLine, pagesToCheck,
 };

@@ -102,13 +102,20 @@ function whyReport(G, text, r) {
   const sample = [];
   for (let i = 0; i < r.missing.length && sample.length < 12; i += step) sample.push(r.missing[i]);
   const rows = G.locate(text, sample);
+  const pages = G.pagesToCheck(text, sample, r.seen);
   const absent = rows.filter((x) => x.line === null).length;
   console.log(`\n  ${C.b('sample')} ${C.dim(`— ${sample.length} of ${r.missing.length} unmatched numbers:`)}`);
   for (const x of rows) {
-    console.log(x.line === null
-      ? `    ${C.y(String(x.number).padStart(6))}  not in the text`
-      : `    ${String(x.number).padStart(6)}  line ${String(x.line).padEnd(7)}`
+    if (x.line !== null) {
+      console.log(`    ${String(x.number).padStart(6)}  line ${String(x.line).padEnd(7)}`
         + C.dim(JSON.stringify(x.text.slice(0, 60))));
+      continue;
+    }
+    // Absent from the text is where the work starts, not where it ends. Name
+    // the page so the next step is "render it and look" rather than a search.
+    const pg = (pages.find((p) => p.number === x.number) || {}).pages || [];
+    console.log(`    ${C.y(String(x.number).padStart(6))}  not in the text`
+      + C.dim(pg.length ? `  ·  check PDF page ${pg.join(' or ')}` : ''));
   }
   console.log('');
   console.log(C.dim(`  ${absent} of ${rows.length} are absent from the text; `
@@ -117,6 +124,12 @@ function whyReport(G, text, r) {
   console.log(C.dim('  is sealing or a drafting artifact is a question for the PDF.'));
   console.log(C.dim('  Mostly present → this matcher has a layout blind spot; send one of the'));
   console.log(C.dim('  printed lines and the pattern can be fixed.'));
+  console.log('');
+  console.log(C.y('  A GAP COUNT IS A FLOOR ON REDACTION, NEVER A CEILING.'));
+  console.log(C.dim('  It can only see paragraphs whose NUMBER was covered. A paragraph that'));
+  console.log(C.dim('  keeps its number and loses half its text is invisible here — on page 15'));
+  console.log(C.dim('  of the filing this was built against, ¶42 is blacked out entirely and'));
+  console.log(C.dim('  ¶43 keeps its number while three of its lines are blacked out too.'));
 
   // The bracket: what actually sits where the first missing paragraph should
   // be. Prose with no number means extraction lost the number. Nothing there
