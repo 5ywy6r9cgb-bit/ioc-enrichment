@@ -460,7 +460,7 @@ function cmdCrosslink(opts) {
   console.log(C.dim(`  ${captures.length} capture(s) · ${total} result(s) · `
     + `${subjects.length} subject(s) · no network call\n`));
 
-  const { byName, edges } = X.index(captures);
+  const { byName, edges, phraseSubjects } = X.index(captures);
 
   // ---- the improbable overlaps, before the big ones ---------------------
   //
@@ -523,12 +523,17 @@ function cmdCrosslink(opts) {
   }
 
   // ---- co-occurrence across subjects ------------------------------------
-  const cross = X.crossSubject(byName, { minSubjects: 2 });
+  const cross = X.crossSubject(byName, { minSubjects: 2, phraseSubjects });
   if (cross.length) {
     console.log(`  ${C.b('APPEARS UNDER MORE THAN ONE SUBJECT')}\n`);
     for (const e of cross.slice(0, opts.verbose ? 999 : 15)) {
       console.log(`    ${C.b(e.name.slice(0, 52))}`);
       console.log(C.dim(`      subjects: ${e.subjects.join(' · ')}`));
+      // A phrase you searched is not a thread this name bridges. Shown, so
+      // nothing is hidden; separated, so it cannot read as a connection.
+      if (e.phraseSubjects && e.phraseSubjects.length) {
+        console.log(C.dim(`      also answered the search: ${e.phraseSubjects.join(' · ')}`));
+      }
       console.log(C.dim(`      sources:  ${e.connectors.join(', ')}  (${e.hits} hit(s))`));
     }
     if (!opts.verbose && cross.length > 15) {
@@ -537,6 +542,11 @@ function cmdCrosslink(opts) {
   } else {
     console.log(C.dim('  Nothing appears under more than one subject yet.'));
     console.log(C.dim('  That is a real answer: these searches have not overlapped.'));
+    if (phraseSubjects && phraseSubjects.size) {
+      console.log(C.dim(`  (${phraseSubjects.size} of your subjects are full-text PHRASES, not`));
+      console.log(C.dim('  entities — a name answering one of those is the search working,'));
+      console.log(C.dim('  not two investigations meeting.)'));
+    }
   }
 
   if (unparsed.length) {

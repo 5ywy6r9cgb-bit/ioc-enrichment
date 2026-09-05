@@ -209,6 +209,75 @@ function readCaptures(captureDir) {
 }
 
 /**
+ * Which of the operator's "subjects" are actually ENTITIES, and which are
+ * corpus phrases.
+ *
+ * ─────────────────────────────────────────────────────────────────────────
+ * Real defect this exists to stop
+ * ─────────────────────────────────────────────────────────────────────────
+ * A full-text source takes any string. Searching EDGAR for the disclosure
+ * phrase "duplicate accounts" put that phrase into the library as a SUBJECT,
+ * and Meta -- the company that answered it -- then appeared in
+ * "APPEARS UNDER MORE THAN ONE SUBJECT" as bridging `Clearview AI`,
+ * `Meta Platforms`, `duplicate accounts` and `duplicate and false accounts`.
+ *
+ * Three of those are one thread and two are search strings typed an hour
+ * earlier. Meta appears "under" them because they WERE the query and Meta was
+ * the answer. That is a tautology printed in the section whose entire claim is
+ * that these names bridge separate investigations.
+ *
+ * The test: did the subject string ever turn up inside a name it found? An
+ * entity search does that -- "Structura National Technology" finds "Structura
+ * National Technologies". A phrase search never does; "duplicate accounts"
+ * finds Facebook, Administaff and Rush Street Interactive.
+ *
+ * A subject that returned nothing at all is left alone: an empty search says
+ * nothing about what kind of search it was, and guessing would be the same
+ * error in the other direction.
+ *
+ * Phrase subjects are NOT deleted. They are excluded from the count that
+ * qualifies a name as cross-linked, and shown marked. A subject dropped from
+ * view could hide a real connection -- a docket caption that never spells out
+ * the party you searched for -- and losing a true link is as bad as printing
+ * a false one.
+ */
+function subjectEchoesIn(subject, name) {
+  // Substring matching was the first attempt and it was too brittle: normalise()
+  // strips corporate suffixes, so "Structura National Technology" and the
+  // listing's "Structura National Technologies" fold to different strings and a
+  // real entity was classified as a phrase -- which would have dropped a true
+  // cross-link. Tokens survive that; a spelling variant loses one word, a
+  // disclosure phrase shares none.
+  const words = (str) => normalise(str).split(' ').filter((w) => w.length >= 3);
+  const want = words(subject);
+  if (!want.length) return true;          // nothing to test: assume an entity
+  const have = new Set(words(name));
+  const hit = want.filter((w) => have.has(w)).length;
+  return hit / want.length >= 0.6;
+}
+
+function classifySubjects(captures) {
+  const seen = new Map();   // subject -> { results: n, matched: n }
+  for (const cap of captures) {
+    if (!cap.subject) continue;
+    if (!normalise(cap.subject)) continue;
+    if (!seen.has(cap.subject)) seen.set(cap.subject, { results: 0, matched: 0 });
+    const rec = seen.get(cap.subject);
+    for (const r of cap.results || []) {
+      const raw = r.name || r.title || '';
+      if (!raw) continue;
+      rec.results += 1;
+      if (subjectEchoesIn(cap.subject, raw)) rec.matched += 1;
+    }
+  }
+  const phrase = new Set();
+  for (const [subject, rec] of seen) {
+    if (rec.results > 0 && rec.matched === 0) phrase.add(subject);
+  }
+  return phrase;
+}
+
+/**
  * Build the index: normalised name -> every place it was seen.
  */
 function index(captures) {
@@ -271,7 +340,7 @@ function index(captures) {
       }
     }
   }
-  return { byName, edges };
+  return { byName, edges, phraseSubjects: classifySubjects(captures) };
 }
 
 /**
@@ -281,16 +350,26 @@ function index(captures) {
  */
 function crossSubject(byName, opts = {}) {
   const min = opts.minSubjects || 2;
+  const phrase = opts.phraseSubjects || new Set();
   const out = [];
   for (const entry of byName.values()) {
-    const subjects = [...new Set(entry.seen.map((s) => s.subject))];
+    const all = [...new Set(entry.seen.map((s) => s.subject))];
+    // Only ENTITY subjects qualify a name as cross-linked. A corpus phrase
+    // cannot bridge two investigations -- it IS one of them, seen from the
+    // answer's side. See classifySubjects().
+    const subjects = all.filter((x) => !phrase.has(x));
+    const phraseSubjects = all.filter((x) => phrase.has(x));
     const connectors = [...new Set(entry.seen.map((s) => s.connector))];
     if (subjects.length < min) continue;
     out.push({
       name: entry.display, key: entry.key,
-      subjects, connectors, hits: entry.seen.length, seen: entry.seen,
+      subjects,
+      // Carried, not discarded: the operator should still see that this name
+      // answered a phrase search, just not be told it is a connection.
+      phraseSubjects,
+      connectors, hits: entry.seen.length, seen: entry.seen,
       // More subjects and more independent sources is a stronger signal than
-      // the same source repeating.
+      // the same source repeating. Phrase subjects carry no weight.
       weight: subjects.length * 10 + connectors.length,
     });
   }
@@ -508,5 +587,6 @@ function concentrated(edges, opts = {}) {
 
 module.exports = {
   readCaptures, index, crossSubject, sharedRegistrants, concentrated,
+  classifySubjects, subjectEchoesIn,
   normalise, tooGeneric, splitParties,
 };

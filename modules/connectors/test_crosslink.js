@@ -473,6 +473,77 @@ module.exports = function run() {
       /filing_id: r\.external_id/.test(src));
   }
 
+  // ══ A PHRASE YOU SEARCHED IS NOT A SUBJECT IT BRIDGES ═════════════════
+  //
+  // Real defect: searching EDGAR for the disclosure phrase "duplicate accounts"
+  // put that phrase in the library as a SUBJECT. Meta -- the company that
+  // answered it -- then headed APPEARS UNDER MORE THAN ONE SUBJECT bridging
+  // `Clearview AI`, `Meta Platforms`, `duplicate accounts` and `duplicate and
+  // false accounts`. Two of those are search strings, and Meta is "under" them
+  // only because they were the query. A tautology, printed in the section whose
+  // whole claim is that these names connect separate investigations.
+  {
+    const caps = [
+      { connector: 'sec', subject: 'duplicate accounts', results: [
+        { name: 'Facebook Inc' }, { name: 'Meta Platforms, Inc.' },
+        { name: 'Rush Street Interactive, Inc.' }] },
+      { connector: 'sec', subject: 'duplicate and false accounts',
+        results: [{ name: 'Meta Platforms, Inc.' }] },
+      { connector: 'opencorporates', subject: 'Meta Platforms',
+        results: [{ name: 'Meta Platforms, Inc.' }] },
+      { connector: 'courtlistener', subject: 'Clearview AI',
+        results: [{ name: 'Meta Platforms, Inc. v. Clearview AI' }] },
+    ];
+
+    const phrase = X.classifySubjects(caps);
+    check('a full-text phrase is recognised as a phrase, not an entity',
+      phrase.has('duplicate accounts') && phrase.has('duplicate and false accounts'),
+      [...phrase].join(' | '));
+    check('a real entity subject is NOT misread as a phrase',
+      !phrase.has('Meta Platforms') && !phrase.has('Clearview AI'),
+      [...phrase].join(' | '));
+
+    const { byName, phraseSubjects } = X.index(caps);
+    const [meta] = X.crossSubject(byName, { minSubjects: 2, phraseSubjects });
+    check('the cross-link counts only entity subjects',
+      meta.subjects.length === 2 && meta.subjects.includes('Meta Platforms')
+        && meta.subjects.includes('Clearview AI'), meta.subjects.join(' | '));
+    check('phrase subjects are carried, not deleted',
+      meta.phraseSubjects.length === 2, meta.phraseSubjects.join(' | '));
+    check('and they add no weight to the ranking',
+      meta.weight === 2 * 10 + meta.connectors.length, String(meta.weight));
+
+    // A phrase must not be able to CREATE a cross-link on its own.
+    const only = X.index([
+      { connector: 'sec', subject: 'duplicate accounts', results: [{ name: 'Rush Street Interactive, Inc.' }] },
+      { connector: 'sec', subject: 'false accounts', results: [{ name: 'Rush Street Interactive, Inc.' }] },
+    ]);
+    check('two phrase subjects alone do not make a company cross-linked',
+      X.crossSubject(only.byName, { minSubjects: 2, phraseSubjects: only.phraseSubjects }).length === 0);
+
+    // Losing a true link is as bad as printing a false one. normalise() strips
+    // corporate suffixes, so the affidavit's "Structura National Technology"
+    // and the sanctions listing's "Structura National Technologies" fold to
+    // different strings -- substring matching classified a real entity as a
+    // phrase and would have dropped it.
+    check('a suffix/plural spelling variant is still read as an entity',
+      X.subjectEchoesIn('Structura National Technology', 'Structura National Technologies'));
+    check('a genuinely unrelated name does not echo the subject',
+      !X.subjectEchoesIn('duplicate accounts', 'ADMINISTAFF INC'));
+
+    // An empty search says nothing about what kind of search it was.
+    check('a subject that returned nothing is not classified either way',
+      !X.classifySubjects([{ connector: 'sec', subject: 'found nothing', results: [] }])
+        .has('found nothing'));
+
+    const src = fs.readFileSync(require.resolve('./crosslink.js'), 'utf8');
+    check('the phrase list reaches crossSubject rather than being recomputed',
+      /phraseSubjects: classifySubjects\(captures\)/.test(src));
+    const cli = fs.readFileSync(require.resolve('./cli.js'), 'utf8');
+    check('and the CLI shows phrase subjects on their own line',
+      /also answered the search/.test(cli));
+  }
+
   console.log(`\n  ${FAIL === 0 ? 'PASS' : 'FAIL'} — ${PASS}/${PASS + FAIL} checks\n`);
   return FAIL;
 };
