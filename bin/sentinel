@@ -206,6 +206,7 @@ PYSTATUS
     echo ""
     node "$ROOT/modules/connectors/test_foreign.js" || FAILED=1
     node "$ROOT/modules/connectors/test_cfpb.js" || FAILED=1
+    node "$ROOT/modules/connectors/test_courtlistener_coverage.js" || FAILED=1
     node "$ROOT/modules/connectors/test_fecspend.js" || FAILED=1
     echo ""
     echo "== the front door =="

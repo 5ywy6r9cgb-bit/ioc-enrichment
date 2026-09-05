@@ -716,6 +716,37 @@ const CONNECTORS = {
       + `  (q: ${q} — ${o.dockets ? 'RECAP DOCKETS (filings, indictments, affidavits)'
         : 'OPINIONS ONLY — charging documents are not opinions; use --dockets'}`
       + `, sent ${phraseMode(q, o)})`,
+    /**
+     * HOW MANY DOCKETS MATCHED — AND WHY THIS CANNOT SAY.
+     *
+     * CourtListener v4 does not return a number in `count`. It returns a
+     * URL you must fetch separately to get one. So a search that prints
+     * "20 candidate lead(s)" is showing a PAGE SIZE and nothing else, and
+     * an operator asking "was this one case or a pattern?" would count 20
+     * dockets and believe that was the universe.
+     *
+     * This refuses to imply a total it does not have, and hands over the
+     * exact URL that produces one. The same quirk already caught a 20-entry
+     * page of a 3,472-entry MDL docket being marked complete in crosslink.
+     */
+    coverage: (json) => {
+      const n = json && json.count;
+      if (typeof n === 'number') {
+        const got = (json.results || []).length;
+        return got < n
+          ? `${got} of ${n} matching docket(s) are in this capture.`
+          : `COMPLETE: all ${n} matching docket(s) are here.`;
+      }
+      if (typeof n === 'string' && /^https?:/.test(n)) {
+        return 'TOTAL MATCHES: UNKNOWN. CourtListener v4 returns a URL here, '
+          + 'not a number, so the rows below are ONE PAGE of an unknown total. '
+          + 'Do not treat this as a census. Fetch the count with:  '
+          + `curl -s -H "Authorization: Token $TOK" "${n}"`;
+      }
+      return 'TOTAL MATCHES: UNKNOWN — no count in the response. These rows '
+        + 'are one page of an unknown total and must not be counted as all '
+        + 'of them.';
+    },
     probe: (key) => ({
       method: 'GET',
       url: 'https://www.courtlistener.com/api/rest/v4/search/?q=test&type=o',
