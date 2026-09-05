@@ -14,6 +14,7 @@ const path = require('path');
 const D = require('./document.js');
 const B = require('./bills.js');
 const ST = require('./statute.js');
+const AB = require('./abatements.js');
 const R = require('../connectors/registry.js');
 const P = require('../../core/provenance/provenance.js');
 
@@ -168,6 +169,92 @@ function whyReport(G, text, r) {
  * is meaningless without it, and a parse that found zero sections and a term
  * that appears in none are indistinguishable otherwise.
  */
+/**
+ * `sentinel doc abatements FILE.txt`
+ *
+ * What a government gave away, out of its own audited report.
+ *
+ * GASB Statement No. 77 has required every state and local government in
+ * the country to publish this number annually since fiscal 2017. It is
+ * mandatory, it is audited, and almost nobody reads it -- the same shape as
+ * 22 U.S.C. 613(h) and FEC Schedule E on this desk.
+ *
+ * The output leads with the FOUR THINGS THE FIGURE EXCLUDES, because each
+ * one makes it an understatement, and a number published as "what the deal
+ * cost taxpayers" would be wrong in the direction that flatters the deal.
+ */
+function cmdAbatements(file, opts = {}) {
+  if (!file) {
+    console.error('\n  usage: sentinel doc abatements FILE.txt\n');
+    process.exit(2);
+  }
+  let text;
+  try { text = fs.readFileSync(file, 'utf8'); }
+  catch (e) { console.error(`\n  ${C.r('cannot read')} ${file}: ${e.message}\n`); process.exit(2); }
+
+  const r = AB.analyse(text);
+  console.log(`\n  ${C.b('TAX ABATEMENT DISCLOSURE')}  ${path.basename(file)}`);
+  console.log(C.dim(`  ${r.chars.toLocaleString()} characters read`));
+
+  if (!r.headingFound) {
+    console.log('\n  ' + C.y('NO ABATEMENT HEADING FOUND.'));
+    console.log(C.dim('  That is NOT a finding that this government abates nothing. The note'));
+    console.log(C.dim('  is often titled by PROGRAM NAME instead -- an Ohio report will say'));
+    console.log(C.dim('  "Community Reinvestment Area" and never use the word "abatement".'));
+    if (r.programsAnywhere.length) {
+      console.log('\n  ' + C.g('But these program names DO appear in the document:'));
+      for (const p of r.programsAnywhere) {
+        console.log(`    ${p.program.padEnd(34)} ${p.mentions} mention(s)`);
+      }
+      console.log(C.dim('\n  Search the text for those instead — the disclosure is probably there.'));
+    } else {
+      console.log(C.dim('\n  And no program name appears either. Check that the extraction'));
+      console.log(C.dim('  produced text at all: a scanned ACFR with no text layer looks'));
+      console.log(C.dim('  identical to a government that grants nothing.'));
+    }
+    console.log('');
+    return;
+  }
+
+  for (const n of r.notes) {
+    console.log(`\n    ${C.b(n.heading)}  ${C.dim('line ' + n.line)}`);
+    if (n.programs.length) {
+      console.log('      ' + C.dim('programs  ')
+        + n.programs.map((p) => `${p.program} (${p.mentions})`).join(', '));
+    }
+    if (n.amounts.length) {
+      console.log('      ' + C.dim('figures   ')
+        + n.amounts.map((a) => a.raw).join('  ·  '));
+      const top = n.amounts[0];
+      console.log('      ' + C.dim('largest   ')
+        + C.b('$' + Math.round(top.dollars).toLocaleString()));
+    } else {
+      console.log('      ' + C.y('no dollar figure in this passage')
+        + C.dim(' — the number may be in a table the extraction flattened'));
+    }
+    if (opts.verbose) console.log(C.dim(`      ${n.excerpt}`));
+  }
+
+  console.log('\n  ' + C.y('EVERY FIGURE ABOVE IS A FLOOR, NOT THE COST OF THE DEAL.'));
+  console.log(C.dim('  GASB 77 is narrower than "what this cost the public" in four ways:'));
+  console.log(C.dim('    1. TIF is generally OUTSIDE Statement 77 — a TIF does not forgive'));
+  console.log(C.dim('       the tax, it DIVERTS it, so a small abated figure and a large'));
+  console.log(C.dim('       redirected tax base are both true at once.'));
+  console.log(C.dim('    2. Only AGREEMENTS. A class of property exempted by statute is not'));
+  console.log(C.dim('       an agreement and is not disclosed here.'));
+  console.log(C.dim('    3. Revenue forgone only. Nothing about the roads, sewers and'));
+  console.log(C.dim('       classrooms the development requires.'));
+  console.log(C.dim('    4. When a CITY abates and a SCHOOL DISTRICT loses the money, the'));
+  console.log(C.dim('       district discloses it — but often in far less detail.'));
+
+  if (r.tifNamed) {
+    console.log('\n  ' + C.r('THIS DOCUMENT NAMES TAX INCREMENT FINANCING.'));
+    console.log(C.dim('  So the abated figure above is not the whole story for this entity.'));
+    console.log(C.dim('  Read the TIF note separately and report the two as two numbers.'));
+  }
+  console.log('');
+}
+
 function cmdSections(file, opts = {}) {
   if (!file) {
     console.error('\n  usage: sentinel doc sections FILE.txt --mentions TERM\n');
@@ -745,6 +832,9 @@ async function main() {
       verbose: argv.includes('--verbose'), why: argv.includes('--why'),
     });
   }
+  if (action === 'abatements') {
+    return cmdAbatements(positional[1], { verbose: argv.includes('--verbose') });
+  }
   if (action === 'sections') {
     return cmdSections(positional[1], {
       term: val('--mentions'), verbose: argv.includes('--verbose'),
@@ -761,6 +851,7 @@ async function main() {
     + '\n         sentinel doc bills'
     + '\n         sentinel doc gaps FILE.txt'
     + '\n         sentinel doc sections FILE.txt --mentions TERM'
+    + '\n         sentinel doc abatements FILE.txt'
     + '\n         sentinel doc chain HOST\n');
   process.exit(2);
 }

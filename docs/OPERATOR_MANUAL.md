@@ -728,6 +728,45 @@ complete, which is the same bug wearing a different hat.
 Nothing is ever deleted. A superseded file keeps its rows under
 `inventory.csv.superseded`.
 
+### `doc abatements` — what a government gave away, from its own audit
+
+```bash
+bin/sentinel doc get "<ACFR pdf url>"
+bin/sentinel doc abatements evidence/documents/<the>.txt
+```
+
+**GASB Statement No. 77** has required every state and local government in
+the United States — every city, county, township and school district — to
+disclose in its **audited** annual report the dollar amount of tax revenue
+it did not collect because of abatement agreements. Since fiscal 2017. Every
+year. And almost nobody reads it.
+
+Same shape as 22 U.S.C. §613(h) and FEC Schedule E on this desk: the number
+everyone assumes is hidden is on a form, and the reason it feels
+unobtainable is that the form is boring rather than secret.
+
+#### Four things the figure excludes — all in the same direction
+
+| | |
+|---|---|
+| **TIF** | A TIF does not *forgive* the tax, it **diverts** it, and GASB has said TIFs generally fall outside Statement 77. A district can report a small abated figure while a large slice of its base is redirected — **both true at once.** |
+| **Agreements only** | A class of property exempted by state statute is not an "agreement" and is not disclosed. |
+| **No cost side** | Revenue forgone only. Nothing about the roads, sewers, and classrooms the development requires. |
+| **Passive losses** | When a **city** abates and a **school district** loses the revenue, the district must disclose — but often in far less detail than for its own agreements. |
+
+**So every figure it prints is a floor.** The command says so above its own
+results, and flags in red when the document names a TIF.
+
+#### In Ohio, the note is usually titled by program
+
+An Ohio ACFR will say **"Community Reinvestment Area"** (R.C. Ch. 3735) or
+**"Enterprise Zone"** and never use the word *abatement*. A search for the
+generic word returns nothing and reads as *"this city abates nothing"* —
+the exact opposite of the truth. So when no abatement heading is found, the
+command **surfaces the program names that do appear** and refuses to call it
+an absence. It also names the other explanation: a scanned ACFR with no text
+layer looks identical to a government that grants nothing.
+
 ### `doc sections` — which sections of a law say a thing
 
 ```bash
