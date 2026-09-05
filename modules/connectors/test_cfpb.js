@@ -50,6 +50,18 @@ module.exports = function run() {
         C.run('x', null, { since: '2024-01-01T00:00:00Z' }).url));
     check('aggregations are switched off so the capture is the rows',
       /no_aggs=true/.test(narr.url));
+
+    // format=json 404s. Bisected against the live API: every other
+    // parameter returns 200, and this one returns 404 even on the bare
+    // endpoint. It cost two wrong endpoint guesses to find, because a 404
+    // reads as "wrong path" and this was a wrong PARAMETER on a right one.
+    check('no format parameter is sent — it 404s the live API',
+      !/format=/.test(narr.url), narr.url);
+    check('and the probe does not send it either',
+      !/format=/.test(C.probe(null).url), C.probe(null).url);
+    const src = fs.readFileSync(require.resolve('./registry.js'), 'utf8');
+    check('and the reason is recorded where someone would add it back',
+      /alone returns 404/.test(src));
   }
 
   // ══ 2. A COUNT IS NOT A RATE ══════════════════════════════════════════

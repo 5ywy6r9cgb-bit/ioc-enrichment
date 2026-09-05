@@ -1041,13 +1041,18 @@ const CONNECTORS = {
     probe: () => ({
       method: 'GET',
       url: 'https://www.consumerfinance.gov/data-research/consumer-complaints/search/api/v1/'
-        + '?size=1&format=json&no_aggs=true',
+        + '?size=1&no_aggs=true',
       headers: { Accept: 'application/json' },
     }),
     run: (q, key, o = {}) => {
       const p = new URLSearchParams();
       p.set('size', '100');
-      p.set('format', 'json');
+      // NO format PARAMETER. Bisected against the live API: every other
+      // parameter returns 200 and `format=json` alone returns 404 --
+      // including on the bare endpoint with nothing else set. The service
+      // answers JSON by default and treats the parameter as an unknown
+      // route. It cost two wrong endpoint guesses to find, because a 404
+      // reads as "wrong path" and this was a wrong PARAMETER on a right one.
       p.set('no_aggs', 'true');
       p.set('sort', 'created_date_desc');
       if (q) {
