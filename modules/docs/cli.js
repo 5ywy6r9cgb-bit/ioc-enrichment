@@ -63,7 +63,26 @@ function cmdGaps(file, opts = {}) {
     return;
   }
 
-  console.log(C.dim(`  ${r.found} paragraph(s) present · numbered ${r.first} to ${r.last}`));
+  const pct = r.confidence === null ? '?' : `${Math.round(r.confidence * 100)}%`;
+  console.log(C.dim(`  ${r.found} paragraph(s) present · numbered ${r.first} to ${r.last}`
+    + ` · matcher read ${pct} of that range`));
+
+  // ── CAN THIS MATCHER READ THIS DOCUMENT AT ALL? ───────────────────────
+  //
+  // First live run: 570 found across 1 to 1,040 and 470 reported missing.
+  // That was not a redaction map, it was the matcher's own blind spots
+  // printed under a heading the operator would read as "hundreds sealed".
+  // A gap list means nothing unless most of the sequence was found.
+  if (!r.reliable) {
+    console.log(`\n  ${C.r('THIS MATCHER CANNOT READ THIS DOCUMENT\'S NUMBERING.')}`);
+    console.log(C.dim(`  It found ${r.found} of the ${r.span} numbers between ${r.first} and`));
+    console.log(C.dim(`  ${r.last}. A gap list drawn from that would be mostly this tool's`));
+    console.log(C.dim('  blind spots, not the document\'s holes — so it is NOT printed.'));
+    console.log(C.dim('  No conclusion about redaction can be drawn from this file here.'));
+    console.log(C.dim('  Check a page against the PDF and send the paragraph\'s exact'));
+    console.log(C.dim('  spacing; the pattern can be fixed for this filing\'s layout.\n'));
+    return;
+  }
 
   if (!r.missing.length) {
     console.log(`\n  ${C.g('The sequence is unbroken.')}`);

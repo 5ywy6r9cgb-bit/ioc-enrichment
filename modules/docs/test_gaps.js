@@ -141,6 +141,57 @@ module.exports = function run() {
       /This signal is WEAK/.test(cli) && /places to look, not findings/.test(cli));
   }
 
+  // ══ 7. A GAP LIST THE MATCHER CANNOT SUPPORT IS NOT PRINTED ═══════════
+  //
+  // First live run on the real 233-page complaint: 570 paragraphs found
+  // across a range of 1 to 1,040, and 470 reported MISSING, under a heading
+  // any operator would read as "hundreds of passages are sealed". Nearly half
+  // the paragraphs were plainly in the document; the matcher could not see
+  // them. The tool printed its own blind spots as holes in a federal filing.
+  {
+    let dense = '';
+    for (let n = 1; n <= 100; n++) {
+      if ([59, 60, 80].includes(n)) continue;
+      dense += ` ${(n % 28) + 1}          ${n}.    The states allege Meta employs design features\n`;
+    }
+    const good = G.analyse(dense);
+    check('a document the matcher reads well is reliable',
+      good.reliable === true && good.confidence > 0.9, String(good.confidence));
+    check('and its real gaps are reported',
+      good.missing.join(',') === '59,60,80', good.missing.join(','));
+
+    let sparse = '';
+    for (let n = 1; n <= 100; n += 2) sparse += ` 3          ${n}.    Sparse text\n`;
+    const bad = G.analyse(sparse);
+    check('a document the matcher half-reads is NOT reliable',
+      bad.reliable === false, `${bad.found}/${bad.span}`);
+    check('confidence is carried as a number, not a verdict',
+      Math.abs(bad.confidence - 0.505) < 0.02, String(bad.confidence));
+
+    const cli = fs.readFileSync(require.resolve('./cli.js'), 'utf8');
+    check('an unreliable read refuses to print a gap list',
+      /CANNOT READ THIS DOCUMENT/.test(cli) && /NUMBERING\./.test(cli));
+    check('and says no conclusion about redaction can be drawn',
+      /No conclusion about redaction/.test(cli));
+    check('and the confidence is always shown, reliable or not',
+      /matcher read \$\{pct\} of that range/.test(cli));
+  }
+
+  // ══ 8. A TABLE OF CONTENTS IS NOT A REDACTION ═════════════════════════
+  //
+  // The first live run reported forty "places where words may be missing"
+  // and every one was a contents row with dot leaders.
+  {
+    check('a contents row with dot leaders is not flagged',
+      G.whitedOut('  monetizes young users attention through data harvesting. ......... 41')
+        .length === 0);
+    check('a bare page number is not flagged',
+      G.whitedOut('\n    89    \n').length === 0);
+    check('a real mid-sentence hole is still flagged',
+      G.whitedOut('Elaborating further,        teens responded that Instagram use led')
+        .length === 1);
+  }
+
   console.log(`\n  ${FAIL === 0 ? 'PASS' : 'FAIL'} — ${PASS}/${PASS + FAIL} checks\n`);
   return FAIL;
 };

@@ -44,7 +44,7 @@
  */
 function paragraphNumbers(text) {
   const out = [];
-  const re = /(?:^|[\s(])(\d{1,4})\.[ \t]{2,}(?=[A-Z"“‘[])/gm;
+  const re = /(?:^|[\s(])(\d{1,4})\.[ \t]+(?=[A-Z"“‘[])/gm;
   let m;
   while ((m = re.exec(String(text || ''))) !== null) out.push(Number(m[1]));
   return out;
@@ -114,14 +114,38 @@ function analyse(text, opts = {}) {
   const all = paragraphNumbers(text);
   const seq = risingSequence(all, opts);
   if (!seq.length) {
-    return { found: 0, first: null, last: null, missing: [], runs: [], seen: new Set() };
+    return {
+      found: 0, first: null, last: null, missing: [], runs: [],
+      seen: new Set(), span: 0, confidence: null, reliable: false,
+    };
   }
   const seen = new Set(seq);
   const first = seq[0];
   const last = seq[seq.length - 1];
   const missing = [];
   for (let n = first; n <= last; n++) if (!seen.has(n)) missing.push(n);
-  return { found: seq.length, first, last, missing, runs: runs(missing), seen };
+
+  // ── CAN THIS MATCHER EVEN READ THIS DOCUMENT? ─────────────────────────
+  //
+  // First live run, on a 233-page complaint: 570 paragraphs found across a
+  // range of 1 to 1,040, and 470 reported MISSING. That is not a redaction
+  // map. It is the matcher failing to recognise nearly half the paragraphs
+  // that are plainly there, and printing its own blind spots as holes in the
+  // document — under a heading the operator would reasonably read as
+  // "hundreds of passages are sealed".
+  //
+  // A gap list is only meaningful if the matcher found most of the sequence.
+  // Below the threshold the honest output is "I cannot read this document's
+  // numbering", not a list. This is the same coverage rule the rest of the
+  // desk applies to sources, turned on the tool itself.
+  const span = last - first + 1;
+  const confidence = span > 0 ? seq.length / span : null;
+  const reliable = confidence !== null && confidence >= (opts.minConfidence || 0.85);
+
+  return {
+    found: seq.length, first, last, missing, runs: runs(missing), seen,
+    span, confidence, reliable,
+  };
 }
 
 /**
@@ -136,12 +160,20 @@ function analyse(text, opts = {}) {
  */
 function whitedOut(text) {
   const out = [];
-  const re = /([a-z,;]\s)( {6,})([a-z])/g;
-  const s = String(text || '');
-  let m;
-  while ((m = re.exec(s)) !== null) {
-    const from = Math.max(0, m.index - 60);
-    out.push(s.slice(from, m.index + m[0].length + 60).replace(/\s+/g, ' ').trim());
+  // Line by line, so a TABLE OF CONTENTS row can be excluded. The first live
+  // run reported forty "places where words may be missing" and every one was
+  // a contents entry — "...monetizes young users' attention through data
+  // harvesting and targeted advertising. ............ 41". Dot leaders and
+  // their padding are typesetting, not redaction, and reporting them as
+  // possible removals buries whatever is real.
+  const lines = String(text || '').split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (/\.{4,}/.test(line)) continue;                 // contents / index row
+    if (/^\s*\d+\s*$/.test(line)) continue;            // a bare page number
+    const m = /([a-z,;]\s)( {6,})([a-z])/.exec(line);
+    if (!m) continue;
+    out.push(line.replace(/\s+/g, ' ').trim().slice(0, 220));
     if (out.length >= 40) break;
   }
   return out;
