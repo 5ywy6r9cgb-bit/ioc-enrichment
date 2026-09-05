@@ -923,6 +923,54 @@ the row notable, so nothing is lost.
 A screen stopped by a rate limit has **not** cleared the names it never sent.
 Those are listed separately as `UNSCREENED` so none is mistaken for a null.
 
+### `sentinel connect entity` — read the record behind a candidate
+
+```bash
+bin/sentinel connect entity us-bis-oac-0dfdd109a3fb3801add02fe1bf421a4d8e62c041
+```
+
+`connect screen` ends at a URL. **A candidate you cannot open is a rumour with
+a link on it.** This reads the record and leads with the fact that decides
+everything else.
+
+#### Which dataset, before which topic
+
+`sanction` spans the OFAC SDN list, an EU consolidated listing, a national
+debarment register and a research-grade watchlist. Those carry wildly
+different legal weight, and a row saying `sanction` **without naming its
+source list has told you almost nothing.** So the datasets print first.
+
+#### Designated is not flagged
+
+Each topic is printed with what it actually means:
+
+| topic | means |
+|---|---|
+| `sanction` | **designated** — a government named this entity in a sanctions instrument |
+| `sanction.linked` | linked to a designated entity, **not itself designated** |
+| `export.control` | restricted from receiving controlled goods |
+| `export.risk` | flagged as a diversion risk, **not a designation** |
+| `debarment` | excluded from public contracting |
+| `poi` | a catch-all; **on its own it designates nothing** |
+| `gov.soe` | state ownership — **not wrongdoing** |
+
+An unrecognised topic prints *"weight not stated here"* rather than being
+guessed at.
+
+#### The primary source, and the dates
+
+The record's own `sourceUrl` is the only field that leads to a primary
+source, so it is surfaced on its own with the `doc get` line that hashes it.
+Where there is none, that is said plainly: **the aggregator is then the only
+thing standing behind the row, and an aggregator is not a primary source.**
+
+`first_seen` and `last_seen` both print, because **a listing that postdates
+every FARA filing is a different story from one that predates them** and
+neither can be told without both dates.
+
+Finally, an entity OpenSanctions does not consider a listing *target* — one
+merely mentioned inside someone else's record — says so.
+
 ### `connect cfpb` — junk fees, and the denominator it cannot give you
 
 ```bash

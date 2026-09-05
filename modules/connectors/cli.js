@@ -20,6 +20,7 @@ const FSCAN = require('./farascan.js');
 const DK = require('./dockets.js');
 const EN = require('./entries.js');
 const SC = require('./screen.js');
+const ET = require('./entity.js');
 
 const C = {
   b: (s) => `\x1b[1m${s}\x1b[0m`,
@@ -2196,6 +2197,92 @@ async function cmdScreen(opts = {}) {
   console.log(C.dim('  candidate as a fact about a real person or company is defamation.\n'));
 }
 
+/**
+ * `sentinel connect entity <opensanctions-id>`
+ *
+ * Closes a candidate. `connect screen` ends at a URL, and a candidate you
+ * cannot open is a rumour with a link on it. This reads the record and
+ * leads with the fact that decides everything: WHICH DATASET listed it.
+ */
+async function cmdEntity(id, opts = {}) {
+  if (!id) {
+    console.error('\n  ' + C.r('connect entity needs an OpenSanctions id')
+      + C.dim('\n  e.g. connect entity us-bis-oac-0dfdd109a3fb3801add02fe1bf421a4d8e62c041')
+      + C.dim('\n  The ids are the last path segment of the URLs `connect screen` prints.')
+      + '\n');
+    process.exit(2);
+  }
+  const env = R.loadEnv();
+  const key = env.OPENSANCTIONS_API_KEY || null;
+
+  console.log(`\n${C.b('OPENSANCTIONS RECORD')}`);
+  console.log(`  id          ${id}`);
+  const out = await ET.fetchEntity(id, { key, intervalMs: opts.intervalMs });
+  if (!out.ok) {
+    console.log('  ' + C.r(`could not read it: ${out.error}`));
+    console.log(C.dim(`  ${out.url}`));
+    console.log(C.dim('  That is a failed fetch, NOT a record that says nothing.\n'));
+    process.exit(1);
+  }
+  const r = out.reading;
+  console.log(`  name        ${C.b(r.caption)}  ${C.dim(`(${r.schema})`)}`);
+  if (r.country.length) console.log(`  country     ${r.country.join(', ')}`);
+
+  // THE DATASET FIRST. "sanction" spans the OFAC SDN list, an EU listing,
+  // a national debarment register and a research watchlist, and those
+  // carry wildly different legal weight.
+  console.log(`\n  ${C.b('LISTED BY')}`);
+  for (const d of r.datasets) console.log(`    ${d}`);
+  if (!r.datasets.length) console.log(C.dim('    no dataset named on the record'));
+  console.log(C.dim('  This is the load-bearing fact. A topic without its source list'));
+  console.log(C.dim('  says almost nothing: a government designation and a research'));
+  console.log(C.dim('  watchlist both surface as "sanction".'));
+
+  console.log(`\n  ${C.b('WHAT THE TOPICS MEAN')}`);
+  for (const w of r.weights) {
+    console.log(`    ${C.b(w.topic.padEnd(18))} ${w.means}`);
+  }
+  if (!r.weights.length) console.log(C.dim('    no topics on this record'));
+
+  if (r.program.length) {
+    console.log(`\n  ${C.b('PROGRAM')}`);
+    for (const p2 of r.program) console.log(`    ${p2}`);
+  }
+
+  console.log(`\n  ${C.b('PRIMARY SOURCE')}`);
+  if (r.sourceUrl.length) {
+    for (const u of r.sourceUrl) console.log(`    ${u}`);
+    console.log(C.dim('  Fetch and hash it before citing anything:'));
+    console.log(C.dim(`    sentinel doc get "${r.sourceUrl[0]}" --case <case>`));
+  } else {
+    console.log(C.dim('    the record names no source URL — the aggregator is the only'));
+    console.log(C.dim('    thing standing behind this, which is not a primary source'));
+  }
+
+  console.log(`\n  ${C.b('DATES')}`);
+  console.log(`    first seen  ${r.firstSeen || C.dim('not stated')}`);
+  console.log(`    last seen   ${r.lastSeen || C.dim('not stated')}`);
+  console.log(C.dim('  A listing that POSTDATES the FARA filings is a different story'));
+  console.log(C.dim('  from one that predates them. Check both before writing either.'));
+
+  if (r.aliases.length) {
+    console.log(`\n  ${C.b('ALIASES')}` + C.dim('  — a name match may have run through one of these'));
+    for (const a of r.aliases.slice(0, 12)) console.log(`    ${a}`);
+    if (r.aliases.length > 12) console.log(C.dim(`    …and ${r.aliases.length - 12} more`));
+  }
+  if (r.notes.length) {
+    console.log(`\n  ${C.b('NOTES')}`);
+    for (const n of r.notes.slice(0, 4)) console.log(C.dim(`    ${n.slice(0, 300)}`));
+  }
+
+  if (!r.target) {
+    console.log('\n  ' + C.y('THIS RECORD IS NOT A LISTING TARGET.'));
+    console.log(C.dim('  OpenSanctions marks it as an entity MENTIONED in someone else\'s'));
+    console.log(C.dim('  record rather than one a listing is about. Read it as context.'));
+  }
+  console.log('');
+}
+
 async function cmdFaraScan(pattern, opts = {}) {
   if (!pattern && !opts.countries) {
     console.error('\n  ' + C.r('farascan needs a pattern: --match "hikvision|nso|q cyber"')
@@ -2563,6 +2650,9 @@ async function main() {
       verbose: argv.includes('--verbose'),
       intervalMs: dv('--interval') ? parseInt(dv('--interval'), 10) : undefined,
     });
+  }
+  if (action === 'entity') {
+    return cmdEntity(args.slice(1).filter((a) => !a.startsWith('--'))[0], {});
   }
   if (action === 'screen') {
     const dv = (n) => {
