@@ -223,6 +223,8 @@ PYSTATUS
 
     echo "== document fetch =="
     node "$ROOT/modules/docs/test_docs_fetch.js" || FAILED=1
+    echo ""
+    node "$ROOT/modules/docs/test_gaps.js" || FAILED=1
 
     echo "== bill correlation =="
     node "$ROOT/modules/docs/test_bills.js" || FAILED=1

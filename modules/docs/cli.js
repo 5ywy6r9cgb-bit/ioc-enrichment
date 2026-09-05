@@ -31,9 +31,83 @@ function human(n) {
   return `${v < 10 && i > 0 ? v.toFixed(1) : Math.round(v)}${u[i]}`;
 }
 
+/**
+ * `sentinel doc gaps FILE.txt` — the paragraphs a filing does not contain.
+ *
+ * Written after `grep -c -i redact` returned 0 on a 233-page complaint whose
+ * paragraphs 159, 160, 162, 163, 164 and 380 are sealed. Those redactions
+ * carry no marker at all. The word was the wrong thing to look for; the
+ * arithmetic of the numbering is not.
+ */
+function cmdGaps(file, opts = {}) {
+  const G = require('./gaps.js');
+  if (!file) {
+    console.error('\n  usage: sentinel doc gaps FILE.txt\n');
+    process.exit(2);
+  }
+  let text;
+  try { text = fs.readFileSync(file, 'utf8'); }
+  catch (e) {
+    console.error(`\n  cannot read ${file}: ${e.message}\n`);
+    process.exit(1);
+  }
+
+  const r = G.analyse(text, opts);
+  console.log(`\n  ${C.b('NUMBERED PARAGRAPHS')}  ${C.dim(path.basename(file))}`);
+
+  if (!r.found) {
+    console.log(C.y('\n  No numbered paragraphs found.'));
+    console.log(C.dim('  That is a fact about this text, not about the document: a brief of'));
+    console.log(C.dim('  unnumbered prose, a scan with no text layer, and a filing whose'));
+    console.log(C.dim('  numbering this pattern does not match all look identical here.\n'));
+    return;
+  }
+
+  console.log(C.dim(`  ${r.found} paragraph(s) present · numbered ${r.first} to ${r.last}`));
+
+  if (!r.missing.length) {
+    console.log(`\n  ${C.g('The sequence is unbroken.')}`);
+    console.log(C.dim(`  Every number from ${r.first} to ${r.last} appears, which rules out a`));
+    console.log(C.dim('  WHOLE paragraph being sealed. It does not rule out words removed'));
+    console.log(C.dim('  from inside one — see below.'));
+  } else {
+    console.log(`\n  ${C.y(`${r.missing.length} PARAGRAPH(S) ARE NOT IN THIS TEXT`)}`);
+    const show = opts.verbose ? r.runs : r.runs.slice(0, 20);
+    for (const run of show) {
+      const label = run.from === run.to ? `${run.from}` : `${run.from}–${run.to}`;
+      console.log(`    ${C.y(label.padEnd(14))}`
+        + C.dim(run.count === 1 ? '1 paragraph' : `${run.count} paragraphs`));
+    }
+    if (!opts.verbose && r.runs.length > 20) {
+      console.log(C.dim(`    …and ${r.runs.length - 20} more run(s) (--verbose for all)`));
+    }
+    console.log('');
+    console.log(C.dim('  A GAP IS NOT A REDACTION. It has three causes and this tool chooses'));
+    console.log(C.dim('  between none of them:'));
+    console.log(C.dim('    1. the passage is SEALED — the case worth opening the page for'));
+    console.log(C.dim('    2. the extractor dropped it — a scan, a table, a figure'));
+    console.log(C.dim('    3. the filing skipped the number — drafting error, it happens'));
+    console.log(C.dim('  Open the page and look before calling it anything.'));
+  }
+
+  const white = G.whitedOut(text);
+  if (white.length) {
+    console.log(`\n  ${C.y(`${white.length} place(s) where words may be missing from INSIDE a paragraph`)}`);
+    console.log(C.dim('  A run of spaces mid-sentence. This signal is WEAK — PDF extraction pads'));
+    console.log(C.dim('  text for its own reasons — so these are places to look, not findings:'));
+    for (const w of white.slice(0, opts.verbose ? 40 : 5)) {
+      console.log(C.dim(`    …${w.slice(0, 150)}…`));
+    }
+    if (!opts.verbose && white.length > 5) {
+      console.log(C.dim(`    …and ${white.length - 5} more (--verbose for all)`));
+    }
+  }
+  console.log('');
+}
+
 async function cmdGet(url, opts) {
   if (!url) {
-    console.error('\n  usage: sentinel doc get URL [--case CASE-ID] [--as EX-01]\n         sentinel doc bills\n');
+    console.error('\n  usage: sentinel doc get URL [--case CASE-ID] [--as EX-01]\n         sentinel doc bills\n         sentinel doc gaps FILE.txt\n');
     process.exit(2);
   }
 
@@ -457,6 +531,9 @@ async function main() {
   if (action === 'get') {
     return cmdGet(positional[1], { caseId: val('--case'), as: val('--as') });
   }
+  if (action === 'gaps') {
+    return cmdGaps(positional[1], { verbose: argv.includes("--verbose") });
+  }
   if (action === 'bills') {
     return cmdBills({});
   }
@@ -466,6 +543,7 @@ async function main() {
 
   console.error('\n  usage: sentinel doc get URL [--case CASE-ID] [--as EX-01]'
     + '\n         sentinel doc bills'
+    + '\n         sentinel doc gaps FILE.txt'
     + '\n         sentinel doc chain HOST\n');
   process.exit(2);
 }
