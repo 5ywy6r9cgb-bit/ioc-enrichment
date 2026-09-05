@@ -99,6 +99,20 @@ module.exports = function run() {
   // CourtListener enforces its rate limit. A sweep that stops halfway
   // returns a list that looks exactly like a finished one.
   {
+    // CURSOR PAGING. v4 ignores ?page=N -- it returns 200 and serves page
+    // one again. The sweep must follow the `next` URL the service gives
+    // back, and only the FIRST url is constructed here.
+    check('only the first page URL is built, and it carries no page number',
+      !/[?&]page=/.test(D.firstPageUrl('q')), D.firstPageUrl('q'));
+    check('and it asks the RECAP docket index',
+      /type=r/.test(D.firstPageUrl('q')));
+
+    // A cursor URL shaped like the real one. The fixtures used to say
+    // CURSOR here, which the sweep now rejects as a non-https link -- and
+    // rightly: a next value that is not an https URL is a service change,
+    // not a page to follow.
+    const CURSOR = 'https://www.courtlistener.com/api/rest/v4/search/?cursor=NEXT';
+
     const page = (n, count, next) => ({
       status: 200,
       body: Buffer.from(JSON.stringify({
@@ -113,7 +127,7 @@ module.exports = function run() {
     // the pages overlap and nothing was deduping them.
     const repeatOf = (n, count, next) => page(n, count, next);
 
-    const twoPages = [page(1, 2, 'more'), page(2, 2, null)];
+    const twoPages = [page(1, 2, CURSOR), page(2, 2, null)];
     let i = 0;
     return Promise.resolve()
       .then(() => D.sweep('q', { intervalMs: 0, request: async () => twoPages[i++] }))
@@ -122,7 +136,7 @@ module.exports = function run() {
           ok.complete === true && ok.rows.length === 2, JSON.stringify(ok.rows.length));
 
         let j = 0;
-        const throttled = [page(1, 50, 'more'), { status: 429, body: Buffer.from('') }];
+        const throttled = [page(1, 50, CURSOR), { status: 429, body: Buffer.from('') }];
         return D.sweep('q', { intervalMs: 0, request: async () => throttled[j++] });
       })
       .then((bad) => {
@@ -156,7 +170,7 @@ module.exports = function run() {
         // OVERLAPPING PAGES. Page 2 serves the same docket as page 1.
         // Appending blindly would report 2 dockets of a universe of 1 --
         // a denominator larger than the thing it came from.
-        const dup = [page(1, 1, 'more'), repeatOf(1, 1, 'more'), page(2, 1, null)];
+        const dup = [page(1, 1, CURSOR), repeatOf(1, 1, CURSOR), page(2, 1, null)];
         let m = 0;
         return D.sweep('q', { intervalMs: 0, request: async () => dup[m++] })
           .then((o) => {
@@ -170,7 +184,7 @@ module.exports = function run() {
             // MORE DISTINCT DOCKETS THAN THE SOURCE CLAIMS EXIST. Neither
             // number can be trusted, and the sweep must not pick one.
             const over = [
-              page(1, 1, 'more'),
+              page(1, 1, CURSOR),
               { status: 200,
                 body: Buffer.from(JSON.stringify({ count: 1, next: null,
                   results: [{ docket_id: 2, caseName: 'A v. B', dateFiled: '2025-01-01' }] })) },
@@ -198,7 +212,56 @@ module.exports = function run() {
             const src = fs.readFileSync(require.resolve('./dockets.js'), 'utf8');
             check('and the live 260-of-203 run is recorded in the source',
               /260 docket\(s\) of 203/.test(src));
+            // Matched against a SINGLE comment line. A phrase that wraps
+            // across two `//` lines can never match the file as one string,
+            // and the failure looks like a missing comment rather than a
+            // bad test.
+            check('the cursor-paging reason is recorded too',
+              /paginates by CURSOR, not by page/.test(src));
 
+            // The sweep must USE the next link, not build its own.
+            const urls = [];
+            const withNext = [
+              { status: 200, body: Buffer.from(JSON.stringify({
+                count: 2, next: 'https://www.courtlistener.com/api/rest/v4/search/?cursor=ABC',
+                results: [{ docket_id: 1, caseName: 'A v. B', dateFiled: '2025-01-01' }] })) },
+              { status: 200, body: Buffer.from(JSON.stringify({
+                count: 2, next: null,
+                results: [{ docket_id: 2, caseName: 'A v. C', dateFiled: '2025-01-01' }] })) },
+            ];
+            let z = 0;
+            return D.sweep('q', { intervalMs: 0,
+              request: async (m, u) => { urls.push(u); return withNext[z++]; } })
+              .then((o) => {
+                check('the second request uses the cursor URL the service returned',
+                  /cursor=ABC/.test(urls[1] || ''), urls[1]);
+                check('and never a constructed page number',
+                  !urls.some((u) => /[?&]page=/.test(u)), JSON.stringify(urls));
+                check('and both pages are kept', o.rows.length === 2 && o.complete === true);
+
+                // A next value that is not an https URL is a service
+                // change, not a page. Following it blindly would send a
+                // relative string or a plain word to the request layer;
+                // stopping and naming it keeps the sweep honest about
+                // being partial.
+                const relative = [
+                  { status: 200, body: Buffer.from(JSON.stringify({
+                    count: 9, next: '/api/rest/v4/search/?cursor=ABC',
+                    results: [{ docket_id: 1, caseName: 'A v. B', dateFiled: '2025-01-01' }] })) },
+                ];
+                let y = 0;
+                return D.sweep('q', { intervalMs: 0, request: async () => relative[y++] });
+              })
+              .then((o) => {
+                check('a next link that is not https stops the sweep',
+                  /non-https next link/.test(o.stoppedBy || ''), o.stoppedBy);
+                check('and such a sweep is never complete', o.complete === false);
+                check('but the rows it did get are kept', o.rows.length === 1);
+                return null;
+              });
+
+          })
+          .then(() => {
             console.log(`\n  ${FAIL === 0 ? 'PASS' : 'FAIL'} — ${PASS}/${PASS + FAIL} checks\n`);
             return FAIL;
           });

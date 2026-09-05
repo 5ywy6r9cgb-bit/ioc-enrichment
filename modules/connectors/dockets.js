@@ -39,13 +39,21 @@ const R = require('./registry.js');
 
 const SEARCH = 'https://www.courtlistener.com/api/rest/v4/search/';
 
-/** One page of the RECAP docket search. */
-function pageUrl(query, page, opts = {}) {
+/**
+ * The FIRST page of the RECAP docket search.
+ *
+ * Only the first. CourtListener v4 paginates by CURSOR, not by page
+ * number: `?page=2` is accepted, returns 200, and serves THE SAME ROWS AS
+ * PAGE 1. A sweep built on page numbers therefore re-fetches one page
+ * forever while its counter climbs -- which is how a live run reported
+ * "260 docket(s) of 203". Every page after this one comes from the `next`
+ * URL the service hands back.
+ */
+function firstPageUrl(query, opts = {}) {
   const p = new URLSearchParams();
   p.set('type', 'r');
   p.set('q', query);
   p.set('order_by', opts.order || 'dateFiled desc');
-  if (page > 1) p.set('page', String(page));
   return `${SEARCH}?${p.toString()}`;
 }
 
@@ -146,8 +154,9 @@ async function sweep(query, opts = {}) {
   let pages = 0;
   let stoppedBy = null;
 
+  let url = firstPageUrl(query, opts);
   for (let page = 1; page <= maxPages; page++) {
-    const res = await req('GET', pageUrl(query, page, opts), headers);
+    const res = await req('GET', url, headers);
     if (!res || res.status !== 200) {
       stoppedBy = res && res.status
         ? `HTTP ${res.status} on page ${page}` : `no answer on page ${page}`;
@@ -179,8 +188,13 @@ async function sweep(query, opts = {}) {
     if (!got.length || !body.next) break;
     // A page that adds nothing NEW means the paging is looping. Walking on
     // burns the rate limit and can never finish; stopping and saying so is
-    // the only honest option.
+    // the only honest option. This is the guard that CAUGHT the page-number
+    // bug: every page was page one, so page two added nothing.
     if (!fresh) { stoppedBy = `page ${page} returned only rows already seen`; break; }
+    // FOLLOW THE SERVICE'S OWN next LINK. Constructing the next URL is what
+    // broke this: v4 ignores ?page= and paginates by cursor.
+    url = String(body.next);
+    if (!/^https:/.test(url)) { stoppedBy = `page ${page} gave a non-https next link`; break; }
     if (pause) await new Promise((r2) => setTimeout(r2, pause));
   }
 
@@ -207,4 +221,4 @@ async function sweep(query, opts = {}) {
   };
 }
 
-module.exports = { SEARCH, pageUrl, row, byYear, defendants, endedIn, sweep };
+module.exports = { SEARCH, firstPageUrl, row, byYear, defendants, endedIn, sweep };
