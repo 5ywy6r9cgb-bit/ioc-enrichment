@@ -1646,6 +1646,8 @@ async function cmdSearch(name, query, opts) {
     exact: opts.exact, any: opts.any, dockets: opts.dockets,
     allforms: opts.allforms, pageid: opts.pageid,
     candidate: opts.candidate, committee: opts.committee, cycle: opts.cycle,
+    company: opts.company, state: opts.state, product: opts.product,
+    since: opts.since,
   };
   console.log(`  request     ${c.describe(query, passthru)}`);
   console.log(`  key         ${key ? C.g('present, sent in Authorization header only')
@@ -2155,7 +2157,7 @@ async function main() {
     for (let i = 0; i < argv.length; i++) {
       const a = argv[i];
       if (a.startsWith('--')) {
-        if (/^--(into|only|skip|pages|limit|chart|country|client|registrant|match|as|cycle)$/.test(a)
+        if (/^--(into|only|skip|pages|limit|chart|country|client|registrant|match|as|cycle|state|product|since)$/.test(a)
             && argv[i + 1] && !argv[i + 1].startsWith('--')) i++;
         continue;
       }
@@ -2179,6 +2181,14 @@ async function main() {
     candidate: argv.includes('--candidate'),
     committee: argv.includes('--committee'),
     cycle: flagValue('--cycle'),
+    // --company narrows the CFPB search to the company-name field. Without
+    // it the search reads complaint NARRATIVES, so "Wells Fargo" returns
+    // complaints about other banks that merely mention Wells Fargo -- rows
+    // a reader would count against Wells Fargo.
+    company: argv.includes('--company'),
+    state: flagValue('--state'),
+    product: flagValue('--product'),
+    since: flagValue('--since'),
   });
   const intoOf = (list) => {
     const i = list.indexOf('--into');

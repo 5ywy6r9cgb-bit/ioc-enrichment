@@ -989,6 +989,149 @@ const CONNECTORS = {
     },
   },
 
+  // ======================================================================
+  // THE COMPLAINT DATABASE — AND THE DENOMINATOR IT DOES NOT GIVE YOU
+  //
+  // Every consumer complaint the CFPB routes to a company is published:
+  // the product, the issue, the state, how the company answered, and
+  // whether money changed hands. It is the largest public record of what
+  // financial firms actually do to people, and it is free.
+  //
+  // It is also the single easiest dataset in this repo to publish a false
+  // claim from, because the number it hands you is a COUNT and the claim
+  // people write from it is a RATE.
+  //
+  // ── WHY A COMPLAINT COUNT IS NOT A MISCONDUCT RANKING ─────────────────
+  // Complaint volume tracks CUSTOMER COUNT first and everything else
+  // second. A bank with 60 million accounts will out-complain a bank with
+  // 600,000 by roughly a hundred to one while behaving identically. Ranking
+  // companies by raw complaints measures market share.
+  //
+  // The denominator that would fix it -- accounts, customers, loans
+  // serviced -- IS NOT IN THIS DATA and the CFPB does not publish it. Some
+  // of it can be assembled from call reports and 10-Ks; none of it comes
+  // from here. So this connector reports counts and refuses to imply a
+  // rate, and says so in the output rather than in a footnote.
+  //
+  // ── WHAT A COMPLAINT IS ───────────────────────────────────────────────
+  // An ALLEGATION by one consumer, forwarded to the company. The CFPB does
+  // not verify the facts before publishing. "Company X had 900 complaints"
+  // is a fact about complaints. It is not a fact about Company X's conduct,
+  // and the difference is the whole ballgame.
+  //
+  // ── THE FIELD THAT IS ACTUALLY WORTH SOMETHING ────────────────────────
+  // company_response. "Closed with monetary relief" is the company itself
+  // recording that it paid the consumer -- a fact ABOUT THE COMPANY, from
+  // the company, not from the complainant. That is a different order of
+  // evidence from the narrative, and it is the one to build on.
+  // ======================================================================
+  cfpb: {
+    label: 'CFPB consumer complaints (what firms are accused of, by product)',
+    // A company name here is the name the CONSUMER typed, normalised by the
+    // CFPB. It is an entity, but a rough one -- crosslink may use it.
+    entityNames: true,
+    keyVar: null,
+    keyRequired: false,
+    calls: 1,
+    describe: (q, o = {}) => 'GET consumerfinance.gov/data-research/consumer-complaints/search/api/v1/'
+      + `  (search: ${q}`
+      + `${o.company ? '; matched on COMPANY only' : ''}`
+      + `${o.state ? `; state ${o.state}` : ''}`
+      + `${o.product ? `; product ${o.product}` : ''})`,
+    probe: () => ({
+      method: 'GET',
+      url: 'https://www.consumerfinance.gov/data-research/consumer-complaints/search/api/v1/'
+        + '?size=1&format=json&no_aggs=true',
+      headers: { Accept: 'application/json' },
+    }),
+    run: (q, key, o = {}) => {
+      const p = new URLSearchParams();
+      p.set('size', '100');
+      p.set('format', 'json');
+      p.set('no_aggs', 'true');
+      p.set('sort', 'created_date_desc');
+      if (q) {
+        p.set('search_term', q);
+        // field=company searches the COMPANY NAME ONLY. The default also
+        // searches complaint narratives, so a search for "Wells Fargo"
+        // returns complaints about other banks that MENTION Wells Fargo --
+        // and those rows would be counted against Wells Fargo by anyone
+        // reading the total. Which field was searched is announced.
+        p.set('field', o.company ? 'company' : 'complaint_what_happened');
+      }
+      if (o.state) p.set('state', String(o.state).toUpperCase().slice(0, 2));
+      if (o.product) p.set('product', String(o.product));
+      if (o.since) p.set('date_received_min', String(o.since).slice(0, 10));
+      return {
+        method: 'GET',
+        url: 'https://www.consumerfinance.gov/data-research/consumer-complaints/search/api/v1/?' + p.toString(),
+        headers: { Accept: 'application/json' },
+      };
+    },
+    parse: (json) => {
+      const rows = (json && json.hits && Array.isArray(json.hits.hits)) ? json.hits.hits : [];
+      return rows.map((h) => {
+        const r = h._source || {};
+        return {
+          external_id: r.complaint_id ? String(r.complaint_id) : (h._id || ''),
+          name: r.company || '(company not named)',
+          product: [r.product, r.sub_product].filter(Boolean).join(' — '),
+          issue: [r.issue, r.sub_issue].filter(Boolean).join(' — '),
+          received: r.date_received ? String(r.date_received).slice(0, 10) : '',
+          state: r.state || '',
+          // The company's OWN disposition. This is the row that carries
+          // weight: the firm recording that it paid, in its own filing.
+          outcome: r.company_response || '',
+          // Present only where the consumer consented to publication.
+          // Its ABSENCE says nothing about whether there was a story.
+          narrative: r.complaint_what_happened
+            ? String(r.complaint_what_happened).replace(/\s+/g, ' ').slice(0, 300) + '…'
+            : '',
+          via: r.submitted_via || '',
+          url: r.complaint_id
+            ? `https://www.consumerfinance.gov/data-research/consumer-complaints/search/detail/${r.complaint_id}`
+            : '',
+        };
+      });
+    },
+    identify: (r) => r.external_id,
+    /**
+     * THE DENOMINATOR, AND THE ONE IT CANNOT SUPPLY.
+     */
+    coverage: (json) => {
+      const t = json && json.hits && json.hits.total;
+      const total = (t && typeof t === 'object') ? t.value : t;
+      const got = (json && json.hits && json.hits.hits || []).length;
+      const head = (typeof total !== 'number')
+        ? 'TOTAL MATCHING COMPLAINTS: UNKNOWN — no total in the response.'
+        : (total > got
+          ? `${got} of ${total} matching complaint(s) are in this capture.`
+          : `COMPLETE: all ${total} matching complaint(s) are here.`);
+      return head + '  A COMPLAINT COUNT IS NOT A MISCONDUCT RATE: volume '
+        + 'tracks customer count first. The denominator that would fix that '
+        + '(accounts, customers, loans serviced) is NOT in this dataset and '
+        + 'the CFPB does not publish it.';
+    },
+    diagnose: (json) => {
+      if (!json || !json.hits || !Array.isArray(json.hits.hits)) {
+        return 'NO hits.hits ARRAY IN THE RESPONSE. That is a schema '
+          + 'mismatch, not a null result — the capture is on disk; send its '
+          + `top-level keys (${json && typeof json === 'object' ? Object.keys(json).join(', ').slice(0, 120) : 'not an object'}) `
+          + 'and this can be fixed.';
+      }
+      return '0 complaint(s) matched. FOUR THINGS THIS DOES NOT MEAN. (1) It '
+        + 'does not mean nobody complained: the default search reads complaint '
+        + 'NARRATIVES, and a narrative is published only where the consumer '
+        + 'consented — most are not. Pass --company to search the company name '
+        + 'field instead. (2) The database starts in 2011 and covers CONSUMER '
+        + 'FINANCE only: no landlords, no utilities, no hospitals, no ticketing. '
+        + '(3) A company name must match the CFPB\'s normalised spelling, which '
+        + 'is often the parent, not the brand you know. (4) A complaint is an '
+        + 'ALLEGATION the CFPB never verified — so zero complaints is not a '
+        + 'clean record, and many complaints are not a finding of wrongdoing.';
+    },
+  },
+
   senatelda: {
     // PACED, because this is the connector that gets asked for 294 pages.
     //

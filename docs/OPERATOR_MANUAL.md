@@ -310,7 +310,7 @@ PRA_MAIL_MAX_PER_RUN=5          # cap on one `send`
 
 ```bash
 bin/sentinel connect test                    # which keys are set, and reachable
-bin/sentinel connect list                    # the fourteen connectors and their key variables
+bin/sentinel connect list                    # the fifteen connectors and their key variables
 bin/sentinel connect all "<subject>"         # search every source at once
 bin/sentinel connect all "<subject>" --into <investigation>
 bin/sentinel connect all "<subject>" --dry-run
@@ -628,7 +628,7 @@ to retry them, since everything that answered comes from cache. The scan also
 covers the **active** list only — a terminated registrant's history is not in
 it.
 
-### The fourteen connectors
+### The fifteen connectors
 
 | Name | Source | Key variable |
 |---|---|---|
@@ -646,9 +646,57 @@ it.
 | `fara` | FARA — agents of foreign principals (22 U.S.C. 611) | none needed |
 | `sec` | SEC EDGAR full-text search of filings | none — but set `SEC_CONTACT` |
 | `adlibrary` | Meta Ad Library — who paid for a political ad | `META_AD_LIBRARY_TOKEN` |
+| `cfpb` | CFPB consumer complaints — what firms are accused of, by product | none needed |
 
 `connect all` deliberately **skips `bls`** — it takes series IDs, not names,
 so a company name against it is meaningless.
+
+### `connect cfpb` — junk fees, and the denominator it cannot give you
+
+```bash
+bin/sentinel connect cfpb "overdraft fee"                 # searches NARRATIVES
+bin/sentinel connect cfpb "Wells Fargo" --company          # searches the COMPANY field
+bin/sentinel connect cfpb "junk fee" --state OH --since 2024-01-01
+```
+
+Every consumer complaint the CFPB routes to a company is published: product,
+issue, state, how the company answered, and whether money changed hands. It
+is the largest public record of what financial firms do to people.
+
+It is also **the easiest dataset in this repo to publish a false claim from**,
+because the number it hands you is a **count** and the sentence people write
+from it is a **rate**.
+
+#### A complaint count is not a misconduct ranking
+
+Volume tracks **customer count** first and everything else second. A bank
+with 60 million accounts out-complains one with 600,000 by roughly a hundred
+to one while behaving identically. *"Bank X leads the nation in complaints"*
+is a sentence about market share.
+
+The denominator that would fix it — accounts, customers, loans serviced — is
+**not in this dataset** and the CFPB does not publish it. Every coverage line
+says so.
+
+#### Which field you searched changes the answer
+
+The default reads complaint **narratives**, so `"Wells Fargo"` returns
+complaints about *other* banks that merely mention Wells Fargo — rows a
+reader would count against Wells Fargo. **`--company`** restricts the search
+to the company-name field, and the announcement line says which was used.
+
+#### The field worth more than the narrative
+
+**`outcome`** — the company's own disposition. *"Closed with monetary
+relief"* is the **firm recording that it paid the consumer**: a fact about
+the company, from the company. That is a different order of evidence from an
+allegation, and it is the one to build on.
+
+#### What a complaint is
+
+An **allegation** by one consumer, forwarded to the company. The CFPB does
+not verify the facts before publishing. Zero complaints is not a clean
+record; many complaints are not a finding of wrongdoing.
 
 ### `corpus inventory` writes one folder per source
 
