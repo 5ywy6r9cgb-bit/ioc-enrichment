@@ -142,9 +142,49 @@ function analyse(text, opts = {}) {
   const confidence = span > 0 ? seq.length / span : null;
   const reliable = confidence !== null && confidence >= (opts.minConfidence || 0.85);
 
+  // ── WHERE DOES THE UNBROKEN RUN END? ──────────────────────────────────
+  //
+  // The decisive question when a range looks too big. If a filing's real
+  // paragraphs run 1..737 with no holes, and the "range" is 1..1171, then the
+  // numbers above 737 are not paragraphs at all — a citation, a dollar
+  // figure, a case number chained on by the rising walk — and the 434
+  // "missing" are an artifact of a range that does not exist.
+  //
+  // A contiguous prefix that ends far below `last` is that signature. A
+  // prefix that ends early with real numbering continuing after it is the
+  // opposite: a genuine hole near the front.
+  let contiguousTo = first - 1;
+  for (let n = first; n <= last; n++) {
+    if (!seen.has(n)) break;
+    contiguousTo = n;
+  }
+
   return {
     found: seq.length, first, last, missing, runs: runs(missing), seen,
-    span, confidence, reliable,
+    span, confidence, reliable, contiguousTo,
+  };
+}
+
+/**
+ * The text between the two found paragraphs that bracket a missing one.
+ *
+ * Answers the only question that matters about a gap: is there PROSE sitting
+ * where the number should be? Text with no number means extraction lost the
+ * number. Nothing between the neighbours means the numbering itself skips.
+ */
+function bracket(text, n, seen, opts = {}) {
+  const before = [...seen].filter((x) => x < n).sort((a, b) => b - a)[0];
+  const after = [...seen].filter((x) => x > n).sort((a, b) => a - b)[0];
+  if (before === undefined || after === undefined) return null;
+  const [b, a] = locate(text, [before, after]);
+  if (b.line === null || a.line === null) return null;
+  const lines = String(text || '').split('\n');
+  const max = opts.maxLines || 30;
+  return {
+    missing: n, before, after,
+    fromLine: b.line, toLine: a.line,
+    lines: lines.slice(b.line - 1, Math.min(a.line, b.line - 1 + max)),
+    truncated: a.line - b.line + 1 > max,
   };
 }
 
@@ -226,4 +266,5 @@ function pageStamps(text) {
 
 module.exports = {
   paragraphNumbers, risingSequence, runs, analyse, whitedOut, locate, pageStamps,
+  bracket,
 };

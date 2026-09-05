@@ -85,6 +85,19 @@ function whyReport(G, text, r) {
     return;
   }
 
+  // Where does the unbroken run end? If it ends far below the top of the
+  // range, the numbers above it are probably not paragraphs at all.
+  console.log(`\n  ${C.b('unbroken run')} ${C.dim(`— ${r.first} to ${r.contiguousTo}`)}`);
+  if (r.contiguousTo < r.last) {
+    const tail = r.last - r.contiguousTo;
+    console.log(C.dim(`  Everything from ${r.first} to ${r.contiguousTo} is present with no holes.`));
+    console.log(C.dim(`  The remaining ${tail} number(s) up to ${r.last} are scattered.`));
+    console.log(C.y('  If the scattered tail is not paragraphs — a citation, a dollar figure,'));
+    console.log(C.dim('  a case number chained on by the rising walk — then this filing has'));
+    console.log(C.dim(`  ${r.contiguousTo} paragraphs and NO gaps, and the "missing" count is an`));
+    console.log(C.dim('  artifact of a range that does not exist. The bracket below decides it.'));
+  }
+
   const step = Math.max(1, Math.floor(r.missing.length / 12));
   const sample = [];
   for (let i = 0; i < r.missing.length && sample.length < 12; i += step) sample.push(r.missing[i]);
@@ -103,7 +116,24 @@ function whyReport(G, text, r) {
   console.log(C.dim('  Mostly absent → the numbering really does skip them, and whether that'));
   console.log(C.dim('  is sealing or a drafting artifact is a question for the PDF.'));
   console.log(C.dim('  Mostly present → this matcher has a layout blind spot; send one of the'));
-  console.log(C.dim('  printed lines and the pattern can be fixed.\n'));
+  console.log(C.dim('  printed lines and the pattern can be fixed.'));
+
+  // The bracket: what actually sits where the first missing paragraph should
+  // be. Prose with no number means extraction lost the number. Nothing there
+  // means the numbering itself skips.
+  const first = sample.find((n) => rows.find((x) => x.number === n && x.line === null));
+  const br = first === undefined ? null : G.bracket(text, first, r.seen, { maxLines: 24 });
+  if (br) {
+    console.log(`\n  ${C.b('bracket')} ${C.dim(`— what sits between ¶${br.before} and ¶${br.after},`
+      + ` where ¶${br.missing} should be`)}`);
+    console.log(C.dim(`  lines ${br.fromLine}–${br.toLine}${br.truncated ? ' (truncated)' : ''}`));
+    for (const L of br.lines) console.log(C.dim(`    ${L.slice(0, 96)}`));
+    console.log('');
+    console.log(C.dim('  Prose with no number → extraction lost the number, not the document.'));
+    console.log(C.dim(`  ¶${br.before} running straight into ¶${br.after} → the numbering skips,`));
+    console.log(C.dim('  and only the PDF page can say whether that is a seal.'));
+  }
+  console.log('');
 }
 
 function cmdGaps(file, opts = {}) {

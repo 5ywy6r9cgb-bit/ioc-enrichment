@@ -245,6 +245,53 @@ module.exports = function run() {
       /Mostly absent/.test(cli) && /Mostly present/.test(cli));
   }
 
+  // ══ 10. A RANGE THAT DOES NOT EXIST INVENTS THE GAPS IN IT ════════════
+  //
+  // Live run: 737 paragraphs found, range reported as 1 to 1,171, and 434
+  // called missing. If the filing's real paragraphs run 1..737 unbroken and
+  // the numbers above that are a citation or a case number chained on by the
+  // rising walk, then the document has 737 paragraphs and NO gaps — and every
+  // one of those 434 is an artifact of a range that was never there.
+  //
+  // The signature is a contiguous prefix that ends far below the top.
+  {
+    let t = '';
+    for (let n = 1; n <= 40; n++) {
+      if (n === 23) continue;
+      t += ` 3          ${n}.    Real paragraph prose here\n`;
+    }
+    t += ' 4          900.    A stray high number, a citation say\n';
+
+    const r = G.analyse(t, { maxJump: 900 });
+    check('the unbroken run is reported, not just the outer range',
+      r.contiguousTo === 22, String(r.contiguousTo));
+    check('and it is visibly far below the top of the range',
+      r.last - r.contiguousTo > 800, `${r.contiguousTo}..${r.last}`);
+
+    const clean = G.analyse('  1.    One\n  2.    Two\n  3.    Three\n');
+    check('a filing with no holes runs contiguous to its last paragraph',
+      clean.contiguousTo === clean.last, `${clean.contiguousTo} vs ${clean.last}`);
+
+    // The bracket: what actually sits where the missing paragraph should be.
+    const br = G.bracket(t, 23, r.seen);
+    check('the bracket finds the neighbours that straddle the hole',
+      br.before === 22 && br.after === 24, JSON.stringify([br.before, br.after]));
+    check('and shows the text between them',
+      br.lines.length === 2 && /22\./.test(br.lines[0]) && /24\./.test(br.lines[1]),
+      JSON.stringify(br.lines));
+    check('a number with no neighbour on one side yields null, not a guess',
+      G.bracket(t, 0, r.seen) === null);
+
+    const cli = fs.readFileSync(require.resolve('./cli.js'), 'utf8');
+    check('--why says a scattered tail may mean the range is not real',
+      /artifact of a range that does not exist/.test(cli));
+    check('and reads the bracket in both directions',
+      /extraction lost the number, not the document/.test(cli)
+        && /the numbering skips/.test(cli));
+    check('and refuses to call a skip a seal without the PDF',
+      /only the PDF page can say whether that is a seal/.test(cli));
+  }
+
   console.log(`\n  ${FAIL === 0 ? 'PASS' : 'FAIL'} — ${PASS}/${PASS + FAIL} checks\n`);
   return FAIL;
 };
