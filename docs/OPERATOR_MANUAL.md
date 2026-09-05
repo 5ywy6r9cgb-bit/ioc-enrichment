@@ -310,7 +310,7 @@ PRA_MAIL_MAX_PER_RUN=5          # cap on one `send`
 
 ```bash
 bin/sentinel connect test                    # which keys are set, and reachable
-bin/sentinel connect list                    # the twelve connectors and their key variables
+bin/sentinel connect list                    # the thirteen connectors and their key variables
 bin/sentinel connect all "<subject>"         # search every source at once
 bin/sentinel connect all "<subject>" --into <investigation>
 bin/sentinel connect all "<subject>" --dry-run
@@ -369,6 +369,43 @@ Searching opinions for a charging document returns zero forever, and the zero
 looks like an answer. The request line now states which index it searched.
 Multi-word party names are also phrase-quoted here (they weren't — "Internet
 Research Agency" was returning *Hachette v. Internet Archive*).
+
+### Meta Ad Library: the only place a funder must name itself
+
+**There is no US law against Americans running a lot of accounts to push a
+political view.** Coordinated, repetitive, even astroturfed *domestic*
+political speech is broadly protected by the First Amendment. So "who is
+behind this page" usually has no legal answer at all — except where money
+bought reach.
+
+An ad about social issues, elections or politics carries a **"Paid for by"**
+disclaimer and is archived for seven years with the payer, the spend band, the
+impression band, and who it was aimed at. That disclaimer is the one point in
+the whole system where a funder must name itself.
+
+```bash
+bin/sentinel connect adlibrary "back the blue ohio"
+bin/sentinel connect adlibrary 1234567890 --pageid   # numeric page id
+```
+
+**The archive holds ADS, not POSTS.** A page that posts a hundred times a day
+and never buys an ad appears here as nothing at all — and that absence is not
+evidence the page is organic, independent, or clean. It means no disclosure
+obligation was ever triggered, which is a different and in some ways more
+interesting fact.
+
+Two more limits worth holding:
+
+- **`bylines` is self-declared.** "Paid for by Ohio Families for Safety" names
+  a *string*, not a person. Taking it to a real entity means the Ohio Secretary
+  of State business search, IRS Form 990, or a campaign-finance filing.
+- **Spend and impressions are bands**, not numbers. `100–499` is what Meta
+  publishes; collapsing it to a single figure invents precision.
+
+The API needs a Meta developer app **and identity confirmation on the
+account** — a plain user token is refused, and the connector says so rather
+than reporting an empty result. The Ad Library **web interface** at
+`facebook.com/ads/library` needs none of that and is the place to start.
 
 ### FARA is not the foreign-influence register — the LDA holds the rest
 
@@ -591,7 +628,7 @@ to retry them, since everything that answered comes from cache. The scan also
 covers the **active** list only — a terminated registrant's history is not in
 it.
 
-### The twelve connectors
+### The thirteen connectors
 
 | Name | Source | Key variable |
 |---|---|---|
@@ -607,6 +644,7 @@ it.
 | `federalgrants` | USAspending grants & cooperative agreements | none needed |
 | `fara` | FARA — agents of foreign principals (22 U.S.C. 611) | none needed |
 | `sec` | SEC EDGAR full-text search of filings | none — but set `SEC_CONTACT` |
+| `adlibrary` | Meta Ad Library — who paid for a political ad | `META_AD_LIBRARY_TOKEN` |
 
 `connect all` deliberately **skips `bls`** — it takes series IDs, not names,
 so a company name against it is meaningless.
@@ -2035,7 +2073,7 @@ This is the single most useful page in the manual, because the failure it
 prevents is concluding that a record *doesn't exist* when you simply asked
 the wrong government.
 
-The twelve connectors are **federal**. The following are **not** federal
+The thirteen connectors are **federal**. The following are **not** federal
 records and will never appear in a `connect all`, no matter how you phrase
 the subject:
 

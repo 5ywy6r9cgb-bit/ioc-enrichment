@@ -1050,6 +1050,87 @@ module.exports = function run() {
       dom('', '') === null && dom(null, null) === null);
   }
 
+  // ══ THE AD ARCHIVE IS THE ONLY PLACE A FUNDER MUST NAME ITSELF ════════
+  //
+  // There is no US law against Americans running many accounts to push a
+  // political view; coordinated domestic political speech is broadly
+  // protected. So "who is behind this page" has no legal answer -- except
+  // where money bought reach, and an issue ad carries a "Paid for by"
+  // disclaimer archived for seven years.
+  {
+    const c = R.CONNECTORS.adlibrary;
+    check('adlibrary is registered', !!c);
+    check('it requires a key and names the variable',
+      c.keyRequired === true && c.keyVar === 'META_AD_LIBRARY_TOKEN');
+
+    const [ad] = c.parse({ data: [{
+      id: 'a1', page_id: '99', page_name: 'Ohio Blue Line',
+      bylines: 'Paid for by Ohio Families for Safety', currency: 'USD',
+      ad_delivery_start_time: '2026-03-01T00:00:00+0000',
+      ad_delivery_stop_time: '2026-04-01T00:00:00+0000',
+      spend: { lower_bound: '100', upper_bound: '499' },
+      impressions: { lower_bound: '10000', upper_bound: '14999' },
+      publisher_platforms: ['facebook', 'instagram'],
+      ad_snapshot_url: 'https://www.facebook.com/ads/archive/render_ad/?id=a1',
+    }] });
+
+    // The PAYER is the point, so the payer is the name.
+    check('the "paid for by" disclaimer is the row name',
+      ad.name === 'Paid for by Ohio Families for Safety', ad.name);
+    check('the page is kept separately from the payer',
+      ad.page === 'Ohio Blue Line' && ad.page_id === '99');
+
+    // Spend and impressions are BANDS. Collapsing one to a single number
+    // invents precision the archive deliberately does not publish.
+    check('a spend band stays a band',
+      ad.spend === '100–499 USD', ad.spend);
+    check('an impression band stays a band',
+      ad.impressions === '10000–14999', ad.impressions);
+    const [half] = c.parse({ data: [{ id: 'b', spend: { lower_bound: '5000' } }] });
+    check('a one-sided band is not silently completed',
+      half.spend === '5000+', half.spend);
+
+    // An ad with no disclaimer must not read as an ad with no payer field.
+    const [none] = c.parse({ data: [{ id: 'c' }] });
+    check('a missing disclaimer says so rather than going blank',
+      /no "paid for by"/.test(none.name), none.name);
+
+    // page_name is a PAGE. Indexing it as an entity would put "Ohio Blue
+    // Line" in the same table as Meta Platforms, Inc.
+    check('a page name is not indexed as a legal entity',
+      c.entityNames === false);
+
+    // --pageid changes WHICH parameter is sent, and the announced request
+    // line has to say which, or the operator cannot tell what was searched.
+    check('--pageid searches page ids, not ad text',
+      /search_page_ids/.test(c.run('1234567890', 'k', { pageid: true }).url)
+        && /search_terms/.test(c.run('back the blue', 'k', {}).url));
+    check('and the announced request line states which was used',
+      /page id:/.test(c.describe('123', { pageid: true }))
+        && /terms:/.test(c.describe('x', {})));
+    // A page id is digits. Anything else in that parameter is a malformed
+    // request that comes back as an empty result, which reads as "no ads".
+    check('a page id is stripped to digits before it is sent',
+      /%5B%22123%22%5D/.test(c.run('page/123', 'k', { pageid: true }).url),
+      c.run('page/123', 'k', { pageid: true }).url);
+
+    // The four causes of a zero, and only one of them is "no political ads".
+    check('a refused token is diagnosed as a credential problem',
+      /TOKEN WAS REFUSED/.test(c.diagnose({ error: { message: 'Invalid OAuth access token.' } })));
+    check('any other API error is not reported as an empty result',
+      /ERROR, NOT AN EMPTY RESULT/.test(c.diagnose({ error: { message: 'rate limited' } })));
+    check('a missing data array is a schema mismatch',
+      /schema mismatch/.test(c.diagnose({ paging: {} })));
+
+    // THE most important sentence in this connector: the archive holds ads,
+    // not posts. An empty result for a page that posts all day means the page
+    // never triggered a disclosure obligation -- not that it is clean.
+    check('an honest zero says the archive holds ADS, not posts',
+      /ADS, NOT POSTS/.test(c.diagnose({ data: [] })));
+    check('and that the absence is not evidence the page is clean',
+      /not evidence the page is/.test(c.diagnose({ data: [] })));
+  }
+
   console.log(`\n  ${FAIL === 0 ? 'PASS' : 'FAIL'} — ${PASS}/${PASS + FAIL} checks\n`);
   return FAIL;
 };

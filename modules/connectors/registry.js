@@ -1322,6 +1322,129 @@ const CONNECTORS = {
     },
   },
 
+  /**
+   * Meta Ad Library — who PAID for a political ad, by law-ish compulsion.
+   *
+   * ───────────────────────────────────────────────────────────────────────
+   * WHY THIS IS THE ONLY LEVER ON A PAGE
+   * ───────────────────────────────────────────────────────────────────────
+   * There is no US law against Americans running a lot of accounts to push a
+   * political view. Coordinated, repetitive, even astroturfed domestic
+   * political speech is broadly protected. So "who is behind this page" has no
+   * legal answer in almost every case — EXCEPT where money bought reach.
+   *
+   * An ad about social issues, elections or politics carries a "Paid for by"
+   * disclaimer and is archived here for seven years with the payer, the spend
+   * band, the impression band, and who it was aimed at. That disclaimer is the
+   * single point in the whole system where a funder must name itself.
+   *
+   * ───────────────────────────────────────────────────────────────────────
+   * WHAT THIS CANNOT ANSWER, AND IT IS MOST OF THE QUESTION
+   * ───────────────────────────────────────────────────────────────────────
+   * THE ARCHIVE HOLDS ADS. It does not hold organic posts. A page that posts
+   * a hundred times a day and never buys an ad appears here as nothing at all
+   * — and that empty result is not evidence the page is clean. It is evidence
+   * that the page incurred no disclosure obligation, which is a different and
+   * in some ways more interesting fact.
+   *
+   * The `bylines` field is also SELF-DECLARED. "Paid for by Ohio Families for
+   * Safety" names a string, not a person. Taking it to a real entity means the
+   * state corporate registry, IRS Form 990, or a campaign-finance filing —
+   * other connectors, other records.
+   */
+  adlibrary: {
+    label: 'Meta Ad Library (who paid for a political ad)',
+    entityNames: false,   // page_name is a PAGE, not a legal entity
+    keyVar: 'META_AD_LIBRARY_TOKEN',
+    keyRequired: true,
+    calls: 1,
+    describe: (q, o = {}) => 'GET https://graph.facebook.com/v21.0/ads_archive'
+      + `  (${o.pageid ? `page id: ${q}` : `terms: ${q}`}`
+      + '; US; political and issue ads only)',
+    probe: (key) => ({
+      method: 'GET',
+      url: 'https://graph.facebook.com/v21.0/ads_archive'
+        + `?access_token=${encodeURIComponent(key || '')}`
+        + '&ad_reached_countries=%5B%22US%22%5D&ad_type=POLITICAL_AND_ISSUE_ADS'
+        + '&search_terms=test&limit=1&fields=id',
+      headers: { Accept: 'application/json' },
+    }),
+    run: (q, key, o = {}) => ({
+      method: 'GET',
+      url: 'https://graph.facebook.com/v21.0/ads_archive'
+        + `?access_token=${encodeURIComponent(key)}`
+        + '&ad_reached_countries=%5B%22US%22%5D'
+        + '&ad_type=POLITICAL_AND_ISSUE_ADS'
+        + (o.pageid
+          ? `&search_page_ids=%5B%22${encodeURIComponent(String(q).replace(/\D/g, ''))}%22%5D`
+          : `&search_terms=${encodeURIComponent(q)}`)
+        + '&limit=50'
+        + '&fields=' + encodeURIComponent([
+          'id', 'page_id', 'page_name', 'bylines', 'currency',
+          'ad_creation_time', 'ad_delivery_start_time', 'ad_delivery_stop_time',
+          'spend', 'impressions', 'publisher_platforms', 'ad_snapshot_url',
+        ].join(',')),
+      headers: { Accept: 'application/json' },
+    }),
+    parse: (json) => {
+      const rows = (json && Array.isArray(json.data)) ? json.data : [];
+      // Spend and impressions come as {lower_bound, upper_bound}. A band is
+      // not a number, and collapsing it to one would invent precision the
+      // archive deliberately does not publish.
+      const band = (v) => {
+        if (v === null || v === undefined) return '';
+        if (typeof v !== 'object') return String(v);
+        const lo = v.lower_bound;
+        const hi = v.upper_bound;
+        if (lo !== undefined && hi !== undefined) return `${lo}–${hi}`;
+        if (lo !== undefined) return `${lo}+`;
+        return hi !== undefined ? `up to ${hi}` : '';
+      };
+      return rows.map((r) => ({
+        external_id: r.id || '',
+        // The PAYER is the point of this connector, so it is the name.
+        name: r.bylines || '(no "paid for by" disclaimer on this ad)',
+        page: r.page_name || '',
+        page_id: r.page_id || '',
+        spend: band(r.spend) + (r.currency ? ` ${r.currency}` : ''),
+        impressions: band(r.impressions),
+        ran: [r.ad_delivery_start_time, r.ad_delivery_stop_time]
+          .filter(Boolean).map((d) => String(d).slice(0, 10)).join(' .. '),
+        platforms: Array.isArray(r.publisher_platforms) ? r.publisher_platforms.join(', ') : '',
+        url: r.ad_snapshot_url || '',
+      }));
+    },
+    identify: (r) => r.external_id,
+    /**
+     * A zero here has four causes and only one of them is "no political ads".
+     */
+    diagnose: (json) => {
+      if (json && json.error) {
+        const e = json.error;
+        const m = String(e.message || '');
+        if (/access token|OAuth|session/i.test(m)) {
+          return 'THE TOKEN WAS REFUSED. The Ad Library API needs a Meta '
+            + 'developer app AND identity confirmation on the account; a plain '
+            + 'user token will not work. This is a credential problem, not a '
+            + `result: ${m}`;
+        }
+        return `META RETURNED AN ERROR, NOT AN EMPTY RESULT: ${m}`;
+      }
+      if (!json || !Array.isArray(json.data)) {
+        return 'NO data ARRAY IN THE RESPONSE. That is a schema mismatch, not '
+          + 'a null result — the capture is on disk; send its top-level keys ('
+          + `${json && typeof json === 'object' ? Object.keys(json).join(', ').slice(0, 120) : 'not an object'}`
+          + ') and this can be fixed.';
+      }
+      return '0 ad(s) matched. THE ARCHIVE HOLDS ADS, NOT POSTS. A page that '
+        + 'posts constantly and never buys an ad is absent from here entirely, '
+        + 'and that absence is not evidence the page is organic, independent, '
+        + 'or clean — it means no disclosure obligation was ever triggered. '
+        + 'Also: this searched ad TEXT. A page that never says the word you '
+        + 'searched will not match. Try --pageid with the numeric page id.';
+    },
+  },
+
   fara: {
     label: 'FARA (foreign agents registration)',
     keyVar: null,
