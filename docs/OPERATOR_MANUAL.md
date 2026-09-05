@@ -651,6 +651,53 @@ it.
 `connect all` deliberately **skips `bls`** — it takes series IDs, not names,
 so a company name against it is meaningless.
 
+### `sentinel connect dockets` — one case, or a pattern?
+
+```bash
+bin/sentinel connect dockets --query 'caseName:"Consumer Financial Protection Bureau v"'
+bin/sentinel connect dockets --query 'caseName:"Consumer Financial Protection Bureau v"' --year 2025
+```
+
+A single docket says what happened to one case. It cannot say whether that
+was **one case or a pattern**, and that is the difference between an
+anecdote and a finding.
+
+Built after *CFPB v. Comerica Bank* was found to have been voluntarily
+dismissed on 2025-04-11, one day after an order to show cause. Read alone
+that is a story about one bank. Read against the termination dates of every
+case the same plaintiff brought, it is either still a story about one bank —
+worth knowing — or a story about an agency. **Only the denominator can say
+which, and a search page of 20 cannot.**
+
+This walks **every page** of a RECAP docket search, paced at 13s, and rolls
+the results up by the year each docket ended.
+
+#### Three things it will not let you conclude
+
+**A docket is not a case.** One enforcement action appears as a district
+docket *and* an appellate docket; a case re-filed or removed appears again.
+The docket count is a **ceiling** on actions. The distinct-defendant count
+it also prints is a **floor**, and merges genuinely separate suits against
+the same company.
+
+**`dateTerminated` says WHEN, never HOW.** Settled, dismissed by the court,
+won, and abandoned by the plaintiff are four different stories and this
+field cannot tell them apart. The command prints the docket-entries call
+that answers it and tells you to go read the last entry.
+
+**A null termination date is not "still open."** RECAP is assembled from
+what people upload; a docket nobody refreshed after judgment carries a null
+forever. Unknown gets its own bucket and is never folded into either side.
+
+#### Partial is announced, not implied
+
+CourtListener enforces its rate limit, and a sweep that stops halfway
+returns a list that looks exactly like a finished one. A sweep is
+**COMPLETE** only when the source reported a number *and* that many rows are
+held. Anything else prints in red with what stopped it — including the case
+where `count` comes back as a URL rather than a number, which stays `null`
+rather than becoming `NaN`.
+
 ### `connect cfpb` — junk fees, and the denominator it cannot give you
 
 ```bash

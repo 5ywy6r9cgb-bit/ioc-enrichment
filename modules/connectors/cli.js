@@ -17,6 +17,7 @@ const path = require('path');
 const R = require('./registry.js');
 const RECENCY = require('./recency.js');
 const FSCAN = require('./farascan.js');
+const DK = require('./dockets.js');
 
 const C = {
   b: (s) => `\x1b[1m${s}\x1b[0m`,
@@ -1787,6 +1788,93 @@ async function cmdSearch(name, query, opts) {
  * surveillance company" is a very strong claim, and it is only worth
  * anything if the scan can say how much of the register it actually read.
  */
+/**
+ * `sentinel connect dockets --query 'caseName:"X v"' [--year 2025]`
+ *
+ * When did a whole class of cases end?
+ *
+ * A single docket says what happened to one case. It cannot say whether
+ * that was one case or a pattern -- and that is the difference between an
+ * anecdote and a finding. Built after CFPB v. Comerica Bank was found to
+ * have been voluntarily dismissed one day after an order to show cause: a
+ * fact that means one thing alone and another thing entirely next to the
+ * termination dates of every case the same plaintiff brought.
+ */
+async function cmdDockets(query, opts = {}) {
+  if (!query) {
+    console.error('\n  ' + C.r('connect dockets needs a query')
+      + C.dim('\n  e.g. --query \'caseName:"Consumer Financial Protection Bureau v"\'') + '\n');
+    process.exit(2);
+  }
+  const env = R.loadEnv();
+  const key = env.COURTLISTENER_API_TOKEN || null;
+
+  console.log(`\n${C.b('DOCKET DISPOSITIONS')}`);
+  console.log(`  query       ${query}`);
+  console.log(`  scope       CourtListener RECAP dockets, every page`);
+  console.log(`  key         ${key ? C.g('present') : C.y('none — rate limits will be tighter')}`);
+  console.log(C.dim('  pacing      13s between pages; a throttled sweep returns a PARTIAL'));
+  console.log(C.dim('              list that looks complete, so this reports which it got.\n'));
+
+  const out = await DK.sweep(query, {
+    key,
+    intervalMs: opts.intervalMs,
+    onPage: (p) => process.stdout.write(
+      `\r  page ${p.page}: ${p.total} docket(s)${p.reported ? ` of ${p.reported}` : ''}   `),
+  });
+  process.stdout.write('\r' + ' '.repeat(60) + '\r');
+
+  if (!out.rows.length) {
+    console.log('  ' + C.r('No dockets returned.')
+      + (out.stoppedBy ? ` (${out.stoppedBy})` : ''));
+    console.log(C.dim('  That is a fact about this query, not about the courts. A field'));
+    console.log(C.dim('  query the search does not support returns nothing, silently.\n'));
+    return;
+  }
+
+  const roll = DK.byYear(out.rows);
+  console.log(`  ${C.b(`${out.rows.length} docket(s)`)} over ${out.pages} page(s)`);
+  console.log('  ' + (out.complete
+    ? C.g(`COMPLETE: the source reported ${out.reported} and all are here.`)
+    : C.r(`PARTIAL: ${out.reported === null ? 'the source gave no total'
+      : `the source reported ${out.reported}`}`
+      + `${out.stoppedBy ? ` — stopped by ${out.stoppedBy}` : ''}. `
+      + 'Do not total this as the universe.')));
+
+  console.log('\n  ' + C.b('ENDED, BY YEAR'));
+  for (const y of roll.years) {
+    console.log(`    ${y.year}   ${String(y.dockets).padStart(4)}`);
+  }
+  console.log(C.dim(`    unknown ${String(roll.unknown).padStart(2)}   `)
+    + C.y('a null termination date is NOT "still open"')
+    + C.dim(' — RECAP is'));
+  console.log(C.dim('              assembled from uploads, and a docket nobody refreshed'));
+  console.log(C.dim('              after judgment carries a null here forever.'));
+
+  const defs = DK.defendants(out.rows);
+  console.log(`\n  ${C.b(`${defs.length} distinct defendant(s)`)} across ${out.rows.length} docket(s)`);
+  console.log(C.dim('  A DOCKET IS NOT A CASE: one action appears as a district docket AND'));
+  console.log(C.dim('  an appellate one. The docket count is a CEILING on actions; this'));
+  console.log(C.dim('  defendant count is a floor, and merges genuinely separate suits'));
+  console.log(C.dim('  against the same company.'));
+
+  if (opts.year) {
+    const hits = DK.endedIn(out.rows, opts.year);
+    console.log(`\n  ${C.b(`${hits.length} docket(s) ended in ${opts.year}`)}`);
+    for (const r of hits) {
+      console.log(`    ${r.terminated}  ${r.case_name.slice(0, 62)}`);
+      console.log(C.dim(`                ${r.court_id} ${r.docket_number}  docket ${r.docket_id}`));
+    }
+    console.log('\n  ' + C.y('dateTerminated SAYS WHEN, NEVER HOW.'));
+    console.log(C.dim('  Settled, dismissed by the court, won, or abandoned by the plaintiff'));
+    console.log(C.dim('  are four different stories and this field cannot tell them apart.'));
+    console.log(C.dim('  Read the last entry on each docket before you characterise any of'));
+    console.log(C.dim('  them:  curl .../docket-entries/?docket=<ID>&order_by=-date_filed\n'));
+  } else {
+    console.log(C.dim('\n  Add --year 2025 to list the dockets that ended in one year.\n'));
+  }
+}
+
 async function cmdFaraScan(pattern, opts = {}) {
   if (!pattern && !opts.countries) {
     console.error('\n  ' + C.r('farascan needs a pattern: --match "hikvision|nso|q cyber"')
@@ -2137,6 +2225,21 @@ async function main() {
       freshDays: num(flagVal('--fresh-days')),
       intervalMs: num(flagVal('--interval')),
       refresh: argv.includes('--refresh'),
+    });
+  }
+  if (action === 'dockets') {
+    const dv = (n) => {
+      const i = argv.findIndex((a) => a === n || a.startsWith(n + '='));
+      if (i < 0) return null;
+      if (argv[i].startsWith(n + '=')) return argv[i].slice(n.length + 1);
+      return argv[i + 1] && !argv[i + 1].startsWith('--') ? argv[i + 1] : null;
+    };
+    // args, not positional(): this branch runs before positional() is
+    // declared, and a const in TDZ throws rather than being undefined.
+    return cmdDockets(dv('--query') || args.slice(1).filter((a) => !a.startsWith('--')).join(' '), {
+      year: dv('--year'),
+      verbose: argv.includes('--verbose'),
+      intervalMs: dv('--interval') ? parseInt(dv('--interval'), 10) : undefined,
     });
   }
   if (action === 'brief') return cmdBrief(args.slice(1).join(' '), {});

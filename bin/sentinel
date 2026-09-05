@@ -207,6 +207,7 @@ PYSTATUS
     node "$ROOT/modules/connectors/test_foreign.js" || FAILED=1
     node "$ROOT/modules/connectors/test_cfpb.js" || FAILED=1
     node "$ROOT/modules/connectors/test_courtlistener_coverage.js" || FAILED=1
+    node "$ROOT/modules/connectors/test_dockets.js" || FAILED=1
     node "$ROOT/modules/connectors/test_fecspend.js" || FAILED=1
     echo ""
     echo "== the front door =="
@@ -368,7 +369,7 @@ PYSTATUS
     # works when the module is called directly is not yet a command that works.
     action="${1:-test}"; shift || true
     case "$action" in
-      test|list|all|crosslink|foreign|lobby|graph|expand|sweep|brief|farascan)
+      test|list|all|crosslink|foreign|lobby|graph|expand|sweep|brief|farascan|dockets)
         node "$ROOT/modules/connectors/cli.js" "$action" "$@"
         ;;
       *)
