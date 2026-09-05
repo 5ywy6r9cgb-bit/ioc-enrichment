@@ -1716,6 +1716,22 @@ async function cmdSearch(name, query, opts) {
     } catch { /* the capture is on disk either way */ }
   }
 
+  // AN ANNOUNCED FILTER THAT DID NOT APPLY IS A SILENT LIE. The header
+  // prints what you asked for; only the ROWS can say whether the service
+  // honoured it. A 404 stops you — a filter quietly ignored hands you
+  // plausible rows under a heading that does not describe them.
+  if (connFor && typeof connFor.checkFilters === 'function' && out.results.length) {
+    let warnings = [];
+    try { warnings = connFor.checkFilters(out.results, opts) || []; } catch { warnings = []; }
+    for (const w of warnings) {
+      console.log('\n  ' + C.r('FILTER NOT APPLIED') + '  ' + w);
+    }
+    if (warnings.length) {
+      console.log(C.dim('\n  The capture is on disk and is a real result — of a DIFFERENT'));
+      console.log(C.dim('  question than the one you asked. Re-read the request line above.'));
+    }
+  }
+
   if (!out.results.length) {
     console.log(C.dim('  No hits. A clean result is not proof of absence — it is one source saying nothing.'));
 

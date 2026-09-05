@@ -692,6 +692,32 @@ relief"* is the **firm recording that it paid the consumer**: a fact about
 the company, from the company. That is a different order of evidence from an
 allegation, and it is the one to build on.
 
+#### `FILTER NOT APPLIED` — the check that caught the first live run
+
+The first real run asked for `--state OH` and came back with Arizona,
+California, North Dakota, Florida, Massachusetts, South Carolina, Virginia,
+New Jersey, Colorado and Texas. **Not one Ohio row.** The request carried
+`state=OH`, the service answered `200`, and the header printed *"state OH"*
+over a nationwide result set.
+
+That is worse than the `404` it replaced. **A 404 stops you. A filter that is
+announced and silently ignored hands you plausible rows** and lets you write
+*"in Ohio"* over data from ten other states.
+
+So the returned rows are now checked against what was asked for — state,
+date, product — and any discrepancy prints in **red** above the results:
+
+```
+FILTER NOT APPLIED  YOU ASKED FOR OH AND 100 OF 100 ROWS ARE NOT OH
+                    (AZ, CA, CO, FL, MA, ND, NJ, SC, TX, VA). The state
+                    filter did not apply. Do NOT describe this capture as
+                    being about OH.
+```
+
+It cannot fix a broken parameter — only finding the right one does that. It
+can refuse to let the discrepancy go unnoticed. `checkFilters` is an
+optional hook, so any connector can adopt it.
+
 #### What a complaint is
 
 An **allegation** by one consumer, forwarded to the company. The CFPB does

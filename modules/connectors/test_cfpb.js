@@ -164,6 +164,73 @@ module.exports = function run() {
       /\|state\|product\|since\)\$\/\.test\(a\)/.test(cli));
   }
 
+  // ══ 6. AN ANNOUNCED FILTER THAT DID NOT APPLY ════════════════════════
+  //
+  // The first live run asked for --state OH and returned AZ, CA, ND, FL,
+  // MA, SC, VA, NJ, CO and TX. Not one Ohio row. The request carried
+  // state=OH, the service answered 200, and the header printed "state OH"
+  // over a nationwide result set.
+  //
+  // That is worse than the 404 it replaced. A 404 stops you; a filter
+  // silently ignored hands you plausible rows and lets you write "in Ohio"
+  // over data from ten other states.
+  {
+    const rows = [
+      { state: 'AZ', received: '2026-07-29', product: 'Checking or savings account' },
+      { state: 'CA', received: '2026-07-29', product: 'Checking or savings account' },
+      { state: 'OH', received: '2026-07-28', product: 'Checking or savings account' },
+    ];
+    const w = C.checkFilters(rows, { state: 'OH' });
+    check('a state filter that did not apply is caught',
+      w.length === 1 && /FILTER|did not apply/i.test(w[0]), JSON.stringify(w));
+    check('and the message names the states that came back instead',
+      /AZ, CA/.test(w[0]), w[0]);
+    check('and forbids describing the capture as being about that state',
+      /Do NOT describe this capture/.test(w[0]));
+    check('a filter that DID apply raises nothing',
+      C.checkFilters([{ state: 'OH' }, { state: 'OH' }], { state: 'OH' }).length === 0);
+    check('and no filter asked for raises nothing',
+      C.checkFilters(rows, {}).length === 0);
+    // Rows with no state at all are UNKNOWN, not violations. Counting a
+    // blank as a mismatch would cry wolf on every capture that has them.
+    check('rows with a blank state are not counted as mismatches',
+      C.checkFilters([{ state: '' }, { state: 'OH' }], { state: 'OH' }).length === 0);
+
+    const since = C.checkFilters(
+      [{ received: '2023-05-01' }, { received: '2026-01-01' }], { since: '2024-01-01' });
+    check('a date filter that did not apply is caught',
+      since.length === 1 && /2023-05-01/.test(since[0]), JSON.stringify(since));
+    check('and one that did applies cleanly',
+      C.checkFilters([{ received: '2025-01-01' }], { since: '2024-01-01' }).length === 0);
+
+    // A PRODUCT filter only fires when NOT ONE row matches. A partial miss
+    // is normal -- CFPB product strings are hierarchical -- and warning on
+    // it would train the operator to ignore the warning.
+    const prod = C.checkFilters([{ product: 'Mortgage' }, { product: 'Mortgage' }],
+      { product: 'Checking or savings account' });
+    check('a product filter that matched nothing is caught',
+      prod.length === 1 && /product filter did not apply/.test(prod[0]));
+    check('but a partial match is not treated as a failure',
+      C.checkFilters([{ product: 'Mortgage' }, { product: 'Checking or savings account' }],
+        { product: 'Checking or savings account' }).length === 0);
+  }
+
+  // ══ 7. THE WARNING IS PRINTED WHERE IT CANNOT BE MISSED ══════════════
+  {
+    const cli = fs.readFileSync(require.resolve('./cli.js'), 'utf8');
+    check('the CLI calls checkFilters on every connector that has it',
+      /connFor\.checkFilters/.test(cli));
+    check('and prints it in red, not dimmed',
+      /C\.r\('FILTER NOT APPLIED'\)/.test(cli));
+    check('and says the capture answers a DIFFERENT question',
+      /of a DIFFERENT/.test(cli));
+    // Only when there are rows: checkFilters on an empty result would
+    // report "no row matches" for every filtered search that found nothing,
+    // which is the zero-result case and is already explained by diagnose().
+    check('and only when rows came back',
+      /checkFilters === 'function' && out\.results\.length/.test(cli));
+  }
+
   console.log(`\n  ${FAIL === 0 ? 'PASS' : 'FAIL'} — ${PASS}/${PASS + FAIL} checks\n`);
   return FAIL;
 };

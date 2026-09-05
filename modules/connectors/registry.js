@@ -1117,6 +1117,57 @@ const CONNECTORS = {
         + '(accounts, customers, loans serviced) is NOT in this dataset and '
         + 'the CFPB does not publish it.';
     },
+    /**
+     * DID THE FILTER ACTUALLY APPLY?
+     *
+     * The first live run asked for --state OH and came back with Arizona,
+     * California, North Dakota, Florida, Massachusetts, South Carolina,
+     * Virginia, New Jersey, Colorado and Texas. Not one Ohio row. The
+     * request carried `state=OH`, the service answered 200, and the header
+     * printed "state OH" over a nationwide result set.
+     *
+     * That is worse than the 404 it replaced. A 404 stops you. A filter
+     * that is announced and silently ignored hands you plausible rows and
+     * lets you write "in Ohio" over data from ten other states.
+     *
+     * So the rows are checked AGAINST WHAT WAS ASKED FOR. This cannot fix a
+     * broken parameter -- only the operator can, by finding the right one --
+     * but it can refuse to let the discrepancy go unnoticed.
+     */
+    checkFilters: (rows, o = {}) => {
+      const out = [];
+      if (o.state) {
+        const want = String(o.state).toUpperCase().slice(0, 2);
+        const seen = rows.map((r) => r.state).filter(Boolean);
+        const wrong = seen.filter((x) => x !== want);
+        if (seen.length && wrong.length) {
+          const others = [...new Set(wrong)].sort().join(', ');
+          out.push(`YOU ASKED FOR ${want} AND ${wrong.length} OF ${seen.length} `
+            + `ROWS ARE NOT ${want} (${others}). The state filter did not `
+            + 'apply. Do NOT describe this capture as being about ' + want + '.');
+        }
+      }
+      if (o.since) {
+        const cut = String(o.since).slice(0, 10);
+        const early = rows.filter((r) => r.received && r.received < cut);
+        if (early.length) {
+          out.push(`YOU ASKED FOR ROWS SINCE ${cut} AND ${early.length} ARE `
+            + `OLDER (earliest ${early.map((r) => r.received).sort()[0]}). The `
+            + 'date filter did not apply.');
+        }
+      }
+      if (o.product) {
+        const want = String(o.product).toLowerCase();
+        const off = rows.filter((r) => r.product
+          && !r.product.toLowerCase().includes(want));
+        if (rows.length && off.length === rows.length) {
+          out.push(`NO ROW MATCHES THE PRODUCT YOU ASKED FOR (${o.product}). `
+            + 'The product filter did not apply, or the value is not one the '
+            + 'CFPB uses — its product names are exact strings, not keywords.');
+        }
+      }
+      return out;
+    },
     diagnose: (json) => {
       if (!json || !json.hits || !Array.isArray(json.hits.hits)) {
         return 'NO hits.hits ARRAY IN THE RESPONSE. That is a schema '
