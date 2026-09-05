@@ -13,6 +13,7 @@ const fs = require('fs');
 const path = require('path');
 const D = require('./document.js');
 const B = require('./bills.js');
+const ST = require('./statute.js');
 const R = require('../connectors/registry.js');
 const P = require('../../core/provenance/provenance.js');
 
@@ -153,6 +154,77 @@ function whyReport(G, text, r) {
     console.log(C.dim('  and only the PDF page can say whether that is a seal.'));
   }
   console.log('');
+}
+
+/**
+ * `sentinel doc sections FILE.txt --mentions TERM`
+ *
+ * Which sections of an enacted law say a thing.
+ *
+ * Built after TWO hand-rolled greps over the same 794-page public law
+ * produced two different, confident, wrong lists of sections. See the header
+ * of statute.js for both failures. The output leads with the DENOMINATOR --
+ * how many sections were parsed at all -- because "4 sections mention this"
+ * is meaningless without it, and a parse that found zero sections and a term
+ * that appears in none are indistinguishable otherwise.
+ */
+function cmdSections(file, opts = {}) {
+  if (!file) {
+    console.error('\n  usage: sentinel doc sections FILE.txt --mentions TERM\n');
+    process.exit(2);
+  }
+  let text;
+  try { text = fs.readFileSync(file, 'utf8'); }
+  catch (e) { console.error(`\n  ${C.r('cannot read')} ${file}: ${e.message}\n`); process.exit(2); }
+
+  const all = ST.sections(text);
+  console.log(`\n  ${C.b('SECTIONS')}  ${path.basename(file)}`);
+  console.log(`  ${all.length} section heading(s) parsed`);
+
+  // A parse that found nothing is a PARSER problem, not a document problem,
+  // and it must never be reported as "the term does not appear".
+  if (!all.length) {
+    console.log(C.r('\n  NO SECTIONS WERE PARSED. That is a fact about this extraction, not'));
+    console.log(C.r('  about the law. Nothing below can be concluded from it.'));
+    console.log(C.dim('  This matches ALL-CAPS body headings ("SEC. 1214. TITLE") and skips'));
+    console.log(C.dim('  the Title-Case table of contents. A law printed differently, or a'));
+    console.log(C.dim('  scanned PDF with no text layer, yields zero here. Check the .txt.\n'));
+    return;
+  }
+
+  if (!opts.term) {
+    console.log(C.dim(`  numbered ${all[0].number} .. ${all[all.length - 1].number}`));
+    console.log(C.dim('\n  Add --mentions TERM to see which sections say it.\n'));
+    return;
+  }
+
+  const r = ST.mentions(text, opts.term);
+  console.log(`\n  ${C.b(`${r.matched.length} of ${r.total}`)} section(s) mention ${C.b(opts.term)}\n`);
+  if (!r.matched.length) {
+    console.log(C.dim(`  ${r.total} sections were read and none contain that term. That is a`));
+    console.log(C.dim('  real absence in THIS document, and says nothing about any other.\n'));
+    return;
+  }
+
+  for (const m of r.matched) {
+    const where = m.inHeading ? C.g('in the heading') : C.y('BODY ONLY — a heading search misses this');
+    console.log(`    ${C.b('SEC. ' + m.number)}  ${C.dim(`line ${m.line} · ${m.hits} mention(s)`)}`);
+    console.log(`      ${m.heading.slice(0, 150)}`);
+    console.log(`      ${where}\n`);
+  }
+
+  if (r.bodyOnly.length) {
+    console.log('  ' + C.y(`${r.bodyOnly.length} section(s) say it ONLY in the body: `)
+      + r.bodyOnly.map((n) => `SEC. ${n}`).join(', '));
+    console.log(C.dim('  These are exactly what a search of headings cannot see. On the'));
+    console.log(C.dim('  FY2025 NDAA one of them REQUIRES annual joint military exercises'));
+    console.log(C.dim('  and never names the country in its title.\n'));
+  }
+
+  console.log('  ' + C.y('A MENTION IS NOT A PROVISION.'));
+  console.log(C.dim('  A section that names a country once in a list of allies and one that'));
+  console.log(C.dim('  authorizes a program with it both count as 1 here. The count tells'));
+  console.log(C.dim('  you WHERE TO READ. It does not tell you what the law does.\n'));
 }
 
 function cmdGaps(file, opts = {}) {
@@ -673,6 +745,11 @@ async function main() {
       verbose: argv.includes('--verbose'), why: argv.includes('--why'),
     });
   }
+  if (action === 'sections') {
+    return cmdSections(positional[1], {
+      term: val('--mentions'), verbose: argv.includes('--verbose'),
+    });
+  }
   if (action === 'bills') {
     return cmdBills({});
   }
@@ -683,6 +760,7 @@ async function main() {
   console.error('\n  usage: sentinel doc get URL [--case CASE-ID] [--as EX-01]'
     + '\n         sentinel doc bills'
     + '\n         sentinel doc gaps FILE.txt'
+    + '\n         sentinel doc sections FILE.txt --mentions TERM'
     + '\n         sentinel doc chain HOST\n');
   process.exit(2);
 }

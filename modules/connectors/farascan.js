@@ -625,18 +625,102 @@ function looksSelfAffiliated(registrant, conduit) {
  * both are in this register.
  */
 const CONDUIT_FORMS = new Set(['gmbh', 'mbh', 'ag', 'kg', 'sarl', 'sas', 'spa',
-  'srl', 'bv', 'nv', 'ab', 'oy', 'oyj', 'pte', 'pty', 'kk', 'limited', 'holding',
-  'holdings', 'gruppe', 'branch', 'division']);
+  'srl', 'bv', 'nv', 'ab', 'oy', 'oyj', 'pte', 'pty', 'kk', 'wll', 'fz', 'fze',
+  'limited', 'holding', 'holdings', 'gruppe', 'branch', 'division']);
+
+/**
+ * WHERE a conduit is, taken from the name.
+ *
+ * ─────────────────────────────────────────────────────────────────────────
+ * WHY: the first version of this clustered two DIFFERENT companies
+ * ─────────────────────────────────────────────────────────────────────────
+ * Dropping legal-form words is right for "Portland PR Limited" vs "Portland
+ * PR Ltd." and catastrophic for a global firm's national affiliates, because
+ * the legal form IS the country. On the live register it produced:
+ *
+ *   "HIll +Knowlton Strategies GMBH"  +  "Hill & Knowlton UK"
+ *
+ * -- a German company and a British one reported as possibly one entity,
+ * which is precisely the error the surrounding comment claimed to avoid. It
+ * got there by discarding GMBH as a form word and UK as too short.
+ *
+ * So jurisdiction is extracted SEPARATELY from the distinctive words: from
+ * place names, and from the legal forms that imply a country. Two names
+ * cluster only when their distinctive words match AND their jurisdictions
+ * do not CONFLICT. An empty jurisdiction is unknown, not a match to
+ * everything -- "Qorvis Communications" and "Qorvis Holding Inc." both name
+ * no country, so they are still offered as a candidate for a person to rule
+ * on, which is the whole point of reporting rather than merging.
+ *
+ * The place list is a LIST, not knowledge. A city or country missing from
+ * it reads as no jurisdiction, and the clustering falls back to being
+ * merely permissive -- it offers a candidate, it never merges one.
+ */
+const FORM_JURISDICTION = {
+  gmbh: 'de', mbh: 'de', ag: 'de', kg: 'de',
+  sarl: 'fr', sas: 'fr',
+  spa: 'it', srl: 'it',
+  bv: 'nl', nv: 'nl',
+  ab: 'se', oy: 'fi', oyj: 'fi',
+  pte: 'sg', pty: 'au', kk: 'jp',
+  wll: 'bh', fz: 'ae', fze: 'ae',
+};
+const PLACE_JURISDICTION = {
+  germany: 'de', german: 'de', deutschland: 'de', berlin: 'de', frankfurt: 'de',
+  uk: 'gb', britain: 'gb', british: 'gb', england: 'gb', london: 'gb',
+  scotland: 'gb', ireland: 'ie', dublin: 'ie',
+  usa: 'us', america: 'us', american: 'us', york: 'us', washington: 'us',
+  france: 'fr', paris: 'fr', italy: 'it', rome: 'it',
+  spain: 'es', madrid: 'es', netherlands: 'nl', amsterdam: 'nl',
+  sweden: 'se', stockholm: 'se', norway: 'no', denmark: 'dk', finland: 'fi',
+  qatar: 'qa', doha: 'qa', dubai: 'ae', emirates: 'ae', abu: 'ae',
+  saudi: 'sa', riyadh: 'sa', bahrain: 'bh', kuwait: 'kw', oman: 'om',
+  israel: 'il', jerusalem: 'il', aviv: 'il',
+  singapore: 'sg', japan: 'jp', tokyo: 'jp', china: 'cn', beijing: 'cn',
+  korea: 'kr', seoul: 'kr', india: 'in', australia: 'au', canada: 'ca',
+  brazil: 'br', mexico: 'mx', turkey: 'tr', istanbul: 'tr',
+  switzerland: 'ch', zurich: 'ch', austria: 'at', belgium: 'be', brussels: 'be',
+};
+
+function conduitJurisdictions(name) {
+  const out = new Set();
+  for (const w of String(name || '').toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').split(/\s+/)) {
+    if (PLACE_JURISDICTION[w]) out.add(PLACE_JURISDICTION[w]);
+    else if (FORM_JURISDICTION[w]) out.add(FORM_JURISDICTION[w]);
+  }
+  return out;
+}
+
+/** Two jurisdiction sets conflict when both are known and they disagree. */
+function jurisdictionsConflict(a, b) {
+  if (!a.size || !b.size) return false;           // unknown is not a mismatch
+  for (const j of a) if (b.has(j)) return false;  // any overlap is agreement
+  return true;
+}
 
 function conduitTokens(name) {
   return new Set(String(name || '').toLowerCase()
     .replace(/[^a-z0-9 ]+/g, ' ').split(/\s+/)
-    .filter((w) => w.length > 2 && !STOPWORDS.has(w) && !CONDUIT_FORMS.has(w)));
+    .filter((w) => w.length > 2 && !STOPWORDS.has(w) && !CONDUIT_FORMS.has(w)
+      && !PLACE_JURISDICTION[w]));
 }
 
 /**
+ * Conduits that may be ONE entity spelled two ways.
+ *
+ * Reported, never merged. Sameness of NAME is not sameness of ENTITY, and
+ * this register is full of national affiliates of one brand -- Hill &
+ * Knowlton Qatar, UK, Singapore, Gulf -- that are separate companies. So
+ * this returns CANDIDATES with every spelling and a person decides.
+ *
+ * Equality of distinctive words, never subset: "Havas Media Group USA LLC"
+ * reduces to a subset of the German entity and is a different company. A
+ * typo defeats it entirely -- "Venable" and "Vanable" share no word and both
+ * are in this register -- and the tests say so rather than implying coverage
+ * the matcher does not have.
+ *
  * @param names  the conduit strings as they were actually filed
- * @returns clusters of 2+ names whose distinctive words are identical
+ * @returns clusters of 2+ names: same distinctive words, no jurisdiction clash
  */
 function nearDuplicateConduits(names) {
   const by = new Map();
@@ -644,13 +728,28 @@ function nearDuplicateConduits(names) {
     const toks = [...conduitTokens(n)].sort();
     if (!toks.length) continue;              // nothing distinctive: never cluster
     const sig = toks.join(' ');
-    if (!by.has(sig)) by.set(sig, new Set());
-    by.get(sig).add(n);
+    if (!by.has(sig)) by.set(sig, []);
+    by.get(sig).push({ name: n, juris: conduitJurisdictions(n) });
   }
-  return [...by.entries()]
-    .filter(([, set]) => set.size > 1)
-    .map(([sig, set]) => ({ signature: sig, names: [...set].sort() }))
-    .sort((a, b) => b.names.length - a.names.length || a.signature.localeCompare(b.signature));
+
+  const out = [];
+  for (const [sig, members] of by) {
+    // Within a signature, split into groups that do not conflict. A name is
+    // added to the first group nothing in it disagrees with; otherwise it
+    // starts its own. Germany and the UK therefore separate, and two
+    // spellings of the same German entity do not.
+    const groups = [];
+    for (const m of members) {
+      const g = groups.find((grp) => grp.every((x) => !jurisdictionsConflict(x.juris, m.juris)));
+      if (g) g.push(m); else groups.push([m]);
+    }
+    for (const g of groups) {
+      const uniq = [...new Set(g.map((x) => x.name))].sort();
+      if (uniq.length > 1) out.push({ signature: sig, names: uniq });
+    }
+  }
+  return out.sort((a, b) => b.names.length - a.names.length
+    || a.signature.localeCompare(b.signature));
 }
 
 /**
@@ -760,6 +859,6 @@ module.exports = {
   activeRegistrants, fetchDocs, retryAfterMs, MAX_429_RETRIES,
   namesPrincipal, matches, matchesCountry, countryKey, summarise, scan, coverageLine,
   splitPrincipal, looksSelfAffiliated, intermediaries, tidy,
-  conduitTokens, nearDuplicateConduits,
+  conduitTokens, conduitJurisdictions, jurisdictionsConflict, nearDuplicateConduits,
   balanceParens, looksContested,
 };

@@ -478,24 +478,51 @@ function rateLimitTests() {
       'Akin Gump Strauss Hauer & Feld LLP', 'Akin, Gump, Strauss, Hauer & Feld',
       'Hill & Knowlton Qatar LLC', 'Hill & Knowlton UK',
     ]);
-    const sig = (words) => d.find((x) => x.signature === words);
+    // Look clusters up by a MEMBER NAME, not by signature. The signature is
+    // an internal detail that changed the moment place words moved out of
+    // the distinctive set, and a test keyed on it fails for a reason that
+    // has nothing to do with the behaviour under test.
+    const clusterWith = (name) => d.find((x) => x.names.includes(name));
 
     check('the two spellings of the German Havas entity are clustered',
-      !!sig('germany havas media')
-        && sig('germany havas media').names.length === 2, JSON.stringify(d));
+      !!clusterWith('Havas Media Germany GmbH')
+        && clusterWith('Havas Media Germany GmbH').names.length === 2, JSON.stringify(d));
     check('and the punctuation-only variants of one firm are clustered',
-      !!sig('akin feld gump hauer strauss'));
+      !!clusterWith('Akin Gump Strauss Hauer & Feld LLP'));
 
-    // The USA sibling is a DIFFERENT COMPANY and reduces to a subset, not an
-    // equal set. Subset matching would have swallowed it.
+    // The USA sibling is a DIFFERENT COMPANY. Its distinctive words are now
+    // identical to the German pair -- both reduce to "havas media" -- so the
+    // only thing keeping it out is the jurisdiction check.
     check('a sibling entity in another country is NOT clustered in',
-      !sig('germany havas media').names.some((n) => /USA/.test(n)));
+      !clusterWith('Havas Media Germany GmbH').names.some((n) => /USA/.test(n)));
+    check('and it is not offered as a cluster of its own either',
+      !clusterWith('Havas Media Group USA LLC'));
 
-    // National affiliates of one brand are separate companies. The only
-    // thing telling them apart is the word a fuzzier matcher would discard.
+    // National affiliates of one brand are separate companies. The FIRST
+    // version of this clustered "HIll +Knowlton Strategies GMBH" with
+    // "Hill & Knowlton UK" on the live register -- a German company and a
+    // British one -- by discarding GMBH as a form word and UK as too short.
+    // The legal form IS the country, and that is now read as jurisdiction.
     check('national affiliates of one brand stay separate',
       !d.some((x) => x.names.includes('Hill & Knowlton Qatar LLC')
         && x.names.includes('Hill & Knowlton UK')));
+    const hk = F.nearDuplicateConduits(['HIll +Knowlton Strategies GMBH', 'Hill & Knowlton UK']);
+    check('a German entity is not clustered with a British one',
+      hk.length === 0, JSON.stringify(hk));
+    check('because the legal form carries the jurisdiction',
+      F.conduitJurisdictions('HIll +Knowlton Strategies GMBH').has('de')
+        && F.conduitJurisdictions('Hill & Knowlton UK').has('gb'));
+    check('and a country stated twice, as word and as form, still agrees',
+      !F.jurisdictionsConflict(F.conduitJurisdictions('Havas Media Germany GmbH'),
+        F.conduitJurisdictions('Havas Media Group Germany')));
+    // An unknown jurisdiction is UNKNOWN. Treating it as a mismatch would
+    // drop "Portland PR Limited"/"Portland PR Ltd."; treating it as a match
+    // to everything would fuse unrelated firms. It does neither: it lets the
+    // distinctive words decide, and a person rules on the candidate.
+    check('an unnamed jurisdiction is not treated as a mismatch',
+      !F.jurisdictionsConflict(new Set(), F.conduitJurisdictions('X GmbH')));
+    check('two names with no country still cluster on their words alone',
+      F.nearDuplicateConduits(['Portland PR Limited', 'Portland PR Ltd.']).length === 1);
 
     // A typo shares no word, so it is not caught. Both of these are really
     // in the register, and saying so is better than implying coverage.

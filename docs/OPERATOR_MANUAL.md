@@ -650,6 +650,43 @@ it.
 `connect all` deliberately **skips `bls`** — it takes series IDs, not names,
 so a company name against it is meaningless.
 
+### `doc sections` — which sections of a law say a thing
+
+```bash
+bin/sentinel doc sections FILE.txt --mentions "Israel"
+bin/sentinel doc sections FILE.txt              # just the section count
+```
+
+Built after **two** hand-rolled greps over the same 794-page public law
+produced two different, confident, wrong lists:
+
+| Attempt | What broke |
+|---|---|
+| `grep -o "SEC\. [0-9]\{3,4\}\..\{0,90\}"` | Reads 90 characters **on one line**. Statutory headings wrap mid-word — `…INDUSTRIAL PRIOR-` / `ITIES BETWEEN THE UNITED STATES AND ISRAEL.` — so the section was invisible. Reported 4. |
+| join wraps, collapse whitespace, then match | Found two the first missed **and lost two others**. This law prints a **marginal note column** into the extracted text (`22 USC 8606` / `note.`), so joining the hyphen produced `PRIORnote.` and the heading died at that stray period. |
+
+Each attempt produced a citable list. Both were wrong.
+
+**The fix is not a better regex.** This finds where each section *starts*,
+treats everything up to the next start as that section's body, and searches
+the body. A wrapped heading, a margin note, or a term that appears only in
+the operative text are all found by the same mechanism.
+
+**The most important thing it reports is `BODY ONLY`.** In the FY2025 NDAA,
+Sec. 1213 requires annual joint military exercises and invitations to the
+armed forces of Israel — and its heading reads *"REQUIREMENT TO CONDUCT
+SUBTERRANEAN WARFARE MILITARY EXERCISES."* It names no country. Every
+heading search misses it, and it is arguably the most consequential section
+in the subtitle.
+
+**Zero sections parsed prints in red as a parser failure**, never as "the
+term does not appear." Those two are indistinguishable without the
+denominator, and only one of them is a fact about the law.
+
+**A mention is not a provision.** A section naming a country once in a list
+of allies and one authorizing a program with it both count as 1. The output
+tells you *where to read*.
+
 ### `farascan --country` — the only sound way to rank countries
 
 `--match` searches the principal **name and** the country. That is right for
