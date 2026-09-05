@@ -2009,6 +2009,20 @@ async function cmdEntries(opts = {}) {
       seen.add(k);
       console.log(`      ${C.dim(h.date || '          ')} ${h.family.padEnd(10)} `
         + `${C.b(`"${h.phrase}"`)}  prejudice: ${h.prejudice}`);
+      // THE DOCUMENT, OR THE FACT THAT THERE ISN'T ONE. A verdict with no
+      // readable filing behind it is a pointer to nothing, and saying so is
+      // the difference between a lead and a citation.
+      for (const d of h.documents || []) {
+        if (d.available && d.url) {
+          console.log(`        ${C.g('doc')} ${d.url}`
+            + C.dim(d.pages ? `  (${d.pages}p)` : ''));
+        } else {
+          console.log(`        ${C.y('doc NOT in RECAP')}`
+            + C.dim(` — ${d.description ? d.description.slice(0, 60) : 'no description'}`));
+          console.log(C.dim('            reading it means paying PACER; the entry line is'));
+          console.log(C.dim('            all this desk can show you for free.'));
+        }
+      }
     }
     if (r.windowed) {
       console.log(C.dim(`      window: newest ${r.scanned} of ${r.reported === null ? '?' : r.reported}`
@@ -2020,7 +2034,7 @@ async function cmdEntries(opts = {}) {
   console.log(C.dim('  These are clerk-written docket lines, not the text of the ruling.'));
   console.log(C.dim('  Every line above is a POINTER to a document. Before publishing any'));
   console.log(C.dim('  characterisation, fetch the document and read it:'));
-  console.log(C.dim('    sentinel doc get <recap document url> --case <case>\n'));
+  console.log(C.dim('    sentinel doc get <the doc url printed above> --case <case>\n'));
   console.log(C.dim('  "WITHOUT prejudice" means it can be refiled; "UNSTATED" means the'));
   console.log(C.dim('  clerk did not say, NOT that it was without prejudice.\n'));
 }

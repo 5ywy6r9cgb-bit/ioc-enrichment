@@ -135,6 +135,27 @@ function prejudice(text) {
   return 'UNSTATED';
 }
 
+/**
+ * The documents attached to an entry, with whether they can actually be read.
+ *
+ * `is_available` is the field that matters and the one an eager reader skips.
+ * RECAP holds what people uploaded; an entry can name a document that is NOT
+ * in the archive, and following that pointer costs PACER money. Reporting a
+ * document that cannot be opened as though it can is how a citation dies
+ * between the desk and the page.
+ */
+function documentsOn(e) {
+  const docs = Array.isArray(e && e.recap_documents) ? e.recap_documents : [];
+  return docs.map((d) => ({
+    description: (d && d.description) || '',
+    number: d && d.document_number !== undefined ? d.document_number : null,
+    attachment: d && d.attachment_number !== undefined ? d.attachment_number : null,
+    pages: d && d.page_count !== undefined ? d.page_count : null,
+    available: d ? d.is_available === true : false,
+    url: d && d.absolute_url ? `https://www.courtlistener.com${d.absolute_url}` : '',
+  }));
+}
+
 /** Entry description plus the descriptions of its attached documents. */
 function entryText(e) {
   if (!e || typeof e !== 'object') return '';
@@ -190,6 +211,7 @@ function disposition(entries, opts = {}) {
     for (const s of signalsIn(text)) {
       hits.push({
         ...s,
+        documents: documentsOn(e),
         date: e.date_filed ? String(e.date_filed).slice(0, 10) : '',
         number: e.entry_number === undefined ? null : e.entry_number,
         prejudice: prejudice(text),
@@ -294,6 +316,6 @@ function tally(results) {
 
 module.exports = {
   ENTRIES, SIGNALS,
-  prejudice, entryText, firstPageUrl, signalsIn, disposition,
+  prejudice, entryText, documentsOn, firstPageUrl, signalsIn, disposition,
   readDocket, readMany, tally,
 };

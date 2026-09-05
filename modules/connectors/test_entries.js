@@ -83,6 +83,43 @@ console.log('\n  entries — how a case ended\n');
     lastOnly.windowed === true);
 }
 
+// ══ 4b. A POINTER TO A DOCUMENT NOBODY CAN OPEN ══════════════════════
+//
+// RECAP holds what people uploaded. An entry can name a document that is
+// NOT in the archive, and following that pointer costs PACER money.
+// Printing it as though it were readable is how a citation dies between
+// the desk and the page.
+{
+  const withDocs = {
+    date_filed: '2025-03-05', entry_number: 64,
+    description: 'Notice of Dismissal with prejudice',
+    recap_documents: [
+      { description: 'Notice of Dismissal', document_number: 64, page_count: 2,
+        is_available: true, absolute_url: '/docket/1/64/notice/' },
+      { description: 'Exhibit A', document_number: 64, attachment_number: 1,
+        is_available: false, absolute_url: '/docket/1/64/1/exhibit/' },
+    ],
+  };
+  const docs = E.documentsOn(withDocs);
+  check('an available document carries an absolute URL',
+    docs[0].available === true && docs[0].url === 'https://www.courtlistener.com/docket/1/64/notice/',
+    docs[0].url);
+  check('and its page count, so a 2-page notice is not mistaken for a ruling',
+    docs[0].pages === 2);
+  check('an UNAVAILABLE document is marked unavailable, not silently linked',
+    docs[1].available === false);
+  check('a document with no is_available is treated as NOT available',
+    E.documentsOn({ recap_documents: [{ description: 'x' }] })[0].available === false);
+  check('an entry with no documents yields an empty list, not a crash',
+    E.documentsOn({}).length === 0 && E.documentsOn(null).length === 0);
+
+  const d = E.disposition([withDocs]);
+  check('the documents travel on the hit, beside the phrase that matched',
+    d.hits[0].documents.length === 2, JSON.stringify(d.hits[0].documents.length));
+  check('and "with prejudice" on that entry is read as WITH',
+    d.hits[0].prejudice === 'WITH', d.hits[0].prejudice);
+}
+
 // ══ 5. THREE KINDS OF "NO ANSWER", NEVER MERGED ══════════════════════
 //
 // UNREAD (could not fetch), UNCLASSIFIED (fetched, nothing matched) and
