@@ -478,7 +478,19 @@ def source_slug(roots: list[str]) -> str:
     """
     parts = []
     for r in roots:
-        base = str(r).rstrip("/").split("/")[-1] or str(r)
+        raw = str(r).rstrip("/")
+        if "/" in raw:
+            # A PATH keeps its last TWO components. One is not enough: the
+            # local copy of a drive is usually filed under the drive's own
+            # name, so ~/sentinel/evidence/lot/N2 and the shelf N2 both
+            # reduced to "N2" and landed in one folder. Nothing was lost --
+            # the cross-source guard below refused to retire the other's
+            # inventory -- but a collision that has to be caught by a guard
+            # is a collision that should not have happened.
+            segs = [x for x in raw.split("/") if x][-2:]
+            base = "-".join(segs)
+        else:
+            base = raw
         clean = re.sub(r"[^A-Za-z0-9._-]+", "-", base).strip("-") or "corpus"
         parts.append(clean)
     slug = "+".join(parts)

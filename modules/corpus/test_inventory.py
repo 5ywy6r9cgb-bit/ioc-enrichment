@@ -362,10 +362,18 @@ sys.exit(I.main())
     # complete, which is the same bug wearing a different hat.
     check("a multi-root scan is its own corpus, not either drive's",
           I.source_slug(["N1", "N2"]) == "N1+N2")
-    check("a path becomes its last component",
-          I.source_slug(["/Volumes/NO NAME"]) == "NO-NAME")
+    # A path keeps its last TWO components, because one is not enough: the
+    # local copy of a drive is filed under the drive's own name, so
+    # ~/sentinel/evidence/lot/N2 and the shelf N2 both reduced to "N2" and
+    # landed in one folder on the live desk.
+    check("a path keeps enough of itself to stay distinct",
+          I.source_slug(["/Volumes/NO NAME"]) == "Volumes-NO-NAME")
+    check("a drive's local copy does not collide with the drive",
+          I.source_slug(["/Users/Mark/sentinel/evidence/lot/N2"]) != I.source_slug(["N2"]))
+    check("and it says where it came from",
+          I.source_slug(["/Users/Mark/sentinel/evidence/lot/N2"]) == "lot-N2")
     check("a trailing slash does not produce an empty name",
-          I.source_slug(["/Users/Mark/sentinel/evidence/lot/"]) == "lot")
+          I.source_slug(["/Users/Mark/sentinel/evidence/lot/"]) == "evidence-lot")
     check("a name that sanitises to nothing still yields a folder",
           I.source_slug(["///"]) != "")
 
