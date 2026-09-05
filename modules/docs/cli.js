@@ -75,9 +75,10 @@ function cmdGaps(file, opts = {}) {
   // A gap list means nothing unless most of the sequence was found.
   if (!r.reliable) {
     console.log(`\n  ${C.r('THIS MATCHER CANNOT READ THIS DOCUMENT\'S NUMBERING.')}`);
-    console.log(C.dim(`  It found ${r.found} of the ${r.span} numbers between ${r.first} and`));
-    console.log(C.dim(`  ${r.last}. A gap list drawn from that would be mostly this tool's`));
-    console.log(C.dim('  blind spots, not the document\'s holes — so it is NOT printed.'));
+    console.log(C.dim(`  It found ${r.found} of the ${r.span} numbers in the range`
+      + ` ${r.first}–${r.last}.`));
+    console.log(C.dim('  A gap list drawn from that would be mostly this tool\'s blind spots,'));
+    console.log(C.dim('  not the document\'s holes — so it is NOT printed.'));
     console.log(C.dim('  No conclusion about redaction can be drawn from this file here.'));
     console.log(C.dim('  Check a page against the PDF and send the paragraph\'s exact'));
     console.log(C.dim('  spacing; the pattern can be fixed for this filing\'s layout.\n'));
