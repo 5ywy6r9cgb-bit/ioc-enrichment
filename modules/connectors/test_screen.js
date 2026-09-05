@@ -132,6 +132,85 @@ console.log('\n  screen — FARA principals against sanctions data\n');
     /reader that returns `docs` -- and matched nothing/.test(ssrc));
 }
 
+// ══ 3c. THE FIRST LIVE RUN WAS ALMOST ALL NOISE ══════════════════════
+//
+// Seven NOTABLE candidates came back from 40 principals and six were
+// wrong -- wrong in ways that would be defamatory to publish. Every one
+// of them is pinned here as a fixture, because a regression that
+// re-admits any of these is not a style problem.
+{
+  const wrong = [
+    // Matched on the country. Publishing this would assert that the Saudi
+    // government is a designated terrorist organisation.
+    ['Kingdom of Saudi Arabia', 'ISIL-Saudi Arabia'],
+    // Matched on nothing at all; Cochan is a company, not a state.
+    ['Republic of Angola', 'Cochan S.A.'],
+    // A SERBIAN chamber against a RUSSIAN one, on "chamber of commerce
+    // and industry" -- words shared by such a body in every country.
+    ['Chamber of Commerce and Industry of Serbia',
+      'UNION "NOGINSK CHAMBER OF COMMERCE AND INDUSTRY"'],
+    ['Chamber of Commerce and Industry of Serbia',
+      'UNION CHAMBER OF COMMERCE AND INDUSTRY OF EASTERN SIBERIA (IRKUTSK REGION)'],
+    // A lawful political party against a proscribed group. Scored 0.91.
+    ['Sinn Fein', 'Continuity Irish Republican Army (CIRA)'],
+  ];
+  for (const [a, b] of wrong) {
+    check(`WEAK: ${a.slice(0, 28)} → ${b.slice(0, 26)}`,
+      S.nameStrength(a, b).weak === true, JSON.stringify(S.nameStrength(a, b)));
+  }
+
+  // …and the ones that ARE the same entity must survive the filter.
+  const right = [
+    ['Sinn Fein', 'Sinn Féin'],                       // accents only
+    ['Republic of Angola', 'THE REPUBLIC OF ANGOLA'], // a bare article
+    ['Kingdom of Saudi Arabia', 'The Kingdom of Saudi Arabia'],
+    ['The Public Investment Fund', 'Public Investment Fund'],
+    // Every word generic, and still plainly the same name. This is why a
+    // shared distinctive token cannot be the only test.
+    ["Government of the People's Republic of Bangladesh, Embassy",
+      "GOVERNMENT OF THE PEOPLE'S REPUBLIC OF BANGLADESH"],
+  ];
+  for (const [a, b] of right) {
+    check(`strong: ${a.slice(0, 28)} → ${b.slice(0, 26)}`,
+      S.nameStrength(a, b).weak === false, JSON.stringify(S.nameStrength(a, b)));
+  }
+
+  check('a name of only generic and place words says so',
+    S.nameStrength('Republic of Angola', 'x').askedAllGeneric === true);
+  check('and a name with a real identifier does not',
+    S.nameStrength('Cochan S.A.', 'x').askedAllGeneric === false);
+  check('a leading article is never a difference',
+    S.nameStrength('The Public Investment Fund', 'Public Investment Fund').overlap === 1);
+
+  // The King of Saudi Arabia landed in NOTABLE on `poi` alone.
+  check('poi beside role.pep is NOT a sanctions fact',
+    S.topicClass(['role.pep', 'role.pol', 'poi']) !== 'NOTABLE',
+    S.topicClass(['role.pep', 'role.pol', 'poi']));
+  check('but poi beside a real listing still is',
+    S.topicClass(['sanction.linked', 'poi']) === 'NOTABLE');
+
+  // A clean near-perfect match is evidence AGAINST the dirty near-miss.
+  const rows = S.annotate([
+    { asked: 'Sinn Fein', matched_name: 'Sinn Féin', score: 1.0,
+      significance: 'UNCLEAR', url: 'u1' },
+    { asked: 'Sinn Fein', matched_name: 'Continuity Irish Republican Army (CIRA)',
+      score: 0.91, significance: 'NOTABLE', url: 'u2' },
+  ]);
+  check('the dirty row is told a clean exact match exists',
+    rows[1].cleanExact && rows[1].cleanExact.name === 'Sinn Féin',
+    JSON.stringify(rows[1].cleanExact));
+  check('and it is flagged weak on the name as well',
+    rows[1].strength.weak === true);
+  check('the clean row is not told about itself',
+    rows[0].cleanExact === null);
+
+  const src = fs.readFileSync(require.resolve('./screen.js'), 'utf8');
+  check('the live false positives are recorded in the source',
+    /ISIL-Saudi Arabia/.test(src));
+  check('and why a score alone cannot catch them',
+    /The overlap is just meaningless/.test(src));
+}
+
 // ══ 4. AN INTERRUPTED SCREEN HAS NOT CLEARED WHAT IT NEVER SENT ══════
 //
 // This is the rate-limit error one layer up: names that were never asked

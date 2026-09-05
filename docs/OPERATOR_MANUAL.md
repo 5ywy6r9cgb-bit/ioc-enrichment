@@ -870,6 +870,54 @@ not a `Person` in the FollowTheMoney model, so asking a sanctions database
 whether a company is a person returns a confident, meaningless zero — which
 then printed as a considered null result.
 
+#### Name strength — added because the first live run was almost all noise
+
+A screen of 40 principals returned **seven** `NOTABLE` candidates. **Six were
+wrong**, and wrong in ways that would be defamatory to publish:
+
+| FARA principal | matched | score |
+|---|---|---|
+| Kingdom of Saudi Arabia | ISIL-Saudi Arabia | 0.72 |
+| Republic of Angola | Cochan S.A. | 0.72 |
+| Chamber of Commerce and Industry of **Serbia** | a **Russian** regional chamber | 0.76 |
+| Sinn Féin | Continuity IRA | 0.91 |
+
+Every one matched on words that identify nobody: *Saudi Arabia*, *Angola*,
+*chamber of commerce and industry*. The scores are honest — the strings really
+do overlap. The overlap is just meaningless.
+
+So a second, independent test runs beside the score. Two ways to pass:
+
+- the names share a **distinctive** word — one that is not a legal form, not
+  institutional furniture, and not a place; or
+- their full token sets are **near-identical** — *"Government of the People's
+  Republic of Bangladesh, Embassy"* against the same name without *Embassy*.
+  Every word there is generic and it is still plainly the same name, which is
+  why a shared distinctive token cannot be the only test.
+
+Fail both and the row prints under **`NOTABLE, BUT THE NAMES BARELY OVERLAP`** —
+still printed, never deleted. A filter that silently drops rows is a filter
+nobody can check, and one of them may yet be real.
+
+#### A clean exact match is evidence against the dirty near-miss
+
+`Sinn Fein` matched **Sinn Féin at 1.00 with no topics**, and **Continuity IRA
+at 0.91 with sanctions topics**. The party and the proscribed group are
+different organisations and the register holds both. When a principal has a
+near-perfect match carrying nothing, a lower-scored listed match is very
+likely a *different entity sharing some words* — so that row is annotated
+`BUT an exact match on this name exists and is clean`. It is not deleted; the
+operator decides.
+
+#### `poi` is not a sanctions fact
+
+The first run put the **King of Saudi Arabia** in `NOTABLE` on the topic `poi`
+— "person of interest", a catch-all OpenSanctions applies to heads of state
+and their relatives. Beside `role.pep` it says the person is prominent, which
+registering an agent under FARA already told you. `poi` was removed from the
+notable list; where a real listing sits beside it, that listing is what makes
+the row notable, so nothing is lost.
+
 #### Unscreened is not clean
 
 A screen stopped by a rate limit has **not** cleared the names it never sent.

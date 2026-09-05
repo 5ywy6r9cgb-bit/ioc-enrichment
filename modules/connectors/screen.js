@@ -88,8 +88,21 @@ const EXPECTED_TOPICS = [
  */
 const NOTABLE_TOPICS = [
   /^sanction/, /^export\.control$/, /^export\.risk$/, /^debarment$/,
-  /^crime/, /^poi$/, /^wanted$/, /^asset\.frozen$/,
+  /^crime/, /^wanted$/, /^asset\.frozen$/,
 ];
+
+/**
+ * `poi` -- "person of interest" -- is NOT on that list, and was removed
+ * after the first live run put the King of Saudi Arabia in NOTABLE.
+ *
+ * The topic is a catch-all: OpenSanctions applies it to heads of state,
+ * their relatives, and anyone a dataset thought worth listing. Alongside
+ * `role.pep` and `role.pol` it says the person is prominent, which
+ * registering an agent under FARA already told you. It carries weight only
+ * next to a real listing -- and when a real listing is there, that listing
+ * is what makes the row NOTABLE, so nothing is lost by dropping `poi`.
+ */
+const AMBIGUOUS_TOPICS = [/^poi$/, /^role\.pol$/];
 
 function topicClass(topics) {
   const t = (Array.isArray(topics) ? topics : []).map((x) => String(x).toLowerCase());
@@ -129,6 +142,180 @@ function principals(opts = {}) {
     distinct: p.distinct,
     unreadable: p.unreadable,
   };
+}
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────
+ * NAME STRENGTH — added after the first live run, which was almost all noise
+ * ─────────────────────────────────────────────────────────────────────────
+ * The first screen of 40 principals returned seven NOTABLE candidates. Six
+ * were wrong, and wrong in ways that would have been defamatory to publish:
+ *
+ *   "Kingdom of Saudi Arabia"  → "ISIL-Saudi Arabia"        score 0.72
+ *   "Republic of Angola"       → "Cochan S.A."              score 0.72
+ *   "Chamber of Commerce and Industry of Serbia"
+ *                              → a RUSSIAN regional chamber score 0.76
+ *   "Sinn Fein"                → "Continuity IRA"           score 0.91
+ *
+ * Every one of those matched on words that identify nobody: SAUDI ARABIA,
+ * ANGOLA, CHAMBER OF COMMERCE AND INDUSTRY. The score was high because the
+ * strings really do overlap. The overlap is just meaningless.
+ *
+ * So a second, independent test runs beside the score: do the two names
+ * share a DISTINCTIVE word, or are their full token sets nearly identical?
+ * If neither holds, the row is WEAK however confident the algorithm was.
+ * A score answers "are these strings similar". This answers "is the
+ * similarity on anything that identifies an entity".
+ */
+
+/**
+ * Words that identify no one.
+ *
+ * Legal forms, institutional furniture, and the geography that appears in
+ * the name of every ministry and chamber on earth. NOT exhaustive and
+ * cannot be: this is a heuristic, and a name whose only shared word is a
+ * country that is not on this list will still read as strong. It is a
+ * filter on the loudest false positives, not a proof of identity.
+ */
+const GENERIC_TOKENS = new Set([
+  // legal form and corporate furniture
+  'inc', 'llc', 'ltd', 'limited', 'plc', 'corp', 'corporation', 'company',
+  'co', 'gmbh', 'ag', 'sa', 'sas', 'sarl', 'bv', 'nv', 'spa', 'srl', 'ab',
+  'oy', 'pte', 'pty', 'kk', 'group', 'holding', 'holdings', 'partners',
+  'international', 'global', 'worldwide', 'services', 'solutions',
+  // the institutional furniture that names most FARA principals
+  'government', 'republic', 'kingdom', 'state', 'states', 'united',
+  'embassy', 'ministry', 'department', 'office', 'bureau', 'agency',
+  'authority', 'commission', 'council', 'committee', 'federation',
+  'union', 'national', 'federal', 'central', 'public', 'peoples', 'people',
+  'chamber', 'commerce', 'industry', 'trade', 'board', 'association',
+  'organization', 'organisation', 'institute', 'foundation', 'fund',
+  'bank', 'development', 'investment', 'general', 'consulate', 'mission',
+  'permanent', 'representative', 'delegation', 'secretariat',
+  // grammar
+  'of', 'the', 'and', 'for', 'in', 'to', 'a', 'an', 'de', 'la', 'le', 'del',
+]);
+
+/**
+ * Country and demonym words.
+ *
+ * Kept SEPARATE from the list above so the reason a token was ignored is
+ * legible: "ARABIA is a place" and "CHAMBER is furniture" are different
+ * kinds of meaningless, and a future reader deciding whether to add a word
+ * needs to know which pile it belongs in.
+ */
+const PLACE_TOKENS = new Set([
+  'saudi', 'arabia', 'arabian', 'angola', 'angolan', 'serbia', 'serbian',
+  'russia', 'russian', 'ukraine', 'ukrainian', 'china', 'chinese', 'japan',
+  'japanese', 'korea', 'korean', 'israel', 'israeli', 'india', 'indian',
+  'bangladesh', 'pakistan', 'egypt', 'turkey', 'turkish', 'qatar', 'kuwait',
+  'emirates', 'abu', 'dhabi', 'dubai', 'irish', 'ireland', 'britain',
+  'british', 'england', 'france', 'french', 'germany', 'german', 'italy',
+  'italian', 'spain', 'spanish', 'america', 'american', 'usa', 'us',
+  'africa', 'african', 'asia', 'asian', 'europe', 'european', 'siberia',
+  'eastern', 'western', 'northern', 'southern', 'north', 'south', 'east',
+  'west', 'taiwan', 'azerbaijan', 'nigeria', 'kenya', 'brazil', 'mexico',
+]);
+
+/**
+ * Pure grammar. Counted as generic (they identify nobody) but EXCLUDED from
+ * the token-set overlap, because a leading "THE" is not a difference between
+ * two names. Leaving it in scored "Republic of Angola" against "THE REPUBLIC
+ * OF ANGOLA" at 0.75 and called the same entity a weak match.
+ */
+const GRAMMAR = new Set(['of', 'the', 'and', 'for', 'in', 'to', 'a', 'an',
+  'de', 'la', 'le', 'del', 'du', 'des', 'el']);
+
+/** Case-folded, accent-stripped, punctuation-free tokens. */
+function tokens(name) {
+  return String(name || '')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .split(' ')
+    .filter(Boolean);
+}
+
+/** The tokens in a name that could actually identify an entity. */
+function distinctive(name) {
+  return tokens(name).filter((t) => t.length > 1
+    && !GENERIC_TOKENS.has(t) && !PLACE_TOKENS.has(t));
+}
+
+/** Overlap of two token SETS, 0..1. */
+function jaccard(a, b) {
+  const A = new Set(a); const B = new Set(b);
+  if (!A.size && !B.size) return 0;
+  let shared = 0;
+  for (const t of A) if (B.has(t)) shared += 1;
+  return shared / (A.size + B.size - shared);
+}
+
+/**
+ * Is the similarity between two names on anything that identifies an entity?
+ *
+ * TWO ways to pass, because one alone is wrong in a different direction:
+ *
+ *   a shared DISTINCTIVE word  — "Cochan" appears in both, so they are
+ *                                talking about the same thing
+ *   near-identical TOKEN SETS  — "Government of the People's Republic of
+ *                                Bangladesh, Embassy" against the same
+ *                                name without "Embassy". Every word is
+ *                                generic, and the names are still the same
+ *                                name. Requiring a distinctive token would
+ *                                throw this away.
+ */
+function nameStrength(asked, matched) {
+  const da = distinctive(asked);
+  const db = distinctive(matched);
+  const shared = da.filter((t) => db.includes(t));
+  const core = (n) => tokens(n).filter((t) => !GRAMMAR.has(t));
+  const overlap = jaccard(core(asked), core(matched));
+  return {
+    shared,
+    overlap: Math.round(overlap * 100) / 100,
+    // A name made only of generic and place words cannot be matched
+    // distinctively at all, and saying so is more useful than a number.
+    askedAllGeneric: da.length === 0,
+    weak: shared.length === 0 && overlap < 0.8,
+  };
+}
+
+/**
+ * A clean exact match is evidence AGAINST the dirty near-matches beside it.
+ *
+ * The live run: "Sinn Fein" matched Sinn Féin at 1.00 with NO topics, and
+ * Continuity IRA at 0.91 with sanctions topics. The party and the proscribed
+ * group are different organisations, and the register holds both. When a
+ * principal has a near-perfect match that carries nothing, a lower-scored
+ * listed match is very likely a DIFFERENT ENTITY that shares some words.
+ *
+ * This does not delete the row. It attaches the fact, because the operator
+ * is the one who decides -- and because "there is a clean exact match for
+ * this name" is exactly the context that stops a bad publication.
+ */
+function annotate(rows) {
+  const best = new Map();
+  for (const r of rows) {
+    const st = nameStrength(r.asked, r.matched_name);
+    const clean = st.overlap >= 0.95 && r.significance !== 'NOTABLE';
+    if (clean) {
+      const cur = best.get(r.asked);
+      if (!cur || (r.score || 0) > (cur.score || 0)) {
+        best.set(r.asked, { name: r.matched_name, score: r.score, url: r.url });
+      }
+    }
+  }
+  return rows.map((r) => {
+    const strength = nameStrength(r.asked, r.matched_name);
+    const cleanExact = best.get(r.asked) || null;
+    return {
+      ...r,
+      strength,
+      // Only attached to a row that is NOT itself the clean exact match.
+      cleanExact: cleanExact && strength.overlap < 0.95 ? cleanExact : null,
+    };
+  });
 }
 
 /**
@@ -249,4 +436,5 @@ function bySignificance(rows) {
 module.exports = {
   MATCH, EXPECTED_TOPICS, NOTABLE_TOPICS,
   topicClass, principals, matchBody, nameForKey, parseBatch, screen, bySignificance,
+  GENERIC_TOKENS, PLACE_TOKENS, GRAMMAR, tokens, distinctive, jaccard, nameStrength, annotate,
 };

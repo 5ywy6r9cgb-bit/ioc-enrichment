@@ -2102,17 +2102,28 @@ async function cmdScreen(opts = {}) {
     console.log(C.dim('  they are listed at the end so none is mistaken for a null result.\n'));
   }
 
-  const g = SC.bySignificance(out.rows);
+  const annotated = SC.annotate(out.rows);
+  const g = SC.bySignificance(annotated);
   const byName = new Map(rows.map((r) => [r.principal, r]));
+
+  // NOTABLE IS SPLIT BY NAME STRENGTH, not merged and sorted by score.
+  //
+  // The first live run returned seven NOTABLE rows and six matched on
+  // words that identify nobody -- SAUDI ARABIA, ANGOLA, CHAMBER OF
+  // COMMERCE. Printing them in one list under one heading makes the
+  // headline six-sevenths noise, and the reader who trusts the heading is
+  // the reader who publishes "Saudi government linked to ISIL".
+  const strong = g.NOTABLE.filter((r) => !r.strength.weak);
+  const weak = g.NOTABLE.filter((r) => r.strength.weak);
 
   // NOTABLE FIRST, and it is the only class that can become a finding.
   console.log('  ' + C.b('NOTABLE') + C.dim('  — sanctions, export control, debarment, crime.')
     + C.dim('\n  Registering as a foreign agent does NOT predict these.'));
-  if (!g.NOTABLE.length) {
+  if (!strong.length) {
     console.log('    ' + C.g('none in what was screened') + C.dim(' — which is a fact about '
       + `these ${out.asked.length} names, not about the register.`));
   }
-  for (const r of g.NOTABLE) {
+  for (const r of strong) {
     const meta = byName.get(r.asked) || {};
     console.log(`\n    ${C.r(r.asked)}`);
     console.log(C.dim(`      FARA: ${(meta.countries || []).join(' / ') || 'country not stated'}`
@@ -2120,7 +2131,38 @@ async function cmdScreen(opts = {}) {
     console.log(`      matched ${C.b(r.matched_name)} (${r.schema})`
       + `  score ${r.score === null ? '?' : r.score.toFixed(2)}`);
     console.log(C.dim(`      topics: ${r.topics.join(', ') || 'none'}`));
+    console.log(C.dim(`      names overlap ${r.strength.overlap}`
+      + `${r.strength.shared.length ? `, sharing "${r.strength.shared.join('", "')}"` : ''}`));
     console.log(C.dim(`      ${r.url}`));
+    if (r.cleanExact) {
+      console.log('      ' + C.y('BUT an exact match on this name exists and is clean:'));
+      console.log(C.dim(`      "${r.cleanExact.name}" at ${r.cleanExact.score} with no listing.`));
+      console.log(C.dim('      That is usually two different entities sharing words.'));
+    }
+  }
+
+  // The weak ones are PRINTED, not dropped. A filter that silently deletes
+  // rows is a filter nobody can check, and one of these may yet be real.
+  if (weak.length) {
+    console.log(`\n  ${C.y('NOTABLE, BUT THE NAMES BARELY OVERLAP')}  ${weak.length}`);
+    console.log(C.dim('  These carry sanctions-type topics AND matched on words that'));
+    console.log(C.dim('  identify nobody — a country, or institutional furniture like'));
+    console.log(C.dim('  "chamber of commerce". The score can be high and still mean'));
+    console.log(C.dim('  nothing. Read every one before treating it as a lead.'));
+    for (const r of weak) {
+      console.log(`\n    ${C.dim(r.asked.slice(0, 44))}`);
+      console.log(`      → ${r.matched_name.slice(0, 52)}`
+        + C.dim(`  score ${r.score === null ? '?' : r.score.toFixed(2)}`)
+        + C.dim(`  overlap ${r.strength.overlap}`));
+      console.log(C.dim(`      topics: ${r.topics.join(', ')}`));
+      if (r.strength.askedAllGeneric) {
+        console.log(C.dim('      the FARA name is entirely generic and place words —'));
+        console.log(C.dim('      nothing in it can identify one entity rather than another'));
+      }
+      if (r.cleanExact) {
+        console.log(C.dim(`      a clean exact match exists: "${r.cleanExact.name}"`));
+      }
+    }
   }
 
   console.log(`\n  ${C.b('UNCLEAR')}  ${g.UNCLEAR.length}`
