@@ -692,7 +692,7 @@ relief"* is the **firm recording that it paid the consumer**: a fact about
 the company, from the company. That is a different order of evidence from an
 allegation, and it is the one to build on.
 
-#### `FILTER NOT APPLIED` — the check that caught the first live run
+#### `SCOPE IS WIDER THAN REQUESTED` — the capture describes itself
 
 The first real run asked for `--state OH` and came back with Arizona,
 California, North Dakota, Florida, Massachusetts, South Carolina, Virginia,
@@ -700,23 +700,33 @@ New Jersey, Colorado and Texas. **Not one Ohio row.** The request carried
 `state=OH`, the service answered `200`, and the header printed *"state OH"*
 over a nationwide result set.
 
-That is worse than the `404` it replaced. **A 404 stops you. A filter that is
-announced and silently ignored hands you plausible rows** and lets you write
-*"in Ohio"* over data from ten other states.
+**The problem is the label, not the rows.** Wider data is *more* useful on a
+desk accumulating a corpus — a nationwide capture connects dots an Ohio-only
+one cannot. What cannot be allowed is a file whose **recorded scope does not
+match its contents**, because a year from now the file is all there is.
 
-So the returned rows are now checked against what was asked for — state,
-date, product — and any discrepancy prints in **red** above the results:
+So a wider result is **not a failure**. It prints as a notice, and the ledger
+records what actually came back:
 
 ```
-FILTER NOT APPLIED  YOU ASKED FOR OH AND 100 OF 100 ROWS ARE NOT OH
-                    (AZ, CA, CO, FL, MA, ND, NJ, SC, TX, VA). The state
-                    filter did not apply. Do NOT describe this capture as
-                    being about OH.
+SCOPE IS WIDER THAN REQUESTED  (state: asked OH)
+  100 row(s) span 34 state(s), not just OH. This capture is WIDER than
+  asked for — keep it, but it is not an OH capture and must not be cited
+  as one.
+  got: AL, AZ, CA, CO, FL, ...
+
+KEEP IT — wider data connects more dots than narrow data. The ledger
+records the scope actually returned beside the scope you asked for, so
+this file can never be cited as the narrower one.
 ```
 
-It cannot fix a broken parameter — only finding the right one does that. It
-can refuse to let the discrepancy go unnoticed. `checkFilters` is an
-optional hook, so any connector can adopt it.
+The provenance record gains a `scope` field carrying `requested`, any
+`unapplied` filters with what was observed instead, and
+`all_filters_applied`. **Success is recorded as a positive fact**, not as
+silence — otherwise a capture with no scope note would be ambiguous between
+*"the filters worked"* and *"nobody checked."*
+
+`checkFilters` is an optional hook, so any connector can adopt it.
 
 #### What a complaint is
 

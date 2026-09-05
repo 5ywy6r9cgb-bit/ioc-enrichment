@@ -1126,34 +1126,54 @@ const CONNECTORS = {
      * request carried `state=OH`, the service answered 200, and the header
      * printed "state OH" over a nationwide result set.
      *
-     * That is worse than the 404 it replaced. A 404 stops you. A filter
-     * that is announced and silently ignored hands you plausible rows and
-     * lets you write "in Ohio" over data from ten other states.
+     * A 404 stops you. A filter that is announced and silently ignored
+     * hands you plausible rows and lets you write "in Ohio" over data from
+     * ten other states.
      *
-     * So the rows are checked AGAINST WHAT WAS ASKED FOR. This cannot fix a
-     * broken parameter -- only the operator can, by finding the right one --
-     * but it can refuse to let the discrepancy go unnoticed.
+     * THE PROBLEM IS THE LABEL, NOT THE ROWS. Wider data is more useful
+     * than narrower data on a desk that is accumulating a corpus -- a
+     * nationwide capture will connect dots an Ohio-only one cannot. What
+     * cannot be allowed is a file whose RECORDED SCOPE does not match its
+     * CONTENTS, because a year from now the file is all there is.
+     *
+     * So this does not fail the run. It reports the scope actually
+     * returned, and runConnector writes that into the ledger beside the
+     * scope requested, so the capture carries the truth about itself.
+     *
+     * @returns [{ filter, requested, observed, applied, note }]
      */
     checkFilters: (rows, o = {}) => {
       const out = [];
       if (o.state) {
         const want = String(o.state).toUpperCase().slice(0, 2);
         const seen = rows.map((r) => r.state).filter(Boolean);
-        const wrong = seen.filter((x) => x !== want);
-        if (seen.length && wrong.length) {
-          const others = [...new Set(wrong)].sort().join(', ');
-          out.push(`YOU ASKED FOR ${want} AND ${wrong.length} OF ${seen.length} `
-            + `ROWS ARE NOT ${want} (${others}). The state filter did not `
-            + 'apply. Do NOT describe this capture as being about ' + want + '.');
+        const others = [...new Set(seen.filter((x) => x !== want))].sort();
+        if (seen.length && others.length) {
+          out.push({
+            filter: 'state',
+            requested: want,
+            observed: [...new Set(seen)].sort(),
+            applied: false,
+            note: `${seen.length} row(s) span ${[...new Set(seen)].length} `
+              + `state(s), not just ${want}. This capture is WIDER than asked `
+              + `for — keep it, but it is not a ${want} capture and must not `
+              + `be cited as one.`,
+          });
         }
       }
       if (o.since) {
         const cut = String(o.since).slice(0, 10);
         const early = rows.filter((r) => r.received && r.received < cut);
         if (early.length) {
-          out.push(`YOU ASKED FOR ROWS SINCE ${cut} AND ${early.length} ARE `
-            + `OLDER (earliest ${early.map((r) => r.received).sort()[0]}). The `
-            + 'date filter did not apply.');
+          out.push({
+            filter: 'since',
+            requested: cut,
+            observed: early.map((r) => r.received).sort()[0],
+            applied: false,
+            note: `${early.length} row(s) predate ${cut} (earliest `
+              + `${early.map((r) => r.received).sort()[0]}). The window is `
+              + 'wider than asked for.',
+          });
         }
       }
       if (o.product) {
@@ -1161,9 +1181,15 @@ const CONNECTORS = {
         const off = rows.filter((r) => r.product
           && !r.product.toLowerCase().includes(want));
         if (rows.length && off.length === rows.length) {
-          out.push(`NO ROW MATCHES THE PRODUCT YOU ASKED FOR (${o.product}). `
-            + 'The product filter did not apply, or the value is not one the '
-            + 'CFPB uses — its product names are exact strings, not keywords.');
+          out.push({
+            filter: 'product',
+            requested: o.product,
+            observed: [...new Set(rows.map((r) => r.product).filter(Boolean))].slice(0, 6),
+            applied: false,
+            note: `No row matches ${o.product}. Either the filter did not `
+              + 'apply, or the value is not one the CFPB uses — its product '
+              + 'names are exact strings, not keywords.',
+          });
         }
       }
       return out;
@@ -2107,6 +2133,28 @@ async function runConnector(name, query, opts = {}) {
     parseError = e.message;
   }
 
+  // ---- what scope did we actually get? ---------------------------------
+  const FILTER_KEYS = ['state', 'product', 'since', 'country', 'client',
+    'cycle', 'committee', 'candidate', 'company', 'pageid'];
+  const requested = {};
+  for (const k of FILTER_KEYS) if (opts[k]) requested[k] = opts[k];
+  let scopeNote = { requested, checked: false };
+  if (typeof c.checkFilters === 'function' && results.length) {
+    try {
+      const flags = c.checkFilters(results, opts) || [];
+      scopeNote = {
+        requested,
+        checked: true,
+        // An empty list means every filter asked for was honoured by the
+        // rows. That is a POSITIVE fact and is recorded as one.
+        unapplied: flags.map((f) => ({
+          filter: f.filter, requested: f.requested, observed: f.observed,
+        })),
+        all_filters_applied: flags.length === 0,
+      };
+    } catch { scopeNote = { requested, checked: false }; }
+  }
+
   // ---- record ----------------------------------------------------------
   const ledger = new P.Ledger(opts.ledgerPath || LEDGER);
   const record = P.makeRecord({
@@ -2134,6 +2182,15 @@ async function runConnector(name, query, opts = {}) {
       http_status: res.status,
       live_calls: 1,
       result_count: results.length,
+      // WHAT THIS FILE ACTUALLY CONTAINS.
+      //
+      // A capture outlives the session that made it. If the request asked
+      // for one state and the service returned the country, the row that
+      // survives is this one -- and a year from now it is the only thing
+      // that can say so. Recorded whether or not the filter applied, so
+      // "asked for OH, got OH" is on the record too and its absence never
+      // has to be read as agreement.
+      scope: scopeNote,
       // The field that stops a hit becoming a fact.
       result_disposition: 'lead_needs_primary_source',
       parse_error: parseError,

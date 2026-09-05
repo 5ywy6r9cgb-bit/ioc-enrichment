@@ -180,13 +180,17 @@ module.exports = function run() {
       { state: 'CA', received: '2026-07-29', product: 'Checking or savings account' },
       { state: 'OH', received: '2026-07-28', product: 'Checking or savings account' },
     ];
-    const w = C.checkFilters(rows, { state: 'OH' });
+    const [w] = C.checkFilters(rows, { state: 'OH' });
     check('a state filter that did not apply is caught',
-      w.length === 1 && /FILTER|did not apply/i.test(w[0]), JSON.stringify(w));
-    check('and the message names the states that came back instead',
-      /AZ, CA/.test(w[0]), w[0]);
-    check('and forbids describing the capture as being about that state',
-      /Do NOT describe this capture/.test(w[0]));
+      !!w && w.filter === 'state' && w.applied === false, JSON.stringify(w));
+    check('and it reports the states that actually came back',
+      Array.isArray(w.observed) && w.observed.join(',') === 'AZ,CA,OH',
+      JSON.stringify(w.observed));
+    // WIDER IS NOT WRONG. A nationwide capture connects more dots than an
+    // Ohio one; the fault would be FILING it as Ohio. So the note says keep
+    // it and says what it must not be cited as.
+    check('the note says keep it, and says what it is not',
+      /keep it/.test(w.note) && /must not\s+be cited as one/.test(w.note), w.note);
     check('a filter that DID apply raises nothing',
       C.checkFilters([{ state: 'OH' }, { state: 'OH' }], { state: 'OH' }).length === 0);
     check('and no filter asked for raises nothing',
@@ -199,7 +203,7 @@ module.exports = function run() {
     const since = C.checkFilters(
       [{ received: '2023-05-01' }, { received: '2026-01-01' }], { since: '2024-01-01' });
     check('a date filter that did not apply is caught',
-      since.length === 1 && /2023-05-01/.test(since[0]), JSON.stringify(since));
+      since.length === 1 && since[0].observed === '2023-05-01', JSON.stringify(since));
     check('and one that did applies cleanly',
       C.checkFilters([{ received: '2025-01-01' }], { since: '2024-01-01' }).length === 0);
 
@@ -209,7 +213,8 @@ module.exports = function run() {
     const prod = C.checkFilters([{ product: 'Mortgage' }, { product: 'Mortgage' }],
       { product: 'Checking or savings account' });
     check('a product filter that matched nothing is caught',
-      prod.length === 1 && /product filter did not apply/.test(prod[0]));
+      prod.length === 1 && prod[0].filter === 'product'
+        && /not one the CFPB uses/.test(prod[0].note), JSON.stringify(prod));
     check('but a partial match is not treated as a failure',
       C.checkFilters([{ product: 'Mortgage' }, { product: 'Checking or savings account' }],
         { product: 'Checking or savings account' }).length === 0);
@@ -220,15 +225,40 @@ module.exports = function run() {
     const cli = fs.readFileSync(require.resolve('./cli.js'), 'utf8');
     check('the CLI calls checkFilters on every connector that has it',
       /connFor\.checkFilters/.test(cli));
-    check('and prints it in red, not dimmed',
-      /C\.r\('FILTER NOT APPLIED'\)/.test(cli));
-    check('and says the capture answers a DIFFERENT question',
-      /of a DIFFERENT/.test(cli));
+    check('and calls it a wider scope rather than a failure',
+      /SCOPE IS WIDER THAN REQUESTED/.test(cli));
+    check('and tells the operator to KEEP the wider capture',
+      /KEEP IT — wider data connects more dots/.test(cli));
+    check('and says the ledger records what actually came back',
+      /records the scope actually returned/.test(cli));
     // Only when there are rows: checkFilters on an empty result would
     // report "no row matches" for every filtered search that found nothing,
     // which is the zero-result case and is already explained by diagnose().
     check('and only when rows came back',
       /checkFilters === 'function' && out\.results\.length/.test(cli));
+  }
+
+  // ══ 8. THE CAPTURE MUST CARRY THE TRUTH ABOUT ITSELF ═════════════════
+  //
+  // A capture outlives the session that made it. If the request asked for
+  // one state and the service returned the country, the row that survives
+  // is the ledger entry -- and a year from now it is the only thing that
+  // can say what the file holds.
+  {
+    const src = fs.readFileSync(require.resolve('./registry.js'), 'utf8');
+    check('runConnector records the scope beside the result',
+      /scope: scopeNote/.test(src));
+    check('and records the filters that were REQUESTED',
+      /const requested = \{\};/.test(src) && /FILTER_KEYS/.test(src));
+    // Recorded on success too. If only failures were written, a capture
+    // with no scope note would be ambiguous between "filters worked" and
+    // "nobody checked", and silence would get read as agreement.
+    check('and records success as a positive fact, not as silence',
+      /all_filters_applied: flags\.length === 0/.test(src));
+    check('and marks the case where nothing was checked at all',
+      /checked: false/.test(src));
+    check('the reason a capture must describe itself is in the source',
+      /a year from now it is the only thing/.test(src));
   }
 
   console.log(`\n  ${FAIL === 0 ? 'PASS' : 'FAIL'} — ${PASS}/${PASS + FAIL} checks\n`);

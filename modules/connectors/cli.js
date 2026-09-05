@@ -1724,11 +1724,17 @@ async function cmdSearch(name, query, opts) {
     let warnings = [];
     try { warnings = connFor.checkFilters(out.results, opts) || []; } catch { warnings = []; }
     for (const w of warnings) {
-      console.log('\n  ' + C.r('FILTER NOT APPLIED') + '  ' + w);
+      console.log('\n  ' + C.y('SCOPE IS WIDER THAN REQUESTED') + '  '
+        + C.dim(`(${w.filter}: asked ${w.requested})`));
+      console.log('    ' + w.note);
+      if (Array.isArray(w.observed)) {
+        console.log(C.dim('    got: ' + w.observed.join(', ')));
+      }
     }
     if (warnings.length) {
-      console.log(C.dim('\n  The capture is on disk and is a real result — of a DIFFERENT'));
-      console.log(C.dim('  question than the one you asked. Re-read the request line above.'));
+      console.log(C.dim('\n  KEEP IT — wider data connects more dots than narrow data. The'));
+      console.log(C.dim('  ledger records the scope actually returned beside the scope you'));
+      console.log(C.dim('  asked for, so this file can never be cited as the narrower one.'));
     }
   }
 
