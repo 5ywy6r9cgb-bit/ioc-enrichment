@@ -187,7 +187,8 @@ function readCaptures(captureDir) {
 
     let results = [];
     let total = null;
-    let truncated = false;
+    // null = UNKNOWN. Not false. See below.
+    let truncated = null;
     try {
       const body = JSON.parse(fs.readFileSync(path.join(captureDir, f), 'utf8'));
       results = R.CONNECTORS[connector].parse(body) || [];
@@ -195,8 +196,21 @@ function readCaptures(captureDir) {
       // at the page size, so a count larger than the rows we kept means this
       // capture is a slice. Absent count means truncation is unknown, which is
       // not the same as absent -- so it stays null rather than becoming false.
+      // CourtListener v4 answers `count` with a URL you must call separately
+      // ("...?count=on&docket=65407433"), not a number, so this correctly
+      // yields null — the source reported no usable total.
       total = Number.isFinite(body && body.count) ? body.count : null;
-      truncated = total !== null && total > results.length;
+      // ── UNKNOWN IS NOT COMPLETE ──────────────────────────────────────
+      //
+      // This was `total !== null && total > results.length`, which makes
+      // `truncated` FALSE whenever the total is unknown — and false here
+      // reads as "this capture holds everything the source had". A 20-row
+      // page of a 3,472-entry federal docket was marked complete.
+      //
+      // The comment directly above already said the total stays null because
+      // absent is not the same as zero. One line later that intent was
+      // dropped. Three states, not two: true, false, and don't know.
+      truncated = total === null ? null : total > results.length;
     } catch {
       // A capture that will not parse is not a crash. It stays on disk, hashed,
       // and is reported in the summary rather than silently skipped.

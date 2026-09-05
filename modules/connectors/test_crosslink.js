@@ -608,6 +608,53 @@ module.exports = function run() {
       /clients_on_subjects\} of \$\{g\.client_count\}/.test(cli));
   }
 
+  // ══ UNKNOWN IS NOT COMPLETE ═══════════════════════════════════════════
+  //
+  // readCaptures computed `truncated = total !== null && total > results
+  // .length`, so a capture whose source reported no usable total came back
+  // truncated:FALSE — which reads as "this holds everything the source had".
+  //
+  // Live cause: CourtListener v4 answers `count` with a URL you must call
+  // separately, not a number. One page of 20 entries from a federal MDL
+  // docket carrying 3,472 of them was marked complete.
+  {
+    const os = require('os');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cover-'));
+    const w = (name, body) => fs.writeFileSync(path.join(dir, name), JSON.stringify(body));
+
+    // a source that reports a real total, and we have all of it
+    w('live_capture_opensanctions_A_2026-01-01T00-00-00-000Z.json',
+      { count: 1, responses: {} });
+    // a source that reports a real total larger than what we kept
+    w('live_capture_federalregister_B_2026-01-01T00-00-00-000Z.json',
+      { count: 900, results: [{ document_number: '1', title: 'x' }] });
+    // CourtListener v4: count is a URL, not a number
+    w('live_capture_courtlistener_C_2026-01-01T00-00-00-000Z.json',
+      { count: 'https://www.courtlistener.com/api/rest/v4/docket-entries/?count=on&docket=65407433',
+        results: [{ caseName: 'x', absolute_url: '/docket/1/' }] });
+
+    const caps = X.readCaptures(dir);
+    const by = (n) => caps.find((c) => c.connector === n);
+
+    check('a source that reported a larger total is truncated',
+      by('federalregister').truncated === true);
+    check('a count that is a URL yields no usable total',
+      by('courtlistener').total === null, String(by('courtlistener').total));
+    check('and completeness is UNKNOWN — null, not false',
+      by('courtlistener').truncated === null,
+      String(by('courtlistener').truncated));
+    check('unknown is distinguishable from complete',
+      by('courtlistener').truncated !== by('opensanctions').truncated);
+
+    const cli = fs.readFileSync(require.resolve('./cli.js'), 'utf8');
+    check('crosslink states coverage before its findings',
+      /completeness is UNKNOWN/.test(cli));
+    check('and says the counts are floors when anything is short or unknown',
+      /Every count below is a floor/.test(cli));
+
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+
   console.log(`\n  ${FAIL === 0 ? 'PASS' : 'FAIL'} — ${PASS}/${PASS + FAIL} checks\n`);
   return FAIL;
 };

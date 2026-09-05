@@ -575,7 +575,24 @@ function cmdCrosslink(opts) {
 
   console.log(`\n  ${C.b('CROSS-REFERENCE')}`);
   console.log(C.dim(`  ${captures.length} capture(s) · ${total} result(s) · `
-    + `${subjects.length} subject(s) · no network call\n`));
+    + `${subjects.length} subject(s) · no network call`));
+
+  // ---- is what we read COMPLETE? ---------------------------------------
+  //
+  // Every count below is drawn from these captures. Whether a capture holds
+  // everything its source had is a fact about coverage, and it belongs above
+  // the findings rather than nowhere. Three states: cut short, complete, and
+  // the source never said — which is not the same as complete.
+  const cut = captures.filter((c) => c.truncated === true).length;
+  const dunno = captures.filter((c) => c.truncated === null && !c.unparsed).length;
+  if (cut || dunno) {
+    const parts = [];
+    if (cut) parts.push(`${cut} held fewer rows than the source reported`);
+    if (dunno) parts.push(`${dunno} reported no usable total, so completeness is UNKNOWN`);
+    console.log(C.y(`  coverage: ${parts.join(' · ')}`));
+    console.log(C.dim('  Every count below is a floor.'));
+  }
+  console.log('');
 
   const { byName, edges, phraseSubjects } = X.index(captures);
 
