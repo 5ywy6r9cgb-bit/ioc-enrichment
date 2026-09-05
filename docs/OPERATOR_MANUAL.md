@@ -650,6 +650,36 @@ it.
 `connect all` deliberately **skips `bls`** — it takes series IDs, not names,
 so a company name against it is meaningless.
 
+### `corpus inventory` writes one folder per source
+
+```bash
+bin/sentinel corpus inventory N1        # → inventory_out/N1/inventory.csv
+bin/sentinel corpus inventory N2        # → inventory_out/N2/inventory.csv
+bin/sentinel corpus inventory N1 N2     # → inventory_out/N1+N2/  (a third corpus)
+```
+
+`--out` used to default to one shared `inventory_out` for every run, and the
+rule that retires a stale file assumed both described the **same** corpus.
+
+They do not. On the live desk, inventorying **N1** (7,958 files, COMPLETE)
+and then **N2** — which fell off the bus at 3,468 of 7,951 — wrote N2's
+`inventory.PARTIAL.csv` into the slot N1's finished result had just filled,
+and renamed N1's away as `.superseded`. **A completed inventory of one drive
+was retired by a half-finished scan of a different one, and nothing said so.**
+
+Superseding is right *within* a source — last night's partial should not sit
+beside this morning's complete run of the same drive — and wrong *across*
+sources. So the default folder now carries the source in its name, and a run
+that finds a different corpus's inventory in its folder **leaves it alone**
+and says why.
+
+A multi-root scan (`N1 N2`) is a **third** corpus with its own folder, not
+either drive's — otherwise a two-drive partial could retire a one-drive
+complete, which is the same bug wearing a different hat.
+
+Nothing is ever deleted. A superseded file keeps its rows under
+`inventory.csv.superseded`.
+
 ### `doc sections` — which sections of a law say a thing
 
 ```bash

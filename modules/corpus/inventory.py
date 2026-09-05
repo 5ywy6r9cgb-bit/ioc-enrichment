@@ -469,6 +469,31 @@ def make_charts(rows: list[dict], outdir: Path) -> None:
         plt.close(fig)
 
 
+def source_slug(roots: list[str]) -> str:
+    """A folder name for the thing that was scanned.
+
+    Shelf names ("N1") stay as they are; paths become their last meaningful
+    component. Several roots join with "+", so a genuine two-drive scan gets
+    its own folder rather than colliding with either drive's single-drive one.
+    """
+    parts = []
+    for r in roots:
+        base = str(r).rstrip("/").split("/")[-1] or str(r)
+        clean = re.sub(r"[^A-Za-z0-9._-]+", "-", base).strip("-") or "corpus"
+        parts.append(clean)
+    slug = "+".join(parts)
+    return slug[:80]
+
+
+def source_of(outdir: Path) -> str | None:
+    """What the inventory already in this folder describes, if it says."""
+    f = outdir / "_SOURCE.txt"
+    try:
+        return f.read_text(encoding="utf-8").strip() or None
+    except OSError:
+        return None
+
+
 def load_previous(outdir: Path) -> dict:
     """Index a previous run's rows by (shelf, relpath, size) so --resume can
     skip re-hashing them.
@@ -547,7 +572,8 @@ def main() -> int:
     ap = argparse.ArgumentParser(prog="sentinel corpus inventory")
     ap.add_argument("roots", nargs="+",
                     help="shelf names (N1, N2, N1/records) or folder paths")
-    ap.add_argument("--out", default="inventory_out", help="output folder")
+    ap.add_argument("--out", default=None,
+                    help="output folder (default: inventory_out/<source>)")
     ap.add_argument("--save-text", metavar="DIR",
                     help="also keep each PDF's extracted text, named by the "
                          "hash of the bytes it came from — a corpus you can "
@@ -575,7 +601,21 @@ def main() -> int:
         targets.append((spec if vol else "", root, vol.id if vol else "",
                         vol.path if vol else root))
 
-    outdir = Path(args.out).expanduser()
+    # ONE FOLDER PER SOURCE.
+    #
+    # --out used to default to a single "inventory_out" for every run, and
+    # the supersede rule below assumed both files described the SAME corpus.
+    # They do not. Inventorying N1 and then N2 wrote N2's PARTIAL over the
+    # slot N1's COMPLETE had just filled, and renamed N1's result away as
+    # "superseded" -- a 7,958-file finished inventory of one drive retired by
+    # a half-finished scan of a different one, with nothing said about it.
+    #
+    # Superseding is right WITHIN a source (last night's partial should not
+    # sit beside this morning's complete run of the same drive) and wrong
+    # ACROSS sources. So the default output folder now carries the source in
+    # its name, and the supersede rule stays inside it where it is true.
+    outdir = (Path(args.out).expanduser() if args.out
+              else Path("inventory_out") / source_slug(args.roots))
     outdir.mkdir(parents=True, exist_ok=True)
 
     done = load_previous(outdir) if args.resume else {}
@@ -627,12 +667,26 @@ def main() -> int:
         w.writeheader()
         w.writerows(rows)
 
+    scanned = " ".join(args.roots)
+    prior = source_of(outdir)
+    (outdir / "_SOURCE.txt").write_text(scanned + "\n", encoding="utf-8")
+
     stale = outdir / ("inventory.PARTIAL.csv" if complete else "inventory.csv")
     if stale.exists():
-        # A completed run must not leave last night's partial sitting beside
-        # it, and a partial run must not leave a stale "complete" file that is
-        # now the older, smaller truth.
-        stale.rename(outdir / (stale.name + ".superseded"))
+        if prior is not None and prior != scanned:
+            # A DIFFERENT corpus's inventory is sitting here. Retiring it
+            # would destroy a result about records this run never looked at.
+            print(f"\n  !! {outdir}/{stale.name} describes {prior!r}, not"
+                  f" {scanned!r}.", file=sys.stderr)
+            print("     It was LEFT ALONE. Two corpora are sharing one output"
+                  " folder;", file=sys.stderr)
+            print("     pass --out to separate them.", file=sys.stderr)
+        else:
+            # A completed run must not leave last night's partial sitting
+            # beside it, and a partial run must not leave a stale "complete"
+            # file that is now the older, smaller truth. True only when both
+            # describe the SAME source -- see the note above outdir.
+            stale.rename(outdir / (stale.name + ".superseded"))
 
     if truncated:
         marker = outdir / "_INCOMPLETE.txt"

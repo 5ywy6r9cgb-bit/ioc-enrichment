@@ -344,6 +344,47 @@ sys.exit(I.main())
         check("the OCR stage no longer treats Office files as page bundles",
               '".docx", ".xlsx", ".pptx"' in ocr_src)
 
+    # ══ ONE OUTPUT FOLDER PER SOURCE ═══════════════════════════════════
+    #
+    # --out defaulted to a single "inventory_out" for every run, and the
+    # supersede rule assumed both files described the SAME corpus. They do
+    # not. Inventorying N1 (7,958 files, COMPLETE) and then N2 (which fell
+    # off the bus at 3,468) wrote N2's PARTIAL into the slot N1's result had
+    # just filled and renamed N1's away as "superseded" -- a finished
+    # inventory of one drive retired by a half-finished scan of another,
+    # silently. That happened on the live desk.
+    check("each shelf gets its own inventory folder",
+          I.source_slug(["N1"]) == "N1" and I.source_slug(["N2"]) == "N2")
+    check("and they are not the same folder",
+          I.source_slug(["N1"]) != I.source_slug(["N2"]))
+    # A genuine two-drive scan is a THIRD corpus. Folding it into either
+    # drive's folder would let a two-drive partial retire a one-drive
+    # complete, which is the same bug wearing a different hat.
+    check("a multi-root scan is its own corpus, not either drive's",
+          I.source_slug(["N1", "N2"]) == "N1+N2")
+    check("a path becomes its last component",
+          I.source_slug(["/Volumes/NO NAME"]) == "NO-NAME")
+    check("a trailing slash does not produce an empty name",
+          I.source_slug(["/Users/Mark/sentinel/evidence/lot/"]) == "lot")
+    check("a name that sanitises to nothing still yields a folder",
+          I.source_slug(["///"]) != "")
+
+    with tempfile.TemporaryDirectory() as td:
+        out = Path(td)
+        check("an empty folder reports no prior source rather than throwing",
+              I.source_of(out) is None)
+        (out / "_SOURCE.txt").write_text("N1\n")
+        check("a recorded source is read back without its newline",
+              I.source_of(out) == "N1")
+
+    src = (Path(__file__).parent / "inventory.py").read_text()
+    check("a partial run refuses to retire a DIFFERENT corpus's inventory",
+          "It was LEFT ALONE" in src)
+    check("and says the two are sharing one output folder",
+          "sharing one output" in src)
+    check("superseding still happens within one source",
+          "describe the SAME source" in src)
+
     print(f"\n  {'FAIL' if FAIL else 'PASS'} — {PASS}/{PASS + FAIL} checks\n")
     return 1 if FAIL else 0
 
