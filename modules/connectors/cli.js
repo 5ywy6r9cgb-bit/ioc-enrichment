@@ -18,6 +18,7 @@ const R = require('./registry.js');
 const RECENCY = require('./recency.js');
 const FSCAN = require('./farascan.js');
 const DK = require('./dockets.js');
+const EN = require('./entries.js');
 
 const C = {
   b: (s) => `\x1b[1m${s}\x1b[0m`,
@@ -1870,6 +1871,26 @@ async function cmdDockets(query, opts = {}) {
   console.log(C.dim('  defendant count is a floor, and merges genuinely separate suits'));
   console.log(C.dim('  against the same company.'));
 
+  // SAVE THE SWEEP. Eleven pages at 13s is two and a half minutes of
+  // somebody else's rate limit. Re-fetching the same 203 rows to ask a
+  // second question of them is rude to the service and slow for the
+  // operator, and it invites the far worse habit of asking the question
+  // of a SMALLER, faster sample instead.
+  if (opts.save) {
+    const dest = path.resolve(opts.save);
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+    const payload = {
+      query, fetched_at: new Date().toISOString(),
+      source: DK.SEARCH, reported: out.reported, complete: out.complete,
+      pages: out.pages, duplicates: out.duplicates, stopped_by: out.stoppedBy,
+      rows: out.rows,
+    };
+    fs.writeFileSync(dest, JSON.stringify(payload, null, 2));
+    console.log(`\n  ${C.g('saved')}  ${dest}`);
+    console.log(C.dim(`  ${out.rows.length} rows, complete=${out.complete}. `)
+      + C.dim('Re-read it with `connect entries --from`.'));
+  }
+
   if (opts.year) {
     const hits = DK.endedIn(out.rows, opts.year);
     console.log(`\n  ${C.b(`${hits.length} docket(s) ended in ${opts.year}`)}`);
@@ -1885,6 +1906,121 @@ async function cmdDockets(query, opts = {}) {
   } else {
     console.log(C.dim('\n  Add --year 2025 to list the dockets that ended in one year.\n'));
   }
+}
+
+/**
+ * `sentinel connect entries --from sweep.json --year 2025`
+ *
+ * The second half of the docket question. `connect dockets` says WHEN a
+ * class of cases ended; this says HOW, by reading the newest entries on
+ * each docket and reporting every disposition signal it finds -- with the
+ * phrase that fired it, so a reader can disagree without leaving the
+ * terminal.
+ *
+ * It deliberately does not compute a percentage. UNREAD, UNCLASSIFIED and
+ * AMBIGUOUS are printed as their own rows, and a denominator that quietly
+ * drops them is how "half the cases were dropped" gets published off a
+ * rate limit.
+ */
+async function cmdEntries(opts = {}) {
+  const env = R.loadEnv();
+  const key = env.COURTLISTENER_API_TOKEN || null;
+
+  let ids = [];
+  let context = new Map();
+  if (opts.dockets) {
+    ids = String(opts.dockets).split(/[\s,]+/).filter(Boolean);
+  } else if (opts.from) {
+    const src = path.resolve(opts.from);
+    if (!fs.existsSync(src)) {
+      console.error('\n  ' + C.r(`no sweep file at ${src}`)
+        + C.dim('\n  Make one:  connect dockets --query \'...\' --save sweep.json') + '\n');
+      process.exit(2);
+    }
+    const saved = JSON.parse(fs.readFileSync(src, 'utf8'));
+    let rows = Array.isArray(saved.rows) ? saved.rows : [];
+    // The saved sweep carries its own completeness. Reading dispositions
+    // out of a PARTIAL sweep and reporting them as a rate is the same
+    // error one layer up, so the warning travels with the file.
+    if (saved.complete === false) {
+      console.log('\n  ' + C.r('THE SAVED SWEEP IS PARTIAL.')
+        + C.dim(` ${saved.stopped_by || 'no reason recorded'}`));
+      console.log(C.dim('  Dispositions read from it describe the rows present, not the class.'));
+    }
+    if (opts.year) rows = rows.filter((r) => (r.terminated || '').slice(0, 4) === String(opts.year));
+    ids = rows.map((r) => r.docket_id);
+    context = new Map(rows.map((r) => [String(r.docket_id), r]));
+  } else {
+    console.error('\n  ' + C.r('connect entries needs --from <sweep.json> or --dockets <ids>')
+      + C.dim('\n  e.g. connect dockets --query \'...\' --save sweep.json')
+      + C.dim('\n       connect entries --from sweep.json --year 2025') + '\n');
+    process.exit(2);
+  }
+
+  if (!ids.length) {
+    console.log('\n  ' + C.y('No dockets selected.')
+      + C.dim(opts.year ? ` Nothing in the sweep terminated in ${opts.year}.` : '') + '\n');
+    return;
+  }
+
+  console.log(`\n${C.b('DOCKET DISPOSITIONS — HOW, NOT WHEN')}`);
+  console.log(`  dockets     ${ids.length}${opts.year ? `, terminated in ${opts.year}` : ''}`);
+  console.log(`  key         ${key ? C.g('present') : C.y('none — rate limits will be tighter')}`);
+  console.log(C.dim(`  window      newest ${opts.window || 8} entries per docket; the last entry is`));
+  console.log(C.dim('              often administrative and hides the ruling behind it.\n'));
+
+  const results = await EN.readMany(ids, {
+    key,
+    window: opts.window,
+    intervalMs: opts.intervalMs,
+    onEach: (r, i, n) => process.stdout.write(`\r  reading ${i}/${n}  ${r.verdict}      `),
+  });
+  process.stdout.write('\r' + ' '.repeat(50) + '\r');
+
+  const t = EN.tally(results);
+  console.log('  ' + C.b('VERDICTS'));
+  for (const row of t.rows) {
+    const colour = row.verdict === 'UNREAD' ? C.r
+      : (row.verdict === 'UNCLASSIFIED' || row.verdict === 'AMBIGUOUS') ? C.y : C.g;
+    console.log(`    ${colour(row.verdict.padEnd(14))} ${String(row.dockets).padStart(3)}`);
+  }
+  console.log(C.dim(`\n  ${t.total} docket(s) selected; ${t.readable} answered; `
+    + `${t.classified} fell in exactly one family.`));
+  console.log(C.dim('  UNREAD is a failed fetch, UNCLASSIFIED is a docket with no dispositive'));
+  console.log(C.dim('  entry in the window, AMBIGUOUS is more than one family. None of the'));
+  console.log(C.dim('  three is evidence of anything; they are gaps, and they are printed'));
+  console.log(C.dim('  so no rate limit can shrink a denominator behind your back.'));
+
+  console.log('\n  ' + C.b('PER DOCKET'));
+  for (const r of results) {
+    const meta = context.get(String(r.docket_id));
+    const name = meta ? meta.case_name.slice(0, 58) : `docket ${r.docket_id}`;
+    const colour = r.verdict === 'UNREAD' ? C.r
+      : (r.verdict === 'UNCLASSIFIED' || r.verdict === 'AMBIGUOUS') ? C.y : C.g;
+    console.log(`\n    ${colour(r.verdict)}  ${name}`);
+    if (meta) console.log(C.dim(`      ${meta.court_id} ${meta.docket_number}  ended ${meta.terminated}`));
+    if (!r.ok) { console.log(C.dim(`      ${r.error}`)); continue; }
+    const seen = new Set();
+    for (const h of r.hits) {
+      const k = `${h.family}|${h.phrase.toLowerCase()}`;
+      if (seen.has(k)) continue;
+      seen.add(k);
+      console.log(`      ${C.dim(h.date || '          ')} ${h.family.padEnd(10)} `
+        + `${C.b(`"${h.phrase}"`)}  prejudice: ${h.prejudice}`);
+    }
+    if (r.windowed) {
+      console.log(C.dim(`      window: newest ${r.scanned} of ${r.reported === null ? '?' : r.reported}`
+        + ' entries — an older dispositive entry would be missed'));
+    }
+  }
+
+  console.log('\n  ' + C.y('AN ENTRY TITLE IS NOT AN ORDER.'));
+  console.log(C.dim('  These are clerk-written docket lines, not the text of the ruling.'));
+  console.log(C.dim('  Every line above is a POINTER to a document. Before publishing any'));
+  console.log(C.dim('  characterisation, fetch the document and read it:'));
+  console.log(C.dim('    sentinel doc get <recap document url> --case <case>\n'));
+  console.log(C.dim('  "WITHOUT prejudice" means it can be refiled; "UNSTATED" means the'));
+  console.log(C.dim('  clerk did not say, NOT that it was without prejudice.\n'));
 }
 
 async function cmdFaraScan(pattern, opts = {}) {
@@ -2250,7 +2386,23 @@ async function main() {
     // declared, and a const in TDZ throws rather than being undefined.
     return cmdDockets(dv('--query') || args.slice(1).filter((a) => !a.startsWith('--')).join(' '), {
       year: dv('--year'),
+      save: dv('--save'),
       verbose: argv.includes('--verbose'),
+      intervalMs: dv('--interval') ? parseInt(dv('--interval'), 10) : undefined,
+    });
+  }
+  if (action === 'entries') {
+    const dv = (n) => {
+      const i = argv.findIndex((a) => a === n || a.startsWith(n + '='));
+      if (i < 0) return null;
+      if (argv[i].startsWith(n + '=')) return argv[i].slice(n.length + 1);
+      return argv[i + 1] && !argv[i + 1].startsWith('--') ? argv[i + 1] : null;
+    };
+    return cmdEntries({
+      from: dv('--from'),
+      year: dv('--year'),
+      dockets: dv('--dockets'),
+      window: dv('--window') ? parseInt(dv('--window'), 10) : undefined,
       intervalMs: dv('--interval') ? parseInt(dv('--interval'), 10) : undefined,
     });
   }

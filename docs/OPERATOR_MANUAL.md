@@ -714,6 +714,101 @@ held. Anything else prints in red with what stopped it — including the case
 where `count` comes back as a URL rather than a number, which stays `null`
 rather than becoming `NaN`.
 
+#### Cursor pagination, and a page number that is silently ignored
+
+The dedupe fix turned `260 of 203` into `20 of 203, stopped by page 2
+returned only rows already seen` — which exposed the real cause.
+**CourtListener v4 ignores `?page=N` entirely.** It accepts the parameter,
+returns HTTP 200, and serves page one again. The sweep was re-fetching one
+page while its counter climbed.
+
+v4 paginates by **cursor**. Only the first URL is constructed; every page
+after it comes from the `next` URL the service hands back, and a `next` that
+is not an `https` URL stops the sweep with a named reason rather than being
+followed. With the fix the same query returns **203 dockets over 11 pages,
+COMPLETE**.
+
+#### `--save`, so a two-and-a-half-minute sweep is fetched once
+
+```bash
+bin/sentinel connect dockets --query 'caseName:"..."' --save sweep.json
+```
+
+Eleven pages at 13s is two and a half minutes of somebody else's rate limit.
+Saving the sweep means a second question can be asked of the *same 203 rows*
+rather than re-fetching them — and, more importantly, rather than asking the
+question of a smaller, faster sample instead. The file carries the query, the
+fetch time, the reported count and the `complete` flag, so every later read
+knows whether it is reading a universe or a fragment.
+
+### `sentinel connect entries` — how a case ended
+
+```bash
+bin/sentinel connect entries --from sweep.json --year 2025
+bin/sentinel connect entries --dockets 69442801,69097443
+```
+
+The second half of the docket question. `connect dockets` says **when** a
+class of cases ended; this says **how**, by reading the newest entries on
+each docket and reporting every disposition signal it finds.
+
+#### Why it does not return one label per case
+
+A classifier that always emits a category is confidently wrong on the hard
+cases, and the hard cases are the ones that matter. **"Stipulated Final
+Judgment and Order"** is a settlement the defendant paid for. **"Notice of
+Voluntary Dismissal"** is the government giving up. Both contain
+dismissal-adjacent language, and a regex forced to pick one will merge them
+invisibly.
+
+So every matching signal is reported **with the phrase that fired it**, and a
+docket matching more than one family is `AMBIGUOUS` — a real answer that
+sends a human to the document, not a coin flip.
+
+The suite caught this exact merge in the module itself: `final judgment` was
+firing inside `STIPULATED FINAL JUDGMENT`, so every settlement also read as a
+court ruling. The signal now refuses to match when preceded by *stipulated*,
+*consent*, *agreed*, *joint* or *proposed*.
+
+#### Families
+
+| family | means |
+|---|---|
+| `VOLUNTARY` | the plaintiff walked away (Rule 41(a), notice of voluntary dismissal) |
+| `STIPULATED` | both sides signed a dismissal |
+| `CONSENT` | the defendant agreed to terms (stipulated final judgment, consent order) |
+| `COURT` | the court decided (motion to dismiss granted, summary or final judgment) |
+| `MOVED` | transferred, remanded, or appealed |
+
+#### Three kinds of "no answer", never merged
+
+`UNREAD` is a **failed fetch**. `UNCLASSIFIED` is a docket that was read and
+had no dispositive entry in the window. `AMBIGUOUS` is more than one family.
+All three look identical in a summary table and mean completely different
+things, so each gets its own row and none is folded into a denominator — a
+rate limit that turned ten dockets into `UNREAD` would otherwise quietly
+shrink the base and inflate every percentage taken from it.
+
+#### The window, and why the last entry is the wrong one to read
+
+The newest entry is very often administrative — *civil case terminated*,
+*case closed*, a satisfaction of judgment — and follows the event that
+actually ended the case. Reading only the last entry finds the paperwork and
+misses the ruling, so the newest **8** entries are scanned by default
+(`--window N`). When a docket has more entries than the window, that is
+printed: `window: newest 8 of 412`.
+
+#### What it still cannot tell you
+
+**An entry title is not an order.** These are clerk-written docket lines,
+not the text of the ruling. They abbreviate, they vary by district, and they
+are sometimes wrong. Every line is a **pointer to a document**, never a
+substitute for reading it.
+
+**With or without prejudice is the whole ballgame and is usually absent.** A
+dismissal without prejudice can be refiled; with prejudice cannot. Clerks
+frequently omit it. Silence prints as `UNSTATED` and never as "without".
+
 ### `connect cfpb` — junk fees, and the denominator it cannot give you
 
 ```bash
