@@ -49,14 +49,60 @@ const { normalise } = require('./crosslink.js');
  * splits into four. Split off, the note is the most valuable text in the
  * record — it is the filer describing the structure in their own words.
  */
+// A parenthetical is only a NOTE when it describes the structure. Splitting on
+// the first "(" unconditionally cut legal names in half:
+//
+//   "MANSFIELD (MAURITIUS) LIMITED"        -> "MANSFIELD"          + note
+//   "SUFFOLK (MAURITIUS) LIMITED"          -> "SUFFOLK"            + note
+//   "TENOR SPECIAL SITUATIONS I LP (CAYMAN)" -> "TENOR ... I LP"   + note
+//   "AAL GROUP LTD (BVI)"                  -> "AAL GROUP LTD"      + note
+//   "CPP INVESTMENT BOARD PRIVATE HOLDING (5) INC." -> lost "INC."
+//
+// The jurisdiction inside the parentheses is part of what distinguishes a
+// Mauritius vehicle from its parent, and dropping it renamed the entity.
+const NOTE_LIKE = /\bOWNS\b|\bTHROUGH\b|\bINTEREST IN\b|\bFORMERLY\b|%/i;
+
 function splitNote(raw) {
   const s = String(raw || '').trim();
+
+  // Some filers write the chain after a dash instead of in brackets:
+  // "TOPSOE HOLDING A/S - OWNS 69.41% OF TOPSOE A/S (THUS 69.41% OF ...)".
+  const dash = /\s[-\u2013\u2014]\s+(?=OWNS\b|THROUGH\b)/i.exec(s);
+  if (dash) {
+    return { name: s.slice(0, dash.index).trim(), note: s.slice(dash.index + dash[0].length).trim() };
+  }
+
   const open = s.indexOf('(');
   if (open <= 0) return { name: s, note: '' };
+  const tail = s.slice(open);
+  if (!NOTE_LIKE.test(tail)) return { name: s, note: '' };
   return {
     name: s.slice(0, open).trim().replace(/[,;]$/, ''),
-    note: s.slice(open).trim(),
+    note: tail.trim(),
   };
+}
+
+/**
+ * The key two OWNER names are compared on.
+ *
+ * Deliberately NOT normalise(). That strips corporate suffixes, which is right
+ * for a client writing its own name three ways across its filings and wrong
+ * here: the suffix is frequently the ONLY thing separating a foreign parent
+ * from its US subsidiary, or one vehicle from its sibling.
+ *
+ *   normalise: TIKTOK LTD.  ==  TIKTOK, INC.   -- two different companies
+ *   normalise: TENOR ... LP ==  TENOR ... LLC  -- two different vehicles
+ *
+ * Punctuation and case are noise and do fold away, which is what actually
+ * needed collapsing: "S.A.R.L" and "S.A.R.L." are one entity.
+ */
+function ownerKey(name) {
+  return String(name || '')
+    .toLowerCase()
+    .replace(/[.,'`\u2019"()]/g, '')
+    .replace(/[^a-z0-9&\- ]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 /** The intermediate vehicle a filer named inside the parenthetical, if any. */
@@ -138,7 +184,7 @@ function collect(filings) {
       if (!e || typeof e !== 'object') continue;
       const { name, note } = splitNote(e.name);
       if (!name) continue;
-      const okey = normalise(name);
+      const okey = ownerKey(name);
       const country = e.country_display || e.country || '';
       const pct = e.ownership_percentage;
 
@@ -168,7 +214,14 @@ function collect(filings) {
       // CARL ZEISS, INC. [Germany]" and "XINYUAN YU <= XINYUAN YU [United
       // States of America] 100%". Either a filer shortcut for the foreign
       // parent of the same name, or a junk row. Not for this tool to decide.
-      if (okey && okey === ckey) {
+      // Compared on ownerKey BOTH SIDES, not against the suffix-stripped client
+      // key. Against normalise() this fired on TIKTOK, INC. <= TIKTOK LTD.,
+      // ACCENTURE, LLP <= ACCENTURE PLC and RWE <= RWE AG -- ordinary
+      // parent/subsidiary pairs, and in TikTok's case the best-documented
+      // ownership chain in the whole dataset, labelled as possible junk.
+      // What is actually anomalous is the name matching EXACTLY, suffix and
+      // all: CARL ZEISS, INC. <= CARL ZEISS, INC.
+      if (okey && okey === ownerKey(clientName)) {
         flags.selfReference.push({ client: clientName, owner: name, country });
       }
       // 0.00% is a DECLARATION WITH NO EQUITY — a coalition member, a fund
@@ -221,5 +274,5 @@ function clientRows(clients, opts = {}) {
 }
 
 module.exports = {
-  splitNote, chainStep, readFilings, collect, countryRollup, clientRows,
+  splitNote, chainStep, ownerKey, readFilings, collect, countryRollup, clientRows,
 };

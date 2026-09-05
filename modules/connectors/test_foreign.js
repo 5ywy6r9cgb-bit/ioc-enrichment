@@ -58,6 +58,86 @@ module.exports = function run() {
       F.chainStep('(OWNS 100% OF TIKTOK LTD.)') === null);
   }
 
+  // ══ 1b. A PARENTHESIS IS NOT ALWAYS A NOTE ═════════════════════════════
+  //
+  // Splitting on the first "(" unconditionally renamed real entities. From a
+  // live run: "MANSFIELD (MAURITIUS) LIMITED" printed as "MANSFIELD", and the
+  // jurisdiction that distinguishes a Mauritius vehicle from its parent went
+  // into a footnote. Same for SUFFOLK (MAURITIUS) LIMITED, AAL GROUP LTD
+  // (BVI), TENOR SPECIAL SITUATIONS I LP (CAYMAN), ZHEJIANG GEELY HOLDING
+  // (GEELY HOLDING), and CPP INVESTMENT BOARD PRIVATE HOLDING (5) INC.,
+  // which lost its "INC." entirely.
+  {
+    const keeps = [
+      'MANSFIELD (MAURITIUS) LIMITED',
+      'SUFFOLK (MAURITIUS) LIMITED',
+      'AAL GROUP LTD (BVI)',
+      'TENOR SPECIAL SITUATIONS I LP (CAYMAN)',
+      'ZHEJIANG GEELY HOLDING (GEELY HOLDING)',
+      'CPP INVESTMENT BOARD PRIVATE HOLDING (5) INC.',
+    ];
+    for (const k of keeps) {
+      check(`a jurisdiction parenthetical stays in the name: ${k.slice(0, 30)}`,
+        F.splitNote(k).name === k, F.splitNote(k).name);
+    }
+
+    const splits = [
+      'BYTEDANCE LTD. (OWNS 100% OF BYTEDANCE INC.; 100% OF TIKTOK LTD.)',
+      'ECHO LUXCO S.A.R.L (THROUGH ITS 73.1% INTEREST IN HERDON TOPCO LP)',
+      'GOGOKU LTD. (OWNS APPROXIMATELY 21% OF BYTEDANCE LTD.) (FORMERLY BYTETEAM LTD.)',
+    ];
+    for (const k of splits) {
+      check(`an ownership parenthetical is still split off: ${k.slice(0, 22)}`,
+        F.splitNote(k).name.length < k.length && F.splitNote(k).note !== '',
+        F.splitNote(k).name);
+    }
+
+    // Some filers write the chain after a dash instead of in brackets.
+    const dash = F.splitNote('TOPSOE HOLDING A/S - OWNS 69.41% OF TOPSOE A/S (THUS 69.41% OF TOPSOE, INC.)');
+    check('a dash-form ownership note is split off too',
+      dash.name === 'TOPSOE HOLDING A/S' && /OWNS 69.41%/.test(dash.note), dash.name);
+    check('and a dash inside an ordinary name is left alone',
+      F.splitNote('SMITH - JONES HOLDINGS').name === 'SMITH - JONES HOLDINGS');
+  }
+
+  // ══ 1c. THE SUFFIX IS WHAT SEPARATES A PARENT FROM ITS SUBSIDIARY ══════
+  //
+  // Owners were keyed with normalise(), which strips corporate suffixes. That
+  // is right for a client writing its own name three ways and wrong here: it
+  // made TIKTOK LTD. equal to TIKTOK, INC. and flagged the best-documented
+  // ownership chain in the dataset as a possible junk self-reference. It also
+  // collapsed TENOR SPECIAL SITUATIONS I LP into TENOR ... I LLC.
+  {
+    const k = F.ownerKey;
+    check('punctuation and case fold away: S.A.R.L == S.A.R.L.',
+      k('EQT INFRASTRUCTURE IV INVESTMENTS S.A.R.L')
+        === k('EQT INFRASTRUCTURE IV INVESTMENTS S.A.R.L.'));
+    check('a parent and its subsidiary are NOT the same owner',
+      k('TIKTOK LTD.') !== k('TIKTOK, INC.')
+        && k('ACCENTURE PLC') !== k('ACCENTURE, LLP')
+        && k('RWE AG') !== k('RWE'));
+    check('an LP and an LLC of the same name are two vehicles',
+      k('TENOR SPECIAL SITUATIONS I LP') !== k('TENOR SPECIAL SITUATIONS I LLC'));
+    check('sibling holdcos are not merged',
+      k('SB ENERGY GLOBAL HOLDINGS LTD.') !== k('SB ENERGY GLOBAL HOLDINGS ONE LIMITED'));
+
+    // Only an EXACT name match, suffix and all, is anomalous.
+    const { flags } = F.collect([
+      filing('s1', 'TIKTOK, INC.', [{ name: 'TIKTOK LTD. (OWNS 100% OF TIKTOK LLC)',
+        country_display: 'Cayman Islands', ownership_percentage: '100.00' }]),
+      filing('s2', 'ACCENTURE, LLP', [{ name: 'ACCENTURE PLC',
+        country_display: 'Ireland', ownership_percentage: '100.00' }]),
+      filing('s3', 'CARL ZEISS, INC.', [{ name: 'CARL ZEISS, INC.',
+        country_display: 'Germany', ownership_percentage: '100.00' }]),
+    ]);
+    check('an ordinary parent/subsidiary pair is not flagged as self-reference',
+      !flags.selfReference.some((f) => /TIKTOK|ACCENTURE/.test(f.client)),
+      JSON.stringify(flags.selfReference));
+    check('an exact name match still is',
+      flags.selfReference.length === 1 && /CARL ZEISS/.test(flags.selfReference[0].client),
+      JSON.stringify(flags.selfReference));
+  }
+
   // ══ 2. FILINGS, NOT ROWS ═══════════════════════════════════════════════
   //
   // The same filing comes back under every search that touched it and on
@@ -208,7 +288,7 @@ module.exports = function run() {
     const { clients: c2 } = F.collect([filing('j1', 'X CO', [
       { name: 'NO PCT LTD', country_display: 'France' }])]);
     check('a missing ownership percentage is null, not 0 and not 100',
-      [...c2.values()][0].owners.get('no pct').pct === null);
+      [...c2.values()][0].owners.get(F.ownerKey('NO PCT LTD')).pct === null);
   }
 
   // ══ 7. THE BOUNDARY IS PRINTED, NOT ASSUMED ════════════════════════════
