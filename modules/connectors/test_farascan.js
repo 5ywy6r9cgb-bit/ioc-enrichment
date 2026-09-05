@@ -377,7 +377,92 @@ function rateLimitTests() {
       /re-running clears them/i.test(line), line);
 
     fs.rmSync(dir, { recursive: true, force: true });
-    console.log(`\n  ${FAIL === 0 ? 'PASS' : 'FAIL'} — ${PASS}/${PASS + FAIL} checks\n`);
+    // ══ COUNTRY MATCHING: the ranking that was almost published ═══════════
+  //
+  // A live sweep of fourteen countries was counted off --match hits and the
+  // ordering it produced was wrong in both directions at once. Each check
+  // below is one of the four real rows that broke it.
+  {
+    const isr = new Set([F.countryKey('Israel')]);
+
+    // CONFLATED. Taiwan's principals are named "Republic of China", so
+    // --match "China" returned Taiwan's registrants under China. Five of
+    // them. The country field says TAIWAN and is not fooled.
+    const chn = new Set([F.countryKey('China')]);
+    const roc = { name: 'Bureau of Foreign Trade, Government of the Republic of China (BOFT)', country: 'TAIWAN' };
+    check('Taiwan filed under "Republic of China" is not counted as China',
+      F.matchesCountry(roc, chn) === false);
+    check('and it IS counted as Taiwan',
+      F.matchesCountry(roc, new Set([F.countryKey('Taiwan')])) === true);
+    check('while the name-and-country matcher still folds them together',
+      F.matches(roc, /China/i) === true);
+
+    // INFLATED. The conduit's country is written into the principal NAME:
+    // "Government of Israel through Havas Media Group Germany". A name-based
+    // search for Germany counted four Israel rows as German.
+    const conduit = { name: 'Government of Israel through Havas Media Group Germany', country: 'ISRAEL' };
+    check('a conduit named in the principal does not move the row to its country',
+      F.matchesCountry(conduit, new Set([F.countryKey('Germany')])) === false);
+    check('the row counts against the country FARA recorded',
+      F.matchesCountry(conduit, isr) === true);
+
+    // MERGED. "Korea" swept North in with South.
+    check('KOREA, NORTH is not folded into a search for KOREA, SOUTH',
+      F.matchesCountry({ name: 'x', country: 'KOREA, NORTH' },
+        new Set([F.countryKey('Korea, South')])) === false);
+    check('and punctuation and case still fold, so KOREA, SOUTH matches',
+      F.matchesCountry({ name: 'x', country: 'KOREA, SOUTH' },
+        new Set([F.countryKey('korea south')])) === true);
+
+    // UNDERCOUNTED. The UK is recorded both ways; merging them has to be a
+    // choice the operator TYPES, so it is visible in the command afterwards.
+    const uk = new Set([F.countryKey('United Kingdom'), F.countryKey('Great Britain')]);
+    check('an alias the operator passed explicitly is honoured',
+      F.matchesCountry({ name: 'x', country: 'GREAT BRITAIN' }, uk) === true);
+    check('and one they did NOT pass is not silently merged in',
+      F.matchesCountry({ name: 'x', country: 'GREAT BRITAIN' },
+        new Set([F.countryKey('United Kingdom')])) === false);
+
+    // A blank country is UNKNOWN. Counting it anywhere invents a fact.
+    check('a row with no country is never a country match',
+      F.matchesCountry({ name: 'Royal Embassy of Saudi Arabia', country: '' }, isr) === false
+        && F.matchesCountry({ name: 'x' }, isr) === false);
+    check('a placeholder principal is still refused, country or not',
+      F.matchesCountry({ name: '(no foreign principal named)', country: 'ISRAEL' }, isr) === false);
+
+    // summarise() must take the country path INSTEAD of the pattern, not on
+    // top of it: anded together, a country run with no --match returns zero,
+    // and a zero from this scan is its most dangerous output.
+    const rows = [
+      { name: 'State of Israel', country: 'ISRAEL', filed: '2026-01-01', document: 'Exhibit AB' },
+      { name: 'Government of Japan', country: 'JAPAN', filed: '2026-01-01', document: 'Exhibit AB' },
+    ];
+    const got = F.summarise(rows, null, { countries: isr });
+    check('a country run with no pattern still returns its rows',
+      got.length === 1 && got[0].principal === 'State of Israel', JSON.stringify(got));
+    check('and does not return the other country',
+      !got.some((g) => /Japan/.test(g.principal)));
+  }
+
+  // ══ THE HEADER HAS TO NAME THE FIELD IT MATCHED ══════════════════════
+  //
+  // The count is only interpretable next to which field produced it. This is
+  // the line that stops a name-field count being read as a country total.
+  {
+    const cli = fs.readFileSync(require.resolve('./cli.js'), 'utf8');
+    check('a country run announces that it matched the country field only',
+      /the COUNTRY FIELD ONLY, exact/.test(cli));
+    check('and warns that a registrant headcount is not influence',
+      /NOT A RANKING BY ITSELF/.test(cli) && /not spend/.test(cli));
+    check('and --country accepts explicit aliases rather than guessing them',
+      /split\('\|'\)/.test(cli));
+    const src = fs.readFileSync(require.resolve('./farascan.js'), 'utf8');
+    check('the four failure modes are recorded where the matcher lives',
+      /CONFLATED/.test(src) && /INFLATED/.test(src)
+        && /UNDERCOUNTED/.test(src) && /MERGED/.test(src));
+  }
+
+  console.log(`\n  ${FAIL === 0 ? 'PASS' : 'FAIL'} — ${PASS}/${PASS + FAIL} checks\n`);
     return FAIL;
   });
 }

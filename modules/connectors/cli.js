@@ -1764,15 +1764,26 @@ async function cmdSearch(name, query, opts) {
  * anything if the scan can say how much of the register it actually read.
  */
 async function cmdFaraScan(pattern, opts = {}) {
-  if (!pattern) {
-    console.error('\n  ' + C.r('farascan needs a pattern: --match "hikvision|nso|q cyber"') + '\n');
+  if (!pattern && !opts.countries) {
+    console.error('\n  ' + C.r('farascan needs a pattern: --match "hikvision|nso|q cyber"')
+      + C.dim('\n  or a country: --country "ISRAEL"  (exact, for a country ranking)') + '\n');
     process.exit(2);
   }
 
   console.log(`\n${C.b('FARA register scan')}`);
-  console.log(`  pattern     ${pattern}`);
+  console.log(`  ${opts.countries ? 'country    ' : 'pattern    '} ${opts.countries ? [...opts.countries].join(' | ') : pattern}`);
   console.log(`  scope       every ACTIVE registrant's filed documents`);
-  console.log(`  matched on  foreign principal name and country ${C.dim('(not the firm name)')}`);
+  // Naming the matched FIELD is the whole point of --country. A count taken
+  // off the name field and reported as a country total is wrong in both
+  // directions at once -- see the note above matchesCountry() in farascan.js.
+  console.log(opts.countries
+    ? `  matched on  ${C.g('the COUNTRY FIELD ONLY, exact')} ${C.dim('— a conduit named in the principal is not counted')}`
+    : `  matched on  foreign principal name and country ${C.dim('(not the firm name)')}`);
+  if (opts.countries) {
+    console.log(C.y('  NOT A RANKING BY ITSELF') + C.dim(' — registrants is a headcount, not spend,'));
+    console.log(C.dim('              not activity, and not influence. Run the same command per'));
+    console.log(C.dim('              country and compare only the numbers you measured yourself.'));
+  }
   console.log(C.dim(`  pacing      ~${opts.intervalMs ?? FSCAN.DEFAULT_INTERVAL_MS}ms between calls; cached copies are reused for ${opts.freshDays || 7} days`));
   if (opts.limit) console.log(C.y(`  LIMIT       ${opts.limit} registrants — this is a PARTIAL scan`));
   console.log('');
@@ -2057,7 +2068,19 @@ async function main() {
         byConduit: argv.includes('--by-conduit'),
       });
     }
-    return cmdFaraScan(flagVal('--match') || args.slice(1).join(' '), {
+    // --country takes a "|"-separated list of EXACT country values as FARA
+    // records them, so merging GREAT BRITAIN into UNITED KINGDOM is a choice
+    // the operator types and the capture records -- not one a matcher makes.
+    const cRaw = flagVal('--country');
+    const countries = cRaw
+      ? new Set(String(cRaw).split('|').map((c) => FSCAN.countryKey(c)).filter(Boolean))
+      : null;
+    if (countries && !countries.size) {
+      console.error('\n  ' + C.r('--country was given nothing to match on.') + '\n');
+      process.exit(2);
+    }
+    return cmdFaraScan(flagVal('--match') || (countries ? '' : args.slice(1).join(' ')), {
+      countries,
       limit: num(flagVal('--limit')),
       freshDays: num(flagVal('--fresh-days')),
       intervalMs: num(flagVal('--interval')),

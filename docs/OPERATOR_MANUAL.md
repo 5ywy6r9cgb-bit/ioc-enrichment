@@ -650,6 +650,39 @@ it.
 `connect all` deliberately **skips `bls`** — it takes series IDs, not names,
 so a company name against it is meaningless.
 
+### `farascan --country` — the only sound way to rank countries
+
+`--match` searches the principal **name and** the country. That is right for
+*"who lobbies for Hikvision"* and wrong for *"how many registrants work for
+each country"*. Counting `--match` hits per country was tried on this desk
+across fourteen countries, and all four failure modes fired at once:
+
+| Failure | The real row |
+|---|---|
+| **Conflated** | `--match "China"` returns **Taiwan** — its principals are named *"Republic of China"*. Five registrants counted under China are Taiwan's. |
+| **Inflated** | `--match "Germany"` returns four **Israel** rows: *"Government of Israel through Havas Media Group Germany"*. The conduit's country is in the name. |
+| **Undercounted** | `--match "United Kingdom"` misses every row whose country FARA recorded as **GREAT BRITAIN**. |
+| **Merged** | `--match "Korea"` returns **North and South** together. |
+
+So a country ranking built that way measures how often a country's name
+appears in prose, and it is wrong in both directions simultaneously.
+
+```bash
+bin/sentinel connect farascan --country "ISRAEL"
+bin/sentinel connect farascan --country "UNITED KINGDOM|GREAT BRITAIN"
+bin/sentinel connect farascan --country "KOREA, SOUTH"
+```
+
+Exact, case-insensitive, **country field only**. Aliases are `|`-separated
+and **passed explicitly**, so the decision to merge Great Britain into the
+United Kingdom appears in the command and in the capture rather than being
+made silently by a matcher. A blank country is UNKNOWN and never matches.
+
+**A registrant headcount is not influence.** It is not spend, not activity,
+and not access — one registrant filing 2,000 documents and twenty filing one
+each are the same "1" and "20" here. The command prints that warning above
+its own results, because the number is easy to quote and easy to misread.
+
 ### `connect fecspend` — who paid to elect or defeat someone
 
 The question *"who is funding this"* has a filed answer for one specific

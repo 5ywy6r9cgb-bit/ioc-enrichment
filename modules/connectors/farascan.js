@@ -226,12 +226,62 @@ function matches(row, re) {
 }
 
 /**
+ * Match on the COUNTRY FIELD ALONE — the instrument for a country ranking.
+ *
+ * ─────────────────────────────────────────────────────────────────────────
+ * WHY THIS EXISTS: a live run that produced a ranking nobody should publish
+ * ─────────────────────────────────────────────────────────────────────────
+ * `--match` searches the principal NAME as well as the country, which is
+ * right for "who lobbies for Hikvision" and wrong for "how many registrants
+ * work for each country". Counting `--match` hits per country was measured
+ * on this desk against fourteen countries and every one of the four failure
+ * modes below actually fired:
+ *
+ *   CONFLATED   --match "China" returns TAIWAN rows, because Taiwan's
+ *               principals are named "Republic of China". Five registrants
+ *               were counted under China that are Taiwan's.
+ *   INFLATED    --match "Germany" returns four ISRAEL rows, because the
+ *               principal is written "Government of Israel through Havas
+ *               Media Group Germany". The conduit's country is in the NAME.
+ *   UNDERCOUNTED --match "United Kingdom" misses every UK row whose country
+ *               is recorded as GREAT BRITAIN, and every principal that does
+ *               not spell its country into its own name.
+ *   MERGED      --match "Korea" returns North and South together.
+ *
+ * A country ranking built from those numbers is a measurement of how often
+ * a country's name appears in prose, not of how many agents it retains, and
+ * the ordering it produces is wrong in both directions at once.
+ *
+ * So: exact, case-insensitive, on the country field only. Not a substring —
+ * substring is what conflated CHINA with nothing and would happily fold
+ * "KOREA, NORTH" into a search for "KOREA". Aliases are passed EXPLICITLY by
+ * the operator, so the choice to merge Great Britain into the United Kingdom
+ * is visible in the command and in the capture, rather than made silently
+ * by a matcher.
+ */
+function countryKey(v) {
+  return String(v || '').toUpperCase().replace(/[^A-Z ]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function matchesCountry(row, names) {
+  if (!namesPrincipal(row)) return false;
+  if (!row.country) return false;          // blank country is UNKNOWN, never a match
+  return names.has(countryKey(row.country));
+}
+
+/**
  * Roll a registrant's matching rows up into one line per principal.
  */
-function summarise(rows, re) {
+function summarise(rows, re, opts = {}) {
+  // A country set, when given, REPLACES the pattern rather than narrowing it.
+  // Anding them would silently return zero for `--country ISRAEL` with no
+  // --match, and a zero from this scan is the most dangerous output it has.
+  const test = opts.countries
+    ? (r) => matchesCountry(r, opts.countries)
+    : (r) => matches(r, re);
   const by = new Map();
   for (const r of rows) {
-    if (!matches(r, re)) continue;
+    if (!test(r)) continue;
     const key = `${r.name} ${r.country || ''}`;
     const e = by.get(key) || {
       principal: r.name, country: r.country || '', docs: 0,
@@ -257,11 +307,13 @@ function summarise(rows, re) {
  * from a hung one, and will kill it.
  */
 async function scan(pattern, opts = {}) {
-  let re;
-  try {
-    re = pattern instanceof RegExp ? pattern : new RegExp(pattern, 'i');
-  } catch (e) {
-    return { ok: false, error: `--match is not a valid pattern: ${e.message}` };
+  let re = null;
+  if (!opts.countries) {
+    try {
+      re = pattern instanceof RegExp ? pattern : new RegExp(pattern, 'i');
+    } catch (e) {
+      return { ok: false, error: `--match is not a valid pattern: ${e.message}` };
+    }
   }
 
   const list = await activeRegistrants(opts);
@@ -294,7 +346,7 @@ async function scan(pattern, opts = {}) {
     if (got.cached) fromCache += 1;
     docsRead += got.rows.length;
 
-    const found = summarise(got.rows, re);
+    const found = summarise(got.rows, re, { countries: opts.countries });
     if (found.length) hits.push({ registrant: reg.name, number: reg.number, principals: found });
     if (opts.onProgress) opts.onProgress({ reg, hits: found.length, docs: got.rows.length, cached: got.cached });
 
@@ -303,7 +355,7 @@ async function scan(pattern, opts = {}) {
 
   return {
     ok: true,
-    pattern: String(re),
+    pattern: opts.countries ? `country in {${[...opts.countries].join(', ')}}` : String(re),
     hits: hits.sort((a, b) => {
       const an = a.principals.reduce((s, p) => s + p.docs, 0);
       const bn = b.principals.reduce((s, p) => s + p.docs, 0);
@@ -646,7 +698,7 @@ module.exports = {
   VERSION, DEFAULT_INTERVAL_MS,
   cacheDir, cachePath, isFresh,
   activeRegistrants, fetchDocs, retryAfterMs, MAX_429_RETRIES,
-  namesPrincipal, matches, summarise, scan, coverageLine,
+  namesPrincipal, matches, matchesCountry, countryKey, summarise, scan, coverageLine,
   splitPrincipal, looksSelfAffiliated, intermediaries, tidy,
   balanceParens, looksContested,
 };
