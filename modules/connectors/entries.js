@@ -405,6 +405,14 @@ function cached(docketId, opts = {}) {
     const f = cachePath(docketId, opts.evidenceRoot);
     if (!fs.existsSync(f)) return null;
     const v = JSON.parse(fs.readFileSync(f, 'utf8'));
+    // A CACHE HIT AT A DIFFERENT WINDOW IS A MISS.
+    //
+    // `--window 25` on five UNCLASSIFIED dockets came straight back as
+    // UNCLASSIFIED, still reporting "newest 8 of 76", because the cached
+    // row was read at 8 and nothing compared the two. Widening the window
+    // is the operator asking a DIFFERENT question; serving the old answer
+    // makes the wider read look like it was tried and failed.
+    if ((v.window || 8) !== (opts.window || 8)) return null;
     // A CACHED FAILURE IS NOT A CACHED ANSWER. Storing UNREAD would make a
     // rate limit permanent -- the one outcome that must always be retried.
     if (!v || v.ok !== true) return null;
@@ -414,11 +422,14 @@ function cached(docketId, opts = {}) {
 
 function remember(row, opts = {}) {
   if (!row || row.ok !== true) return;
+  // The window the row was READ at, so a later run at a different window
+  // knows this answer does not apply to its question.
+  const stamped = Object.assign({}, row, { window: opts.window || 8 });
   try {
     const dir = cacheDir(opts.evidenceRoot);
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(cachePath(row.docket_id, opts.evidenceRoot),
-      JSON.stringify(Object.assign({}, row, { cached_at: new Date().toISOString() }), null, 2));
+      JSON.stringify(Object.assign(stamped, { cached_at: new Date().toISOString() }), null, 2));
   } catch { /* a cache that cannot be written is not a failed read */ }
 }
 

@@ -2699,6 +2699,7 @@ async function main() {
       dockets: dv('--dockets'),
       window: dv('--window') ? parseInt(dv('--window'), 10) : undefined,
       intervalMs: dv('--interval') ? parseInt(dv('--interval'), 10) : undefined,
+      refresh: argv.includes('--refresh'),
     });
   }
   if (action === 'brief') return cmdBrief(args.slice(1).join(' '), {});

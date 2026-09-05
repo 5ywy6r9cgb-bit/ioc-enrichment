@@ -196,6 +196,33 @@ console.log('\n  entries — how a case ended\n');
               check('a corrupt cache file is a miss, not a crash',
                 E.cached('nope', { evidenceRoot: root }) === null);
 
+              // A CACHE HIT AT A DIFFERENT WINDOW IS A MISS. `--window 25`
+              // on five UNCLASSIFIED dockets came straight back as
+              // UNCLASSIFIED, still reporting "newest 8 of 76", because the
+              // cached row was read at 8 and nothing compared the two.
+              let wc = 0;
+              const wbody = { status: 200, body: Buffer.from(JSON.stringify({
+                count: 1, results: [{ description: 'Consent Order' }] })) };
+              return E.readMany([555], { intervalMs: 0, evidenceRoot: root, window: 8,
+                request: async () => { wc += 1; return wbody; } })
+                .then(() => E.readMany([555], { intervalMs: 0, evidenceRoot: root, window: 8,
+                  request: async () => { wc += 1; return wbody; } }))
+                .then((same) => {
+                  check('the same window is served from cache',
+                    wc === 1 && same.servedFromCache === 1, String(wc));
+                  return E.readMany([555], { intervalMs: 0, evidenceRoot: root, window: 25,
+                    request: async () => { wc += 1; return wbody; } });
+                })
+                .then((wider) => {
+                  check('but a WIDER window re-reads rather than replaying the old answer',
+                    wc === 2 && wider.servedFromCache === 0,
+                    JSON.stringify({ wc, served: wider.servedFromCache }));
+                  const csrc = fs.readFileSync(require.resolve('./cli.js'), 'utf8');
+                  check('and --refresh actually reaches connect entries',
+                    /dockets: dv\('--dockets'\)[\s\S]{0,220}refresh: argv\.includes/.test(csrc));
+                  return null;
+                });
+
               const src = fs.readFileSync(require.resolve('./entries.js'), 'utf8');
               check('the reason a rate limit must not end the question is recorded',
                 /answer it in pieces and keep the pieces/.test(src));
