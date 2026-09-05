@@ -292,6 +292,23 @@ module.exports = function run() {
       /only the PDF page can say whether that is a seal/.test(cli));
   }
 
+  // ══ 11. A DIAGNOSTIC THAT TRIMS WHAT IT SHOWS YOU IS NOT ONE ══════════
+  //
+  // The bracket sliced each line at 96 characters, so the last word or two of
+  // every line vanished: "been at Meta for [more] than 11 years", "identified
+  // on Meta's website [as] the head of Commerce". On a page being examined
+  // FOR REDACTIONS, that reads as text removed from the document — and it was
+  // about to be reported that way. The display was the redaction.
+  {
+    const cli = fs.readFileSync(require.resolve('./cli.js'), 'utf8');
+    check('bracket lines are printed whole, never sliced',
+      !/for \(const L of br\.lines\) console\.log\(C\.dim\(`    \$\{L\.slice/.test(cli));
+    check('and the reason is recorded where the next person will change it',
+      /display was about to be reported as evidence/.test(cli));
+    check('the bracket reaches far enough to show the closing paragraph',
+      /maxLines: 70/.test(cli));
+  }
+
   console.log(`\n  ${FAIL === 0 ? 'PASS' : 'FAIL'} — ${PASS}/${PASS + FAIL} checks\n`);
   return FAIL;
 };

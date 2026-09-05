@@ -122,12 +122,18 @@ function whyReport(G, text, r) {
   // be. Prose with no number means extraction lost the number. Nothing there
   // means the numbering itself skips.
   const first = sample.find((n) => rows.find((x) => x.number === n && x.line === null));
-  const br = first === undefined ? null : G.bracket(text, first, r.seen, { maxLines: 24 });
+  const br = first === undefined ? null : G.bracket(text, first, r.seen, { maxLines: 70 });
   if (br) {
     console.log(`\n  ${C.b('bracket')} ${C.dim(`— what sits between ¶${br.before} and ¶${br.after},`
       + ` where ¶${br.missing} should be`)}`);
     console.log(C.dim(`  lines ${br.fromLine}–${br.toLine}${br.truncated ? ' (truncated)' : ''}`));
-    for (const L of br.lines) console.log(C.dim(`    ${L.slice(0, 96)}`));
+    // PRINTED WHOLE. An earlier version sliced each line at 96 characters,
+    // which dropped the last word or two of every line — "been at Meta for
+    // [more] than 11 years", "identified on Meta's website [as] the head of
+    // Commerce" — and read exactly like text removed from the document. The
+    // display was about to be reported as evidence. A diagnostic that trims
+    // what it is showing you is not a diagnostic.
+    for (const L of br.lines) console.log(C.dim(`    ${L}`));
     console.log('');
     console.log(C.dim('  Prose with no number → extraction lost the number, not the document.'));
     console.log(C.dim(`  ¶${br.before} running straight into ¶${br.after} → the numbering skips,`));
