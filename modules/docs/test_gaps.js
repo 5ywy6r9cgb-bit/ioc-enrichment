@@ -192,6 +192,59 @@ module.exports = function run() {
         .length === 1);
   }
 
+  // ══ 9. A LOOKUP THAT CANNOT FIND WHAT THE MATCHER FOUND IS BROKEN ═════
+  //
+  // The first diagnostic for "is this paragraph missing, or did the matcher
+  // miss it?" was a shell one-liner:
+  //
+  //     new RegExp("(^|[^0-9.])" + n + "\\\\.[ \\t]")     inside  node -e '...'
+  //
+  // Single quotes pass backslashes through, so JavaScript got `\\.` — an
+  // escaped BACKSLASH plus any character. It searched for "42\" and matched
+  // nothing anywhere. Fourteen paragraphs came back "not present in the text
+  // at all", and so did six numbers the matcher had just found. The
+  // self-contradiction was the only reason it was caught.
+  {
+    const t = ' 3          41.    Present paragraph text here\n'
+      + ' 4          43.    Another present paragraph\n'
+      + 'Case 4:23-cv-05448 Document 1 Filed 10/24/23 Page 95 of 233\n';
+
+    const [a, b, c] = G.locate(t, [41, 42, 43]);
+    check('a paragraph that IS in the text is located',
+      a.line === 1 && /Present paragraph/.test(a.text), JSON.stringify(a));
+    check('a paragraph that is NOT in the text returns null, not a false line',
+      b.line === null && b.text === null, JSON.stringify(b));
+    check('and the one after it is still located',
+      c.line === 2, JSON.stringify(c));
+
+    // The control that catches a broken lookup: every number the matcher
+    // found must be locatable in the same text.
+    const dense = Array.from({ length: 60 }, (_, i) =>
+      ` ${(i % 28) + 1}          ${i + 1}.    The states allege Meta employs features`).join('\n');
+    const r = G.analyse(dense);
+    const unfindable = G.locate(dense, [...r.seen]).filter((x) => x.line === null);
+    check('every number the matcher found can be located again',
+      unfindable.length === 0, unfindable.map((x) => x.number).join(','));
+
+    const st = G.pageStamps(t);
+    check('page stamps are read for coverage',
+      st.total === 233 && st.highest === 95 && st.found === 1, JSON.stringify(st));
+    check('a document with no stamps reports null rather than zero pages',
+      G.pageStamps('no stamps here').total === null);
+
+    const cli = fs.readFileSync(require.resolve('./cli.js'), 'utf8');
+    check('--why runs the control before anything else',
+      /THE LOOKUP IS BROKEN, NOT THE DOCUMENT/.test(cli));
+    check('and prints nothing further when the control fails',
+      /Nothing\\n?[^\n]*below this line would mean anything/.test(cli)
+        || /below this line would mean anything/.test(cli));
+    check('--why says what full page coverage does and does not rule out',
+      /Extraction reached every page/.test(cli)
+        && /EXTRACTION DID NOT REACH EVERY PAGE/.test(cli));
+    check('and interprets the sample in both directions',
+      /Mostly absent/.test(cli) && /Mostly present/.test(cli));
+  }
+
   console.log(`\n  ${FAIL === 0 ? 'PASS' : 'FAIL'} — ${PASS}/${PASS + FAIL} checks\n`);
   return FAIL;
 };

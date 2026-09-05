@@ -179,4 +179,51 @@ function whitedOut(text) {
   return out;
 }
 
-module.exports = { paragraphNumbers, risingSequence, runs, analyse, whitedOut };
+/**
+ * Where a paragraph number actually sits in the text, if anywhere.
+ *
+ * This exists because the throwaway shell diagnostic that was supposed to
+ * answer "is ¶42 missing, or did the matcher miss it?" was written as
+ *
+ *     new RegExp("(^|[^0-9.])" + n + "\\\\.[ \\t]")
+ *
+ * inside `node -e '...'`. Single quotes pass backslashes through untouched, so
+ * JavaScript received the string `\\.` — which RegExp reads as an escaped
+ * BACKSLASH followed by any character. It searched for "42\" and matched
+ * nothing, anywhere, ever. Fourteen paragraphs were reported "not present in
+ * the text at all", and so were six numbers the matcher had just found.
+ *
+ * A lookup that cannot find what the matcher already matched is broken, and
+ * that is the check below. Escaping belongs in a file with a test, not in a
+ * shell string.
+ */
+function locate(text, numbers) {
+  const lines = String(text || '').split('\n');
+  const out = [];
+  for (const n of numbers) {
+    const re = new RegExp(`(?:^|[^0-9.])${n}\\.[ \\t]`);
+    const idx = lines.findIndex((L) => re.test(L));
+    out.push({
+      number: n,
+      line: idx < 0 ? null : idx + 1,
+      text: idx < 0 ? null : lines[idx].slice(0, 100),
+    });
+  }
+  return out;
+}
+
+/** How many of the document's own "Page N of T" stamps survived extraction. */
+function pageStamps(text) {
+  const m = String(text || '').match(/Page\s+(\d+)\s+of\s+(\d+)/g) || [];
+  if (!m.length) return { found: 0, total: null, highest: null };
+  const nums = m.map((x) => x.match(/\d+/g).map(Number));
+  return {
+    found: m.length,
+    total: nums[0][1],
+    highest: Math.max(...nums.map((x) => x[0])),
+  };
+}
+
+module.exports = {
+  paragraphNumbers, risingSequence, runs, analyse, whitedOut, locate, pageStamps,
+};

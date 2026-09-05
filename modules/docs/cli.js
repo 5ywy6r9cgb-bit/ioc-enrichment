@@ -39,6 +39,73 @@ function human(n) {
  * carry no marker at all. The word was the wrong thing to look for; the
  * arithmetic of the numbering is not.
  */
+/**
+ * Why the matcher could not read a document — measured, not guessed.
+ *
+ * The FIRST version of this was a shell one-liner whose regex, mangled by
+ * single-quote escaping, matched nothing anywhere. It reported fourteen
+ * paragraphs "not present in the text at all" — and also six numbers the
+ * matcher had just successfully found. That self-contradiction is now the
+ * first thing this prints: if a number in the sequence cannot be located,
+ * the LOOKUP is broken and nothing else on the screen means anything.
+ */
+function whyReport(G, text, r) {
+  const stamps = G.pageStamps(text);
+  console.log(`  ${C.b('WHY')}`);
+  if (stamps.total) {
+    const ok = stamps.found >= stamps.total;
+    console.log(`  page stamps: ${ok ? C.g(String(stamps.found)) : C.y(String(stamps.found))}`
+      + C.dim(` of ${stamps.total} · highest seen ${stamps.highest}`));
+    console.log(C.dim(ok
+      ? '  Extraction reached every page, so a missing paragraph is missing from'
+        + ' the\n  document, not lost on a page that never came through.'
+      : '  EXTRACTION DID NOT REACH EVERY PAGE. Missing paragraphs may simply be'
+        + ' on\n  the pages that did not come through. Fix that before reading'
+        + ' anything else.'));
+  } else {
+    console.log(C.dim('  no "Page N of T" stamps — page coverage cannot be checked here'));
+  }
+
+  // The control. These are numbers the matcher DID find.
+  const seq = [...r.seen].sort((a, b) => a - b);
+  const control = [seq[0], seq[Math.floor(seq.length / 2)], seq[seq.length - 1]]
+    .filter((n) => n !== undefined);
+  const found = G.locate(text, control);
+  const broken = found.filter((f) => f.line === null);
+  console.log(`\n  ${C.b('control')} ${C.dim('— numbers the matcher already found:')}`);
+  for (const f of found) {
+    console.log(f.line === null
+      ? `    ${C.r(String(f.number).padStart(6))}  NOT LOCATABLE`
+      : `    ${C.g(String(f.number).padStart(6))}  line ${f.line}`);
+  }
+  if (broken.length) {
+    console.log(`\n  ${C.r('THE LOOKUP IS BROKEN, NOT THE DOCUMENT.')}`);
+    console.log(C.dim('  A number the matcher found cannot be located by the same text. Nothing'));
+    console.log(C.dim('  below this line would mean anything, so it is not printed.\n'));
+    return;
+  }
+
+  const step = Math.max(1, Math.floor(r.missing.length / 12));
+  const sample = [];
+  for (let i = 0; i < r.missing.length && sample.length < 12; i += step) sample.push(r.missing[i]);
+  const rows = G.locate(text, sample);
+  const absent = rows.filter((x) => x.line === null).length;
+  console.log(`\n  ${C.b('sample')} ${C.dim(`— ${sample.length} of ${r.missing.length} unmatched numbers:`)}`);
+  for (const x of rows) {
+    console.log(x.line === null
+      ? `    ${C.y(String(x.number).padStart(6))}  not in the text`
+      : `    ${String(x.number).padStart(6)}  line ${String(x.line).padEnd(7)}`
+        + C.dim(JSON.stringify(x.text.slice(0, 60))));
+  }
+  console.log('');
+  console.log(C.dim(`  ${absent} of ${rows.length} are absent from the text; `
+    + `${rows.length - absent} are present but unmatched.`));
+  console.log(C.dim('  Mostly absent → the numbering really does skip them, and whether that'));
+  console.log(C.dim('  is sealing or a drafting artifact is a question for the PDF.'));
+  console.log(C.dim('  Mostly present → this matcher has a layout blind spot; send one of the'));
+  console.log(C.dim('  printed lines and the pattern can be fixed.\n'));
+}
+
 function cmdGaps(file, opts = {}) {
   const G = require('./gaps.js');
   if (!file) {
@@ -80,8 +147,9 @@ function cmdGaps(file, opts = {}) {
     console.log(C.dim('  A gap list drawn from that would be mostly this tool\'s blind spots,'));
     console.log(C.dim('  not the document\'s holes — so it is NOT printed.'));
     console.log(C.dim('  No conclusion about redaction can be drawn from this file here.'));
-    console.log(C.dim('  Check a page against the PDF and send the paragraph\'s exact'));
-    console.log(C.dim('  spacing; the pattern can be fixed for this filing\'s layout.\n'));
+    console.log(C.dim('  Run it again with --why to see whether the numbers it could not'));
+    console.log(C.dim('  find are absent from the text or merely unmatched.\n'));
+    if (opts.why) whyReport(G, text, r);
     return;
   }
 
@@ -552,7 +620,9 @@ async function main() {
     return cmdGet(positional[1], { caseId: val('--case'), as: val('--as') });
   }
   if (action === 'gaps') {
-    return cmdGaps(positional[1], { verbose: argv.includes("--verbose") });
+    return cmdGaps(positional[1], {
+      verbose: argv.includes('--verbose'), why: argv.includes('--why'),
+    });
   }
   if (action === 'bills') {
     return cmdBills({});
