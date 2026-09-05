@@ -1969,6 +1969,34 @@ function cmdFaraLayers(opts = {}) {
     if (!opts.verbose) {
       console.log(C.dim('  Conduits used by only one registrant are hidden; --verbose shows all.'));
     }
+
+    // ONE ENTITY, TWO SPELLINGS. The ranking is ordered by registrant count,
+    // so a conduit split across two spellings is pushed DOWN the list it
+    // should lead. Reported, never merged: a cluster is a hypothesis about
+    // identity, and this code cannot tell a rebranding from a sibling.
+    const dup = FSCAN.nearDuplicateConduits(ranked.map((h) => h.name));
+    if (dup.length) {
+      console.log(`\n  ${C.y('SAME WORDS, DIFFERENT SPELLING')}  ${C.dim(`${dup.length} candidate(s)`)}`);
+      console.log(C.dim('  These are ranked as separate conduits. If any pair is one entity,'));
+      console.log(C.dim('  its real totals are the SUM of the rows below — check, then say so'));
+      console.log(C.dim('  in writing. NOT merged here: same name is not same company.\n'));
+      for (const d of dup) {
+        let regs = 0; let docs = 0;
+        const clients = new Set();
+        for (const n of d.names) {
+          const h = ranked.find((x) => x.name === n);
+          if (!h) continue;
+          regs += h.registrants.size;
+          docs += h.docs;
+          for (const c of h.clients) clients.add(c);
+        }
+        console.log(`    ${d.names.map((n) => C.b(n)).join(C.dim('   +   '))}`);
+        console.log(C.dim(`      if one entity: ${regs} registrant(s)  ·  ${clients.size} foreign client(s)`
+          + `  ·  ${docs} doc(s)`));
+        console.log(C.dim('      (registrant counts are ADDED, so a firm filing under both'));
+        console.log(C.dim('       spellings is counted twice — this is a ceiling, not a total)\n'));
+      }
+    }
   }
 
   console.log('\n  ' + C.y('The split is an INTERPRETATION OF WORDING, not a field on the form.'));

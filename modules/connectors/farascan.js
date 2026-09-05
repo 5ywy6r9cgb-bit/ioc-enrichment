@@ -594,6 +594,66 @@ function looksSelfAffiliated(registrant, conduit) {
 }
 
 /**
+ * Conduits that are almost certainly ONE entity spelled two ways.
+ *
+ * ─────────────────────────────────────────────────────────────────────────
+ * WHY THIS REPORTS AND DOES NOT MERGE
+ * ─────────────────────────────────────────────────────────────────────────
+ * The BY CONDUIT rollup keys on the conduit string with punctuation folded,
+ * so two filers writing the same firm differently become two conduits. On a
+ * live register that split the single highest-throughput intermediary in the
+ * whole dataset into two rows:
+ *
+ *   "Havas Media Germany GmbH"   2 registrants · 249 docs
+ *   "Havas Media Group Germany"  2 registrants ·   3 docs
+ *
+ * Read as printed, that is two minor conduits. Read together it is four
+ * registrants and 252 documents, and the ranking is ordered by registrant
+ * count, so the split pushed it DOWN the list it should have led.
+ *
+ * The fix is not to merge them. This register is full of national
+ * affiliates of one brand -- Hill & Knowlton Qatar, Hill & Knowlton UK,
+ * Hill & Knowlton Singapore, Gulf Hill & Knowlton -- which are genuinely
+ * different companies, and the only thing separating them is a word a
+ * fuzzier matcher would be tempted to discard. Sameness of NAME is not
+ * sameness of ENTITY, and this code cannot tell the difference. So it
+ * returns CANDIDATES with every spelling, and a person decides.
+ *
+ * Equality of distinctive words only, never subset: "Havas Media Group USA
+ * LLC" reduces to a subset of the German entity and is a different company.
+ * A typo defeats it entirely -- "Venable" and "Vanable" share no word, and
+ * both are in this register.
+ */
+const CONDUIT_FORMS = new Set(['gmbh', 'mbh', 'ag', 'kg', 'sarl', 'sas', 'spa',
+  'srl', 'bv', 'nv', 'ab', 'oy', 'oyj', 'pte', 'pty', 'kk', 'limited', 'holding',
+  'holdings', 'gruppe', 'branch', 'division']);
+
+function conduitTokens(name) {
+  return new Set(String(name || '').toLowerCase()
+    .replace(/[^a-z0-9 ]+/g, ' ').split(/\s+/)
+    .filter((w) => w.length > 2 && !STOPWORDS.has(w) && !CONDUIT_FORMS.has(w)));
+}
+
+/**
+ * @param names  the conduit strings as they were actually filed
+ * @returns clusters of 2+ names whose distinctive words are identical
+ */
+function nearDuplicateConduits(names) {
+  const by = new Map();
+  for (const n of names) {
+    const toks = [...conduitTokens(n)].sort();
+    if (!toks.length) continue;              // nothing distinctive: never cluster
+    const sig = toks.join(' ');
+    if (!by.has(sig)) by.set(sig, new Set());
+    by.get(sig).add(n);
+  }
+  return [...by.entries()]
+    .filter(([, set]) => set.size > 1)
+    .map(([sig, set]) => ({ signature: sig, names: [...set].sort() }))
+    .sort((a, b) => b.names.length - a.names.length || a.signature.localeCompare(b.signature));
+}
+
+/**
  * Read every cached registrant and return the layered principals.
  *
  * Runs entirely off the farascan cache — no network. A full scan must have
@@ -700,5 +760,6 @@ module.exports = {
   activeRegistrants, fetchDocs, retryAfterMs, MAX_429_RETRIES,
   namesPrincipal, matches, matchesCountry, countryKey, summarise, scan, coverageLine,
   splitPrincipal, looksSelfAffiliated, intermediaries, tidy,
+  conduitTokens, nearDuplicateConduits,
   balanceParens, looksContested,
 };

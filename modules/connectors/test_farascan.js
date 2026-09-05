@@ -462,6 +462,71 @@ function rateLimitTests() {
         && /UNDERCOUNTED/.test(src) && /MERGED/.test(src));
   }
 
+  // ══ ONE ENTITY, TWO SPELLINGS ════════════════════════════════════════
+  //
+  // BY CONDUIT keys on the conduit string with punctuation folded, so two
+  // filers writing the same firm differently become two conduits. On the
+  // live register that split the highest-throughput intermediary in the
+  // whole dataset -- "Havas Media Germany GmbH" (249 docs) and "Havas Media
+  // Group Germany" (3) -- and because the ranking is ordered by REGISTRANT
+  // COUNT, the split pushed it down the list it should have led.
+  {
+    const d = F.nearDuplicateConduits([
+      'Havas Media Germany GmbH', 'Havas Media Group Germany',
+      'Havas Media Group USA LLC',
+      'Venable LLP', 'Vanable LLP', 'White & Case LLP',
+      'Akin Gump Strauss Hauer & Feld LLP', 'Akin, Gump, Strauss, Hauer & Feld',
+      'Hill & Knowlton Qatar LLC', 'Hill & Knowlton UK',
+    ]);
+    const sig = (words) => d.find((x) => x.signature === words);
+
+    check('the two spellings of the German Havas entity are clustered',
+      !!sig('germany havas media')
+        && sig('germany havas media').names.length === 2, JSON.stringify(d));
+    check('and the punctuation-only variants of one firm are clustered',
+      !!sig('akin feld gump hauer strauss'));
+
+    // The USA sibling is a DIFFERENT COMPANY and reduces to a subset, not an
+    // equal set. Subset matching would have swallowed it.
+    check('a sibling entity in another country is NOT clustered in',
+      !sig('germany havas media').names.some((n) => /USA/.test(n)));
+
+    // National affiliates of one brand are separate companies. The only
+    // thing telling them apart is the word a fuzzier matcher would discard.
+    check('national affiliates of one brand stay separate',
+      !d.some((x) => x.names.includes('Hill & Knowlton Qatar LLC')
+        && x.names.includes('Hill & Knowlton UK')));
+
+    // A typo shares no word, so it is not caught. Both of these are really
+    // in the register, and saying so is better than implying coverage.
+    check('a typo is not caught, and the code does not pretend otherwise',
+      !d.some((x) => x.names.includes('Vanable LLP')));
+    check('unrelated firms are never clustered',
+      !d.some((x) => x.names.includes('White & Case LLP')));
+
+    // A name that reduces to nothing distinctive must not cluster with every
+    // other empty one -- "The Group LLC" and "Global Partners Inc" are not
+    // the same company because both vanish under the stopword list.
+    check('names with no distinctive word are never clustered',
+      F.nearDuplicateConduits(['The Group LLC', 'Global Partners Inc']).length === 0);
+    check('conduit tokens drop corporate form words like GmbH',
+      !F.conduitTokens('Havas Media Germany GmbH').has('gmbh'));
+  }
+
+  // ══ THE VIEW REPORTS THE SPLIT, IT DOES NOT SILENTLY REPAIR IT ═══════
+  {
+    const cli = fs.readFileSync(require.resolve('./cli.js'), 'utf8');
+    check('the by-conduit view surfaces same-words candidates',
+      /SAME WORDS, DIFFERENT SPELLING/.test(cli));
+    check('and says the combined figure is a ceiling, not a total',
+      /this is a ceiling, not a total/.test(cli));
+    check('and refuses to merge, because same name is not same company',
+      /same name is not same company/.test(cli));
+    const src = fs.readFileSync(require.resolve('./farascan.js'), 'utf8');
+    check('the live split that motivated it is recorded in the source',
+      /Havas Media Germany GmbH/.test(src) && /249 docs/.test(src));
+  }
+
   console.log(`\n  ${FAIL === 0 ? 'PASS' : 'FAIL'} — ${PASS}/${PASS + FAIL} checks\n`);
     return FAIL;
   });
