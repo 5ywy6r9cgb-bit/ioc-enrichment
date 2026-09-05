@@ -1642,9 +1642,12 @@ async function cmdSearch(name, query, opts) {
   console.log('\n' + C.b(`${c.label} — authorized run`));
   console.log(`  subject     ${query}`);
   console.log(`  calls       ${c.calls} (exactly)`);
-  console.log(`  request     ${c.describe(query,
-    { exact: opts.exact, any: opts.any, dockets: opts.dockets, allforms: opts.allforms,
-      pageid: opts.pageid })}`);
+  const passthru = {
+    exact: opts.exact, any: opts.any, dockets: opts.dockets,
+    allforms: opts.allforms, pageid: opts.pageid,
+    candidate: opts.candidate, committee: opts.committee, cycle: opts.cycle,
+  };
+  console.log(`  request     ${c.describe(query, passthru)}`);
   console.log(`  key         ${key ? C.g('present, sent in Authorization header only')
     : (keyMissing ? C.r(`MISSING — set ${c.keyVar} in .env`)
       : (c.keyVar ? C.y('none (anonymous)') : C.dim('none needed')))}`);
@@ -1676,9 +1679,7 @@ async function cmdSearch(name, query, opts) {
     process.exit(2);
   }
 
-  const out = await R.runConnector(name, query,
-    { env, exact: opts.exact, any: opts.any, dockets: opts.dockets, allforms: opts.allforms,
-      pageid: opts.pageid });
+  const out = await R.runConnector(name, query, Object.assign({ env }, passthru));
   if (!out.ok) {
     console.error(C.r(`\n  ${out.error} — nothing written.`));
     if (out.status === 401 || out.status === 403) console.error('  The key was rejected. Run: sentinel connect test\n');
@@ -1698,6 +1699,21 @@ async function cmdSearch(name, query, opts) {
   }
 
   console.log('\n  ' + C.b(`${out.results.length} candidate lead(s)`));
+
+  // HOW MUCH OF THE ANSWER IS THIS? A page of 100 rows off a source holding
+  // 5,000 looks exactly like a complete answer of 100 once it is written down,
+  // and the difference is the whole finding. A connector that knows its own
+  // denominator says so HERE -- next to the count, before anything is totalled
+  // -- and not in a footnote under the results.
+  const connFor = R.CONNECTORS[out.connector || name];
+  if (connFor && typeof connFor.coverage === 'function' && out.capturePath) {
+    try {
+      const body = JSON.parse(fs.readFileSync(out.capturePath, 'utf8'));
+      const cov = connFor.coverage(body, query);
+      if (cov) console.log('  ' + C.y('coverage') + '    ' + cov);
+    } catch { /* the capture is on disk either way */ }
+  }
+
   if (!out.results.length) {
     console.log(C.dim('  No hits. A clean result is not proof of absence — it is one source saying nothing.'));
 
@@ -2088,7 +2104,7 @@ async function main() {
     for (let i = 0; i < argv.length; i++) {
       const a = argv[i];
       if (a.startsWith('--')) {
-        if (/^--(into|only|skip|pages|limit|chart|country|client|registrant|match|as)$/.test(a)
+        if (/^--(into|only|skip|pages|limit|chart|country|client|registrant|match|as|cycle)$/.test(a)
             && argv[i + 1] && !argv[i + 1].startsWith('--')) i++;
         continue;
       }
@@ -2097,6 +2113,22 @@ async function main() {
     }
     return out;
   };
+  // Flags that carry a VALUE. Built once: the same bag was being spelled out
+  // at four call sites, and a flag added to three of them is a flag that
+  // works in `connect search fecspend` and silently does nothing in
+  // `connect fecspend` -- which reads as "the committee spent nothing".
+  const searchFlags = () => ({
+    exact: argv.includes('--exact'),
+    any: argv.includes('--any'),
+    dockets: argv.includes('--dockets'),
+    allforms: argv.includes('--allforms'),
+    pageid: argv.includes('--pageid'),
+    // Booleans: they say which FILTER the positional query is, the way
+    // --pageid does. Not values -- see the note in `positional`.
+    candidate: argv.includes('--candidate'),
+    committee: argv.includes('--committee'),
+    cycle: flagValue('--cycle'),
+  });
   const intoOf = (list) => {
     const i = list.indexOf('--into');
     return i >= 0 && list[i + 1] && !list[i + 1].startsWith('--') ? list[i + 1] : null;
@@ -2104,19 +2136,11 @@ async function main() {
 
   if (action === 'search') {
     return cmdSearch(args[1], positional(2).join(' '),
-      Object.assign({}, opts, { into: intoOf(argv),
-        exact: argv.includes('--exact'), any: argv.includes('--any'),
-        dockets: argv.includes('--dockets'),
-        allforms: argv.includes('--allforms'),
-        pageid: argv.includes('--pageid') }));
+      Object.assign({}, opts, searchFlags(), { into: intoOf(argv) }));
   }
   if (R.CONNECTORS[action]) {
     return cmdSearch(action, positional(1).join(' '),
-      Object.assign({}, opts, { into: intoOf(argv),
-        exact: argv.includes('--exact'), any: argv.includes('--any'),
-        dockets: argv.includes('--dockets'),
-        allforms: argv.includes('--allforms'),
-        pageid: argv.includes('--pageid') }));
+      Object.assign({}, opts, searchFlags(), { into: intoOf(argv) }));
   }
 
   console.error(`unknown action: ${action}`);

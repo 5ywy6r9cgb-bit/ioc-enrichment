@@ -310,7 +310,7 @@ PRA_MAIL_MAX_PER_RUN=5          # cap on one `send`
 
 ```bash
 bin/sentinel connect test                    # which keys are set, and reachable
-bin/sentinel connect list                    # the thirteen connectors and their key variables
+bin/sentinel connect list                    # the fourteen connectors and their key variables
 bin/sentinel connect all "<subject>"         # search every source at once
 bin/sentinel connect all "<subject>" --into <investigation>
 bin/sentinel connect all "<subject>" --dry-run
@@ -628,14 +628,15 @@ to retry them, since everything that answered comes from cache. The scan also
 covers the **active** list only — a terminated registrant's history is not in
 it.
 
-### The thirteen connectors
+### The fourteen connectors
 
 | Name | Source | Key variable |
 |---|---|---|
 | `opensanctions` | OpenSanctions | `OPENSANCTIONS_API_KEY` |
 | `courtlistener` | CourtListener | `COURTLISTENER_API_TOKEN` (optional) |
 | `federalregister` | Federal Register | none needed |
-| `fec` | FEC campaign finance | `FEC_API_KEY` |
+| `fec` | FEC campaign finance — candidate lookup | `FEC_API_KEY` |
+| `fecspend` | FEC Schedule E — independent expenditures, who spent to elect or defeat | `FEC_API_KEY` |
 | `senatelda` | Senate LDA (lobbying) | `LDA_API_KEY` (optional) |
 | `regulationsgov` | Regulations.gov | `DATA_GOV_API_KEY` |
 | `bls` | Bureau of Labor Statistics | `BLS_API_KEY` (optional) |
@@ -648,6 +649,72 @@ it.
 
 `connect all` deliberately **skips `bls`** — it takes series IDs, not names,
 so a company name against it is meaningless.
+
+### `connect fecspend` — who paid to elect or defeat someone
+
+The question *"who is funding this"* has a filed answer for one specific
+slice of political money: spending that expressly advocates the election or
+defeat of a **federal** candidate, by anyone other than that candidate's own
+committee. That is an **independent expenditure**, reported on FEC Form 3X
+**Schedule E** within 24 or 48 hours, naming the committee, the amount, the
+date, the payee, and whether the money was spent **for** or **against**.
+
+This is the same shape as the LDA `foreign_entities` finding on this desk:
+the disclosure everyone assumes is hidden is mandatory, public, and almost
+nobody reads it.
+
+```bash
+bin/sentinel connect fecspend "United Democracy Project"       # by spender name
+bin/sentinel connect fecspend C00799031 --committee            # by FEC committee id
+bin/sentinel connect fecspend H8OH12345 --candidate --cycle 2024
+```
+
+`--committee` and `--candidate` are **switches**, not values — they say which
+filter the query is. They take FEC ids (`C` + 8 digits for a committee, a
+letter + 8 for a candidate). A **name** passed to an id filter matches
+nothing and prints exactly what a committee that never spent a dollar
+prints, so the connector says so in its zero-result diagnosis.
+
+**Every row spells out `SUPPORTING` or `OPPOSING` in full.** Roughly half of
+large independent-expenditure money is spent *against* someone. Merging the
+two reverses the meaning of the number: "$4M on Candidate X" can be $4M
+spent trying to destroy X. The raw field is a single letter, `S` or `O`, and
+a single letter is exactly what gets skimmed past.
+
+**The coverage line is the denominator.** One page is 100 rows; a committee
+can have thousands. The connector reports `page 1 of 50: 100 rows of 5,000`
+and tells you not to total the page. Where the response carries no count it
+says **UNKNOWN** — not "complete".
+
+#### Four kinds of political money this does *not* contain
+
+A Schedule E total treated as "what was spent" gets every one of these wrong:
+
+| Not here | Where it is |
+|---|---|
+| The candidate's own committee spending | A different schedule entirely |
+| Issue ads that stop short of "vote for / vote against"; organising; polling | Often **nowhere** — no filing is triggered |
+| All ordinary lobbying | The LDA — `connect senatelda`, `connect foreign` |
+| **State and local** races — sheriff, prosecutor, school board | The **state** disclosure body. The FEC is federal only, and always will be. |
+
+#### The hop this tool does not make
+
+Schedule E names the committee that **spent**. Who gave that committee the
+money is a separate filing (Schedule A), and where a 501(c)(4) funds a super
+PAC there may be **no donor filing at all**. Naming the committee is one hop,
+not the chain. Writing it up as though the committee were the origin of the
+money invents a link that was never disclosed — and it is the easiest false
+claim available here, because the committee name is the part that sounds
+like an answer.
+
+#### The field worth more than the amount
+
+`payee` — who actually received the cash, usually a media buyer or a
+consultancy. Committees are independent by law and share vendors in
+practice. **The same vendor appearing under two supposedly unrelated
+committees is a fact anyone can verify from the filings**, which is a
+different order of evidence from an assertion about intent. Feed the payee
+names to `connect crosslink`.
 
 ### Quoting, and the one mistake that costs you a search
 

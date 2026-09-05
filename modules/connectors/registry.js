@@ -823,6 +823,172 @@ const CONNECTORS = {
     identify: (r) => r.external_id,
   },
 
+  // ======================================================================
+  // WHO PAID TO ELECT OR DEFEAT SOMEONE — AND WHY IT IS NOT A SECRET
+  //
+  // The question "who is funding the influence campaign" has a filed answer
+  // for one specific slice of it: money spent expressly advocating the
+  // election or defeat of a federal candidate, by anyone who is not that
+  // candidate's own committee. That is an INDEPENDENT EXPENDITURE, it is
+  // reported on FEC Form 3X Schedule E within 24 or 48 hours of the spend,
+  // and it names the committee, the amount, the date, the payee and whether
+  // the money was spent FOR or AGAINST the candidate.
+  //
+  // This is the same shape as the LDA foreign_entities finding on this desk:
+  // the disclosure people assume is hidden is mandatory, public, and almost
+  // nobody reads it. The reason a funding question feels unanswerable is
+  // usually that the answer is on a form, not that it is concealed.
+  //
+  // ── WHAT SCHEDULE E CANNOT TELL YOU ───────────────────────────────────
+  // Four whole categories of political money are NOT here, and treating a
+  // Schedule E total as "what was spent" gets every one of them wrong:
+  //
+  //   1. The candidate's OWN committee spending. Different schedule entirely.
+  //   2. Money that never becomes an express-advocacy ad: issue ads that stop
+  //      short of "vote for / vote against", organising, polling, and every
+  //      dollar of ordinary lobbying (that is the LDA, see `connect foreign`).
+  //   3. STATE and LOCAL races. The FEC covers federal office only. A county
+  //      sheriff or a school board is invisible here and always will be.
+  //   4. The committee's OWN donors. Schedule E names the SPENDER. Who gave
+  //      that spender the money is a separate filing (Schedule A), and for a
+  //      501(c)(4) that funds a super PAC there may be no donor filing at all.
+  //      Naming the committee is one hop, not the whole chain, and this tool
+  //      says so rather than letting the committee read as the origin.
+  //
+  // ── THE FIELD MOST OFTEN DROPPED ──────────────────────────────────────
+  // support_oppose_indicator. Roughly half of large independent-expenditure
+  // money is spent AGAINST someone. A total that merges S and O reverses the
+  // meaning of the number: "$4M spent on Candidate X" can be $4M spent trying
+  // to destroy X. It is spelled out in full on every row below for that
+  // reason, never abbreviated to a letter that can be skimmed past.
+  // ======================================================================
+  fecspend: {
+    label: 'FEC Schedule E (independent expenditures — who spent to elect or defeat)',
+    // spender_name IS a legal entity (a registered committee), unlike a
+    // Facebook page name, so crosslink may treat it as one.
+    entityNames: true,
+    keyVar: 'FEC_API_KEY',
+    keyVarAlt: 'DATA_GOV_API_KEY',   // same api.data.gov federation as `fec`
+    keyRequired: true,
+    calls: 1,
+    describe: (q, o = {}) => 'GET https://api.open.fec.gov/v1/schedules/schedule_e/'
+      + `  (${o.candidate ? `candidate id: ${q}`
+          : o.committee ? `committee id: ${q}`
+          : `spender name: ${q}`}`
+      + `${o.cycle ? `; cycle ${o.cycle}` : ''})`,
+    probe: (key) => ({
+      method: 'GET',
+      url: 'https://api.open.fec.gov/v1/schedules/schedule_e/'
+        + `?api_key=${encodeURIComponent(key || 'DEMO_KEY')}&per_page=1`,
+      headers: { Accept: 'application/json' },
+    }),
+    run: (q, key, o = {}) => {
+      const raw = String(q || '').trim();
+      // An FEC id has a fixed shape: C + 8 digits for a committee, one letter
+      // + 8 for a candidate. Passing a NAME to an id filter returns zero rows
+      // and looks exactly like "this committee spent nothing", so the id
+      // filters take the id verbatim and the name filter takes everything
+      // else. Guessing between them silently is how a zero becomes a claim.
+      const sel = o.candidate ? `&candidate_id=${encodeURIComponent(raw.toUpperCase())}`
+        : o.committee ? `&committee_id=${encodeURIComponent(raw.toUpperCase())}`
+        : `&q_spender=${encodeURIComponent(raw)}`;
+      const cycle = o.cycle ? `&cycle=${encodeURIComponent(String(o.cycle).replace(/\D/g, ''))}` : '';
+      return {
+        method: 'GET',
+        url: 'https://api.open.fec.gov/v1/schedules/schedule_e/'
+           + `?api_key=${encodeURIComponent(key)}`
+           + sel + cycle
+           + '&per_page=100&sort=-expenditure_date',
+        headers: { Accept: 'application/json' },
+      };
+    },
+    parse: (json) => {
+      const rows = (json && Array.isArray(json.results)) ? json.results : [];
+      // S and O are spelled out. See the header comment: an abbreviation that
+      // can be skimmed past is how spending AGAINST a candidate gets reported
+      // as support for them.
+      const dir = (v) => {
+        const c = String(v || '').trim().toUpperCase();
+        if (c === 'S') return 'SUPPORTING';
+        if (c === 'O') return 'OPPOSING';
+        return '(direction not stated on this row)';
+      };
+      return rows.map((r) => {
+        const target = [
+          r.candidate_name || r.candidate_id || '(candidate not named on row)',
+          r.candidate_office_full || r.candidate_office || '',
+          r.candidate_office_state || '',
+        ].filter(Boolean).join(' · ');
+        return {
+          external_id: [r.transaction_id, r.sub_id, r.link_id].filter(Boolean).join('/') || '',
+          // The SPENDER is the point of this connector, so it is the name.
+          name: r.spender_name || (r.committee && r.committee.name) || '(spender not named)',
+          committee_id: r.committee_id || '',
+          spent: dir(r.support_oppose_indicator) + ' ' + target,
+          amount: r.expenditure_amount === null || r.expenditure_amount === undefined
+            ? '' : String(r.expenditure_amount),
+          date: r.expenditure_date ? String(r.expenditure_date).slice(0, 10) : '',
+          purpose: r.expenditure_description || '',
+          // Who actually received the cash — usually a media buyer or a
+          // consultancy. This is the row that ties a funder to a vendor, and
+          // the same vendor turning up under unrelated committees is a real,
+          // checkable signal that they are not as independent as they look.
+          payee: r.payee_name || '',
+          form: r.filing_form || '',
+          url: r.pdf_url || '',
+        };
+      });
+    },
+    identify: (r) => r.external_id,
+    /**
+     * THE DENOMINATOR. This endpoint reports how many rows matched in total;
+     * one page holds 100. Without this line an operator reads 100 rows and
+     * writes "100 independent expenditures", which on a real committee can be
+     * off by a factor of fifty. A cap is not a count.
+     */
+    coverage: (json) => {
+      const pg = json && json.pagination;
+      if (!pg || typeof pg.count !== 'number') {
+        return 'TOTAL MATCHING ROWS: UNKNOWN — the response carried no '
+          + 'pagination count, so this page cannot be described as complete '
+          + 'or incomplete. Do not total it.';
+      }
+      const got = (json.results || []).length;
+      if (pg.count > got) {
+        return `THIS IS PAGE ${pg.page || 1} OF ${pg.pages || '?'}: ${got} rows of `
+          + `${pg.count} that matched. Anything you total from this page is a `
+          + 'total of the page, not of the committee.';
+      }
+      return `COMPLETE: all ${pg.count} matching row(s) are in this capture.`;
+    },
+    /**
+     * A zero here has five causes and only one of them is "they spent nothing".
+     */
+    diagnose: (json) => {
+      if (json && (json.error || json.message) && !Array.isArray(json.results)) {
+        return 'THE FEC RETURNED AN ERROR, NOT AN EMPTY RESULT: '
+          + String(json.message || (json.error && json.error.message) || '').slice(0, 200);
+      }
+      if (!json || !Array.isArray(json.results)) {
+        return 'NO results ARRAY IN THE RESPONSE. That is a schema mismatch, '
+          + 'not a null result — the capture is on disk; send its top-level '
+          + `keys (${json && typeof json === 'object' ? Object.keys(json).join(', ').slice(0, 120) : 'not an object'}) `
+          + 'and this can be fixed.';
+      }
+      return '0 independent expenditure(s) matched. FIVE THINGS THIS DOES NOT '
+        + 'MEAN. (1) It does not mean no money was spent: candidate committee '
+        + 'spending, issue ads that stop short of express advocacy, and all '
+        + 'lobbying are filed elsewhere. (2) It does not cover state or local '
+        + 'office at all — the FEC is federal only. (3) --committee and '
+        + '--candidate take FEC IDs (C00123456 / H8OH12345), and a NAME passed '
+        + 'to those filters matches nothing and looks identical to silence; '
+        + 'drop the flag to search by spender name instead. (4) A cycle filter '
+        + 'excludes every other cycle. (5) Schedule E names the SPENDER, so a '
+        + 'donor who funds a committee that spent nothing this cycle is absent '
+        + 'here and is still a donor.';
+    },
+  },
+
   senatelda: {
     // PACED, because this is the connector that gets asked for 294 pages.
     //
