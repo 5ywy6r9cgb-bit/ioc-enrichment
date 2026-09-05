@@ -2765,6 +2765,11 @@ async function main() {
     // it the search reads complaint NARRATIVES, so "Wells Fargo" returns
     // complaints about other banks that merely mention Wells Fargo -- rows
     // a reader would count against Wells Fargo.
+    // THE VALUE, NOT THE FLAG. --company is a switch that changes which
+    // FIELD is searched, and the thing searched for is the positional
+    // query. Passing the boolean into checkFilters printed "0 of 100
+    // row(s) are filed AGAINST true", which is a check reporting on
+    // itself rather than on the data.
     company: argv.includes('--company'),
     state: flagValue('--state'),
     product: flagValue('--product'),

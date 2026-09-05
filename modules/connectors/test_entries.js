@@ -120,6 +120,82 @@ console.log('\n  entries — how a case ended\n');
     d.hits[0].prejudice === 'WITH', d.hits[0].prejudice);
 }
 
+// ══ 4c. A THROTTLE IS NOT AN ANSWER, AND READS MUST ACCUMULATE ═══════
+//
+// Three consecutive live runs over the same 28 dockets each answered two
+// or three and threw the answers away. The operator held six real
+// dispositions across those runs and the tool never showed him six.
+{
+  const os = require('os');
+  const root = fs.mkdtempSync(require('path').join(os.tmpdir(), 'entries-'));
+
+  check('Retry-After in seconds is read',
+    E.retryAfterMs({ headers: { 'retry-after': '30' } }) === 30000);
+  check('and an absent header is null, not a guessed zero',
+    E.retryAfterMs({ headers: {} }) === null);
+  check('an absurd wait is capped rather than hanging the run',
+    E.retryAfterMs({ headers: { 'retry-after': '99999' } }) === 120000);
+  check('a retry budget exists', E.MAX_429_RETRIES >= 1);
+
+  const okBody = { status: 200, body: Buffer.from(JSON.stringify({
+    count: 1, results: [{ description: 'Notice of Voluntary Dismissal' }] })) };
+
+  Promise.resolve()
+    .then(() => {
+      // Throttled twice, then answers. The docket IS readable.
+      let n = 0;
+      return E.readDocket(77, {
+        evidenceRoot: root,
+        request: async () => {
+          n += 1;
+          return n <= 2 ? { status: 429, headers: { 'retry-after': '0' }, body: Buffer.from('') } : okBody;
+        },
+      });
+    })
+    .then((r) => {
+      check('a docket throttled twice is READ, not written off',
+        r.ok === true && r.verdict === 'VOLUNTARY', JSON.stringify({ ok: r.ok, v: r.verdict }));
+
+      let calls = 0;
+      return E.readMany([88], { intervalMs: 0, evidenceRoot: root,
+        request: async () => { calls += 1; return okBody; } })
+        .then(() => E.readMany([88], { intervalMs: 0, evidenceRoot: root,
+          request: async () => { calls += 1; return okBody; } }))
+        .then((second) => {
+          check('a second run serves the docket from cache, making no request',
+            calls === 1, String(calls));
+          check('and says how many rows it served from cache',
+            second.servedFromCache === 1, String(second.servedFromCache));
+          check('the cached row is marked as cached, not passed off as fresh',
+            second[0].fromCache === true);
+          check('and it still carries its verdict', second[0].verdict === 'VOLUNTARY');
+
+          // A CACHED FAILURE WOULD MAKE A RATE LIMIT PERMANENT.
+          let tries = 0;
+          return E.readMany([99], { intervalMs: 0, evidenceRoot: root,
+            request: async () => { tries += 1; return { status: 500, body: Buffer.from('') }; } })
+            .then(() => E.readMany([99], { intervalMs: 0, evidenceRoot: root,
+              request: async () => { tries += 1; return okBody; } }))
+            .then((again) => {
+              check('a FAILED read is never cached — it is retried',
+                tries === 2 && again[0].verdict === 'VOLUNTARY',
+                JSON.stringify({ tries, v: again[0].verdict }));
+              check('and nothing was served from cache for it',
+                again.servedFromCache === 0, String(again.servedFromCache));
+              check('a corrupt cache file is a miss, not a crash',
+                E.cached('nope', { evidenceRoot: root }) === null);
+
+              const src = fs.readFileSync(require.resolve('./entries.js'), 'utf8');
+              check('the reason a rate limit must not end the question is recorded',
+                /answer it in pieces and keep the pieces/.test(src));
+              check('and that a cached failure would make a throttle permanent',
+                /A CACHED FAILURE IS NOT A CACHED ANSWER/.test(src));
+              return null;
+            });
+        });
+    });
+}
+
 // ══ 5. THREE KINDS OF "NO ANSWER", NEVER MERGED ══════════════════════
 //
 // UNREAD (could not fetch), UNCLASSIFIED (fetched, nothing matched) and
@@ -200,7 +276,12 @@ console.log('\n  entries — how a case ended\n');
         /giving up/.test(src));
 
       let n = 0;
-      return E.readMany([1, 2], { intervalMs: 0,
+      // AN ISOLATED CACHE ROOT. Without one this wrote into the repo's real
+      // evidence tree and then served itself on the next run, so the check
+      // "reads each docket once" saw ZERO requests and failed -- a test
+      // polluting the thing it tests.
+      const isoRoot = fs.mkdtempSync(require('path').join(require('os').tmpdir(), 'entries-iso-'));
+      return E.readMany([1, 2], { intervalMs: 0, evidenceRoot: isoRoot,
         request: async () => { n += 1; return { status: 200, body: Buffer.from(JSON.stringify({
           count: 1, results: [{ description: 'Consent Order' }] })) }; } })
         .then((rs) => {

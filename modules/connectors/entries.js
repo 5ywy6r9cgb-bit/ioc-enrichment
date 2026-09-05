@@ -55,6 +55,8 @@
  *    not the same as "no disposition".
  */
 
+const fs = require('fs');
+const path = require('path');
 const R = require('./registry.js');
 
 const ENTRIES = 'https://www.courtlistener.com/api/rest/v4/docket-entries/';
@@ -246,12 +248,43 @@ function disposition(entries, opts = {}) {
  * entries are what a disposition lives in, and walking a 400-entry docket
  * to the beginning spends the rate limit that the OTHER 27 dockets need.
  */
+/**
+ * How long to wait after a 429, read from the response rather than guessed.
+ *
+ * CourtListener answers a throttled request with Retry-After. Ignoring it and
+ * hammering on is what turned a 28-docket run into 25 UNREAD rows: the
+ * default 1.2s pace is far under this endpoint's limit, every request after
+ * the first few was refused, and the output was a wall of HTTP 429 that looks
+ * exactly like an agency with no records.
+ */
+function retryAfterMs(res) {
+  const h = (res && res.headers) || {};
+  const raw = h['retry-after'] || h['Retry-After'];
+  if (raw === undefined || raw === null) return null;
+  const secs = Number(String(raw).trim());
+  if (Number.isFinite(secs) && secs >= 0) return Math.min(secs * 1000, 120000);
+  const when = Date.parse(String(raw));
+  if (Number.isFinite(when)) return Math.max(0, Math.min(when - Date.now(), 120000));
+  return null;
+}
+
+const MAX_429_RETRIES = 3;
+
 async function readDocket(docketId, opts = {}) {
   const req = opts.request || R.request;
   const headers = opts.key ? { Authorization: `Token ${opts.key}` } : {};
   const url = firstPageUrl(docketId, opts);
 
-  const res = await req('GET', url, headers);
+  // A THROTTLE IS NOT AN ANSWER. Wait the time the service asked for and ask
+  // again, rather than recording UNREAD for a docket the archive holds.
+  let res = await req('GET', url, headers);
+  for (let n = 0; n < MAX_429_RETRIES && res && res.status === 429; n += 1) {
+    const wait = retryAfterMs(res) === null ? (n + 1) * 20000 : retryAfterMs(res);
+    if (opts.onThrottle) opts.onThrottle({ docketId, attempt: n + 1, waitMs: wait });
+    await new Promise((f) => setTimeout(f, wait));
+    res = await req('GET', url, headers);
+  }
+
   if (!res || res.status !== 200) {
     return {
       docket_id: docketId,
@@ -259,7 +292,11 @@ async function readDocket(docketId, opts = {}) {
       // An HTTP failure is UNREAD, never "no disposition found". Those
       // read the same in a table and mean opposite things.
       verdict: 'UNREAD',
-      error: res && res.status ? `HTTP ${res.status}` : 'no answer',
+      error: res && res.status === 429
+        ? `HTTP 429 after ${MAX_429_RETRIES} retries — still throttled, `
+          + 'not a docket without a disposition'
+        : (res && res.status ? `HTTP ${res.status}` : 'no answer'),
+      throttled: !!(res && res.status === 429),
       hits: [], scanned: 0, available: 0, families: [],
     };
   }
@@ -281,16 +318,75 @@ async function readDocket(docketId, opts = {}) {
   };
 }
 
+/**
+ * Where a read docket is remembered.
+ *
+ * ─────────────────────────────────────────────────────────────────────────
+ * WHY A CACHE, AND WHY IT IS NOT AN OPTIMISATION
+ * ─────────────────────────────────────────────────────────────────────────
+ * Three consecutive live runs over the same 28 dockets each answered two or
+ * three and threw the answers away, because a throttled run starts from
+ * scratch. Different dockets came back each time. The operator held, across
+ * three runs, six real dispositions -- and the tool showed him two, then
+ * three, then three, never the six.
+ *
+ * A rate limit you cannot get past in one run is not a reason to abandon
+ * the question. It is a reason to answer it in pieces and keep the pieces.
+ */
+function cacheDir(root) {
+  return path.join(root || R.EVIDENCE, 'captures', 'entries');
+}
+
+function cachePath(docketId, root) {
+  return path.join(cacheDir(root), `docket_${String(docketId)}.json`);
+}
+
+/** A cached read, or null. Never an error: a bad cache file is a cache miss. */
+function cached(docketId, opts = {}) {
+  try {
+    const f = cachePath(docketId, opts.evidenceRoot);
+    if (!fs.existsSync(f)) return null;
+    const v = JSON.parse(fs.readFileSync(f, 'utf8'));
+    // A CACHED FAILURE IS NOT A CACHED ANSWER. Storing UNREAD would make a
+    // rate limit permanent -- the one outcome that must always be retried.
+    if (!v || v.ok !== true) return null;
+    return v;
+  } catch { return null; }
+}
+
+function remember(row, opts = {}) {
+  if (!row || row.ok !== true) return;
+  try {
+    const dir = cacheDir(opts.evidenceRoot);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(cachePath(row.docket_id, opts.evidenceRoot),
+      JSON.stringify(Object.assign({}, row, { cached_at: new Date().toISOString() }), null, 2));
+  } catch { /* a cache that cannot be written is not a failed read */ }
+}
+
 /** Read many dockets, pacing between them. */
 async function readMany(ids, opts = {}) {
-  const pause = opts.intervalMs === undefined ? 1200 : opts.intervalMs;
+  // 6s, not 1.2s. The first live 28-docket run at 1.2s returned 25 UNREAD
+  // rows -- every one an HTTP 429. A pace that outruns the limit does not
+  // read faster, it reads nothing and prints the nothing as a result.
+  const pause = opts.intervalMs === undefined ? 6000 : opts.intervalMs;
   const out = [];
+  let served = 0;
   for (let i = 0; i < ids.length; i += 1) {
+    const hit = opts.refresh ? null : cached(ids[i], opts);
+    if (hit) {
+      served += 1;
+      out.push(Object.assign({}, hit, { fromCache: true }));
+      if (opts.onEach) opts.onEach(out[out.length - 1], i + 1, ids.length);
+      continue;                    // no request, so no pause either
+    }
     const r = await readDocket(ids[i], opts);
+    remember(r, opts);
     out.push(r);
     if (opts.onEach) opts.onEach(r, i + 1, ids.length);
     if (pause && i < ids.length - 1) await new Promise((f) => setTimeout(f, pause));
   }
+  out.servedFromCache = served;
   return out;
 }
 
@@ -315,7 +411,8 @@ function tally(results) {
 }
 
 module.exports = {
-  ENTRIES, SIGNALS,
+  ENTRIES, SIGNALS, MAX_429_RETRIES, retryAfterMs,
+  cacheDir, cachePath, cached, remember,
   prejudice, entryText, documentsOn, firstPageUrl, signalsIn, disposition,
   readDocket, readMany, tally,
 };

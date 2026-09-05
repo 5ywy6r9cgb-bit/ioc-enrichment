@@ -413,6 +413,58 @@ function rewriteForMachines(url, env) {
     };
   }
 
+  // A DOCUMENT URL, NOT A DOCKET URL.
+  //
+  // /docket/<id>/<entry>/<slug>/ is one FILING. /docket/<id>/<slug>/ is the
+  // docket header. The old regex matched both and rewrote both to the docket
+  // record, so fetching the Notice of Dismissal on entry 43 returned a 1.9KB
+  // docket header -- and fetching entry 39 returned the SAME bytes, which the
+  // duplicate check then reported as "you already had this document". Two
+  // different filings, one file, and nothing said the documents had never
+  // been fetched at all.
+  //
+  // The entry number is what addresses the filing, so the rewrite goes to the
+  // entry rather than the docket, and the entry carries the PDF path.
+  // SEC.GOV REFUSES AN UNIDENTIFIED CLIENT.
+  //
+  // `doc get` on an EX-21 subsidiary exhibit returned HTTP 403. The SEC
+  // requires every automated request to declare a contact in its User-Agent
+  // and blocks the ones that do not. The connector already does this; the
+  // document fetcher did not, so the one primary source that proves who owns
+  // a company was unreachable from the command that exists to fetch primary
+  // sources.
+  if (/(^|\.)sec\.gov$/i.test(u.hostname)) {
+    const contact = (env && env.SEC_CONTACT) || '';
+    return {
+      url,
+      headers: { 'User-Agent': `Sentinel Research ${contact || '(SEC_CONTACT NOT SET)'}` },
+      why: contact
+        ? `sec.gov requires a declared contact; sending SEC_CONTACT`
+        : 'sec.gov requires a declared contact and SEC_CONTACT is NOT SET',
+      needsKey: false,
+      note: contact ? undefined
+        : 'Set SEC_CONTACT in .env to an email address. Without it the SEC '
+          + 'may refuse the request, and a refusal is not an empty document.',
+    };
+  }
+
+  const doc = /^\/docket\/(\d+)\/(\d+)\//.exec(u.pathname);
+  if (doc) {
+    return {
+      url: 'https://www.courtlistener.com/api/rest/v4/docket-entries/'
+        + `?docket=${doc[1]}&entry_number=${doc[2]}`,
+      headers: auth,
+      why: `docket ${doc[1]}, entry ${doc[2]} — the ENTRY record, which carries`
+        + ' the PDF path in recap_documents[].filepath_local',
+      needsKey: !key,
+      note: 'This is the entry record, not the PDF. The filing itself is at '
+        + 'https://storage.courtlistener.com/<filepath_local> when RECAP holds '
+        + 'it — read filepath_local out of this JSON and fetch that. An entry '
+        + 'whose recap_documents say is_available: false is NOT in RECAP and '
+        + 'reading it means paying PACER.',
+    };
+  }
+
   const dk = /^\/docket\/(\d+)\//.exec(u.pathname);
   if (dk) {
     return {

@@ -261,6 +261,22 @@ module.exports = function run() {
         .some((x) => x.filter === 'company'));
   }
 
+  // The flag is a SWITCH; the query is the value. Handing the boolean
+  // through printed "0 of 100 row(s) are filed AGAINST true".
+  {
+    const src = fs.readFileSync(require.resolve('./registry.js'), 'utf8');
+    check('runConnector substitutes the query for the company switch',
+      /opts\.company === true/.test(src));
+    check('and the reason a check reporting on itself is worse than none is recorded',
+      /a check reporting on/.test(src));
+    const boolRun = R.CONNECTORS.cfpb.checkFilters(
+      [{ company: 'Early Warning Services, LLC' }], { company: true });
+    check('a boolean company value can no longer name a company',
+      !boolRun.length || boolRun.every((x) => x.filter !== 'company')
+      || typeof boolRun[0].requested !== 'boolean',
+      JSON.stringify(boolRun));
+  }
+
   check('the CLI calls checkFilters on every connector that has it',
       /connFor\.checkFilters/.test(cli));
     check('and calls it a wider scope rather than a failure',

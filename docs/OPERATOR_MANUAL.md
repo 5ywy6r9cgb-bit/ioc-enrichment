@@ -809,6 +809,29 @@ substitute for reading it.
 dismissal without prejudice can be refiled; with prejudice cannot. Clerks
 frequently omit it. Silence prints as `UNSTATED` and never as "without".
 
+#### A throttle is not an answer, and reads accumulate
+
+The first live run over 28 CFPB dockets returned **25 `UNREAD`**, every one an
+HTTP 429. Run again and a *different* two or three answered. Across three runs
+the operator held six real dispositions and the tool never showed him six,
+because a throttled run started from scratch every time.
+
+Three changes:
+
+- **`Retry-After` is obeyed.** A 429 is retried up to three times, waiting the
+  time the service asked for. A docket still throttled after that says
+  `STILL THROTTLED`, not "no disposition".
+- **The default pace is 6s**, not 1.2s. A pace that outruns the limit does not
+  read faster — it reads nothing and prints the nothing as a result.
+- **Every successful read is cached** under `evidence/captures/entries/`.
+  Running the same command again finishes the job instead of restarting it;
+  `--refresh` re-reads everything. **Failures are never cached** — storing an
+  `UNREAD` would make a rate limit permanent, which is the one outcome that
+  must always be retried.
+
+A rate limit you cannot get past in one run is not a reason to abandon the
+question. It is a reason to answer it in pieces and keep the pieces.
+
 ### `sentinel connect screen` — FARA principals against sanctions data
 
 ```bash

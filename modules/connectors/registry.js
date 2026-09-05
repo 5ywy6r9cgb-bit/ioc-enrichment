@@ -1220,8 +1220,13 @@ const CONNECTORS = {
       //
       // That is the same error `checkFilters` exists to catch, in the one
       // filter it was never taught to look at.
-      if (o.company) {
-        const want = String(o.company).toLowerCase();
+      // A NON-STRING HERE IS A CALLER BUG, AND THE CHECK MUST NOT DRESS IT
+      // UP AS DATA. Given the boolean switch it once printed "0 of 100
+      // row(s) are filed AGAINST true" -- confident, formatted, and about
+      // nothing. Skipping is the honest response; the caller is fixed
+      // upstream, and a silent skip cannot be mistaken for a finding.
+      if (typeof o.company === 'string' && o.company.trim()) {
+        const want = o.company.toLowerCase();
         const named = rows.filter((r) => r.company
           && r.company.toLowerCase().includes(want));
         if (rows.length && named.length < rows.length) {
@@ -2207,7 +2212,16 @@ async function runConnector(name, query, opts = {}) {
   let scopeNote = { requested, checked: false };
   if (typeof c.checkFilters === 'function' && results.length) {
     try {
-      const flags = c.checkFilters(results, opts) || [];
+      // THE COMPANY FILTER IS A SWITCH; THE QUERY IS THE VALUE.
+      //
+      // --company says which FIELD to search, and the thing searched for is
+      // the positional query. Handing checkFilters the boolean printed
+      // "0 of 100 row(s) are filed AGAINST true" -- a check reporting on
+      // itself rather than on the data, which is worse than no check at all
+      // because it looks like one.
+      const filterOpts = opts.company === true
+        ? Object.assign({}, opts, { company: query }) : opts;
+      const flags = c.checkFilters(results, filterOpts) || [];
       scopeNote = {
         requested,
         checked: true,
