@@ -122,22 +122,39 @@ function identifiers(env = {}) {
   // a real path would put exactly the pattern this file exists to find INTO
   // this file, and into every clone of the repository.
   const out = [];
-  const add = (label, value, replacement) => {
+  // `strong` marks an identifier that cannot appear by accident: a full home
+  // directory, a hostname, an email. A bare given name cannot make that claim
+  // — see below.
+  const add = (label, value, replacement, strong) => {
     const v = String(value || '').trim();
     if (v.length < 4) return;
     if (['user', 'users', 'home', 'root', 'admin', 'localhost'].includes(v.toLowerCase())) return;
     if (out.some((o) => o.value === v)) return;
-    out.push({ label, value: v, replacement });
+    // ── A GIVEN NAME IS ALSO AN ENGLISH WORD ────────────────────────────
+    //
+    // On the first live run the username matched thirty-plus files: README.md,
+    // crosslink.js, ioc_check.py, mail.js. None of them named the operator.
+    // The username was a four-letter word that also appears in ordinary
+    // prose — "mark the file", "bookmark", "watermark", "markdown" — so the
+    // EXPOSURE half of the report was almost entirely noise, and a report that
+    // is mostly noise gets skimmed once and then ignored.
+    //
+    // A short single word with no separator cannot be treated as a confident
+    // identifier. It is still reported, because sometimes it IS the operator,
+    // but it is reported separately and labelled, so the real hits stay
+    // visible.
+    const weak = !strong && !/[\s@./\\-]/.test(v) && v.length <= 8;
+    out.push({ label, value: v, replacement, strong: Boolean(strong), weak });
   };
 
   const home = os.homedir();
-  add('home directory', home, '[HOME]');
+  add('home directory', home, '[HOME]', true);
   const user = (os.userInfo && os.userInfo().username) || path.basename(home || '');
-  add('username', user, '[OPERATOR]');
-  add('hostname', os.hostname().replace(/\.local$/i, ''), '[DESK]');
+  add('username', user, '[OPERATOR]', false);
+  add('hostname', os.hostname().replace(/\.local$/i, ''), '[DESK]', true);
   // Optional, and only if the operator chose to put them in .env.
-  add('operator name', env.PRA_OPERATOR_NAME, '[OPERATOR]');
-  add('operator email', env.PRA_OPERATOR_EMAIL || env.SEC_CONTACT, '[EMAIL]');
+  add('operator name', env.PRA_OPERATOR_NAME, '[OPERATOR]', false);
+  add('operator email', env.PRA_OPERATOR_EMAIL || env.SEC_CONTACT, '[EMAIL]', true);
   return out;
 }
 
@@ -147,9 +164,21 @@ function findIdentifiers(text, ids) {
   const lines = String(text || '').split('\n');
   for (let i = 0; i < lines.length; i++) {
     for (const id of ids) {
-      if (lines[i].includes(id.value)) {
-        hits.push({ line: i + 1, label: id.label, text: lines[i].trim().slice(0, 120) });
+      if (!lines[i].includes(id.value)) continue;
+      // A weak identifier must at least stand as its own word. Without this,
+      // a username of "Mark" matches "markdown", "bookmark" and "watermark",
+      // which is how one live run produced thirty files that named nobody.
+      if (id.weak) {
+        const bounded = new RegExp(`(^|[^A-Za-z0-9])${
+          id.value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^A-Za-z0-9]|$)`);
+        if (!bounded.test(lines[i])) continue;
       }
+      hits.push({
+        line: i + 1,
+        label: id.label,
+        weak: Boolean(id.weak),
+        text: lines[i].trim().slice(0, 120),
+      });
     }
   }
   return hits;

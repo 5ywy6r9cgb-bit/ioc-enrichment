@@ -198,24 +198,52 @@ function cmdTidy(opts) {
       const found = T.findIdentifiers(text, ids);
       if (found.length) hits.push({ file: f.rel, found });
     }
-    if (!hits.length) {
+    // ── CONFIDENT HITS FIRST, A BARE NAME SEPARATELY ────────────────────
+    //
+    // A home directory, a hostname and an email cannot appear by accident. A
+    // given name can: on the first live run a four-letter username matched
+    // thirty files that named nobody. Mixing the two buries the real hits, and
+    // a report that is mostly noise gets read once.
+    const strong = hits.map((h) => ({ ...h, found: h.found.filter((f) => !f.weak) }))
+      .filter((h) => h.found.length);
+    const weakOnly = hits.filter((h) => h.found.every((f) => f.weak));
+
+    if (!strong.length && !weakOnly.length) {
       log(`    ${g('Nothing outside the evidence store names you.')}`);
     } else {
-      for (const h of hits.slice(0, opts.verbose ? 9999 : 15)) {
-        log(`    ${h.file}  ${d(`${h.found.length} line(s)`)}`);
-        for (const f of h.found.slice(0, 2)) {
-          log(d(`        line ${f.line}  [${f.label}]`));
+      if (strong.length) {
+        log(`    ${b('CONFIDENT')} ${d('— a path, a hostname or an email. These cannot be a coincidence.')}`);
+        log('');
+        for (const h of strong.slice(0, opts.verbose ? 9999 : 20)) {
+          log(`    ${h.file}  ${d(`${h.found.length} line(s)`)}`);
+          for (const f of h.found.slice(0, 2)) log(d(`        line ${f.line}  [${f.label}]`));
         }
+        if (!opts.verbose && strong.length > 20) {
+          log(d(`    …and ${strong.length - 20} more  (--verbose for all)`));
+        }
+      } else {
+        log(`    ${g('No path, hostname or email names you outside the evidence store.')}`);
       }
-      if (!opts.verbose && hits.length > 15) {
-        log(d(`    …and ${hits.length - 15} more file(s)  (--verbose for all)`));
+
+      if (weakOnly.length) {
+        log('');
+        log(`    ${y('PROBABLY NOT YOU')} ${d(`— ${weakOnly.length} file(s) contain your name as a word.`)}`);
+        log(wrap('A given name is also an English word, so most of these are ordinary '
+          + 'prose or a variable called something else. They are listed so you can '
+          + 'check, not because they are exposures.', 6));
+        if (opts.verbose) {
+          for (const h of weakOnly) log(d(`      ${h.file}`));
+        } else {
+          for (const h of weakOnly.slice(0, 6)) log(d(`      ${h.file}`));
+          if (weakOnly.length > 6) log(d(`      …and ${weakOnly.length - 6} more  (--verbose for all)`));
+        }
       }
       log('');
       log(wrap('These are NOT automatically changed. A home directory inside your own '
         + 'provenance ledger is doing a job, and editing files in place to hide a '
         + 'username is how a working script stops working. To hand one of these to '
         + 'somebody, write a redacted copy instead:', 4));
-      log(`      ${b('sentinel tidy --redact ' + hits[0].file)}`);
+      log(`      ${b('sentinel tidy --redact ' + (strong[0] || hits[0]).file)}`);
     }
   }
   log('');

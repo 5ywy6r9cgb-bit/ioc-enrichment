@@ -141,6 +141,38 @@ console.log('\n== tidy: clean, without reaching the evidence ==\n');
 
   const hits = T.findIdentifiers(text, ids);
   ok(hits.length >= 3, `every naming line is found (got ${hits.length})`);
+
+  // ── A GIVEN NAME IS ALSO AN ENGLISH WORD ────────────────────────────
+  //
+  // On the first live run a four-letter username matched thirty-plus files --
+  // README.md, crosslink.js, mail.js -- through "markdown", "bookmark" and
+  // "watermark". None named the operator. A report that is mostly noise is
+  // read once and then skipped, so a weak identifier must at least stand as
+  // its own word.
+  const weakIds = [{ label: 'username', value: 'Mark', replacement: '[OPERATOR]', weak: true }];
+  for (const line of ['const md = markdown;', '// bookmark this', 'a watermark here',
+    'Markdown is fine', 'remarkable']) {
+    ok(T.findIdentifiers(line, weakIds).length === 0,
+      `"${line}" is not reported as naming the operator`);
+  }
+  for (const line of ['Mark ran the sweep', 'owner: Mark', '/home/Mark/x', 'by Mark.']) {
+    ok(T.findIdentifiers(line, weakIds).length === 1,
+      `"${line}" IS reported — the name stands alone there`);
+  }
+  ok(T.findIdentifiers('Mark ran it', weakIds)[0].weak === true,
+    'and it is flagged weak, so the report can separate it from a real path');
+
+  // A strong identifier is never word-bounded away: a path is a path.
+  const strongIds = [{ label: 'home directory', value: '/Users/Testperson',
+    replacement: '[HOME]', strong: true, weak: false }];
+  ok(T.findIdentifiers('p="/Users/Testpersonx/y"', strongIds).length === 1,
+    'a path substring still counts — a home directory cannot appear by accident');
+
+  const ids2 = T.identifiers({ PRA_OPERATOR_EMAIL: 'someone@example.org' });
+  ok(ids2.find((i) => i.label === 'operator email').strong === true,
+    'an email is a confident identifier');
+  ok(ids2.find((i) => i.label === 'home directory').strong === true,
+    'and so is a home directory');
   ok(hits.some((h) => h.line === 1), 'including line 1');
   ok(!hits.some((h) => h.line === 2), 'and the clean line is not reported');
   ok(hits.every((h) => h.text.length <= 120), 'long lines are truncated');

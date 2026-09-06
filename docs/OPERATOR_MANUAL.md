@@ -2369,6 +2369,15 @@ the safe ones and nothing else.
 material: a home directory in a path, a hostname in a pasted log, an email in a
 config. None of it is secret and all of it is identifying.
 
+The report separates them:
+
+* **CONFIDENT** — a home directory, hostname or email. These cannot appear by
+  accident.
+* **PROBABLY NOT YOU** — your given name appearing as a word. A four-letter
+  first name is also ordinary English, and on the first live run it matched
+  thirty files through *markdown*, *bookmark* and *watermark*. They are listed
+  so you can check, not because they are exposures.
+
 These are **never** edited in place. A home directory inside your own
 provenance ledger is doing a job, and rewriting files to hide a username is how
 a working script stops working. To hand a file to somebody, write a copy:
