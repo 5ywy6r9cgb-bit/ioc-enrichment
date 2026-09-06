@@ -2236,6 +2236,92 @@ what the name means. `--rebind` if you mean it.
 
 ---
 
+## 4d. Asking a question instead of naming a command — `sentinel ask`
+
+Everything above this line requires you to already know which tool answers
+your question. `sentinel ask` inverts that: you state the *investigative*
+question in the desk's own vocabulary, and it tells you which real commands
+answer it — or that none do.
+
+```bash
+bin/sentinel ask "FOLLOWMONEY Early Warning Services"
+bin/sentinel ask "FOLLOWLAND New Albany"
+bin/sentinel ask verbs                  # the whole vocabulary, by family
+bin/sentinel ask coverage               # what this desk can and cannot see
+bin/sentinel ask "RATEPAYER" --run      # route AND execute, in order
+```
+
+### It prints a route, not an answer
+
+This is the entire design. Forty verbs that each produced a confident answer
+would be a machine for generating corrections. What `ask` produces is:
+
+* the **commands** to run, in order, each with the reason it is in the list;
+* the **denominator** — what you must know before any count from those
+  commands means anything;
+* what the verb **cannot** tell you, stated before you assume it can;
+* the **ceiling** — the highest of LEAD / EVIDENCE / CLAIM / FINDING those
+  commands can reach on their own.
+
+No search reaches FINDING. Searches reach EVIDENCE at best. A CLAIM is what
+*you* assert the evidence shows, and it becomes a FINDING only after
+`DISPROVE` has failed to kill it.
+
+### The three statuses, and why UNBACKED is the useful one
+
+| Status | Meaning |
+|---|---|
+| `BACKED` | A real connector or reader answers this. Commands follow. |
+| `PARTIAL` | Something runs, but it answers less than the verb promises. The gap is printed above the commands. |
+| `UNBACKED` | Nothing in this system reads that source. The route is a records request, and the verb says so instead of printing a command that would merely look busy. |
+
+Run `bin/sentinel ask coverage` for the current split and every gap by name.
+As of this writing: **15 BACKED, 14 PARTIAL, 11 UNBACKED**.
+
+Eleven UNBACKED verbs is not a defect in the vocabulary — it is §9 of this
+manual, made executable. `FOLLOWLAND`, `PROPERTY`, `BOR` and `VALUATION` are
+all UNBACKED for the same reason: parcel ownership is a **county auditor**
+record and there is no auditor connector. Asking `FOLLOWLAND` prints that
+fact and hands you the records-request route, which is the honest answer.
+
+### The five families
+
+The verbs group the way the work does:
+
+* **THE CORE LOOP** — `INVESTIGATE` `WHOIS` `NETWORK` `TIMELINE`
+  `WHOBENEFITS` `WHOPAYS` `CASEBUILD` `DOTCONNECT` `HYPOTHESIS` `DISPROVE`
+  `PUBLICINTEREST`
+* **FOLLOW THE MONEY** — `FOLLOWMONEY` `MONEYFLOW` `SUBSIDY` `PUBLICBENEFIT`
+  `CONTRACTS` `NOBID`
+* **FOLLOW THE LAND** — `FOLLOWLAND` `PROPERTY` `APPRECIATION` `REZONING`
+  `FOLLOWSCHOOLS` `BOR` `VALUATION`
+* **FOLLOW THE POWER** — `FOLLOWPOWER` `RATEPAYER` `PUCO` `OPSB`
+  `FOLLOWDECISION` `LOBBY` `REVOLVINGDOOR` `DATACENTER` `LOAD` `SOCIALIZATION`
+* **FOLLOW THE RECORDS** — `PUBLICRECORDS` `FOLLOWRECORDS` `RECORDGAP`
+  `FOIASTRATEGY`
+* **FOLLOW THE LAW** — `ORC` `SUNSHINE`
+
+### `--run`, and the lines it refuses to run
+
+`--run` executes the printed commands through this same dispatcher, in order,
+and **stops at the first non-zero exit**. Nothing after a failure runs on its
+own: a step that failed and a step that was skipped look identical in an
+evidence store a week later.
+
+Three verbs emit a line you must edit first — a case sentence to write, a file
+path to supply, a text file that only exists after `doc get` prints its name.
+Those lines are printed with a leading `!` and `--run` holds them back. This
+is not politeness. A literal placeholder pasted into a command is an
+*argument*, and the tool receiving it does exactly what it was told with a
+word that describes a word.
+
+### What it will not do
+
+`ask` does not interpret your target, search anything itself, or decide that a
+result means something. It routes. The thinking stays yours — same as §1.
+
+---
+
 ## 5. Case files and the publication gate — `sentinel case`
 
 ```bash

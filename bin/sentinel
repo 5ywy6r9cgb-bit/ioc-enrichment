@@ -36,6 +36,10 @@
 #   sentinel case status ID         can this be published, and what is blocking
 #   sentinel dash                   build + open the dashboard over all cases
 #                                   (sentinel dashboard works too)
+#   sentinel ask "VERB target"      route an investigative question to real commands
+#   sentinel ask verbs              the command language: forty verbs, by family
+#   sentinel ask coverage           what this desk can and cannot see, named
+#
 #   sentinel connect test           which connector API keys are set + reachable
 #   sentinel connect NAME "QUERY"   search a connector -> evidence inbox
 #   sentinel connect all "SUBJECT"  search every source at once
@@ -228,6 +232,9 @@ PYSTATUS
     echo "== graph =="
     node "$ROOT/modules/connectors/test_graph.js" || FAILED=1
 
+    echo "== the command language =="
+    node "$ROOT/modules/sdcl/test_sdcl.js" || FAILED=1
+    echo ""
     echo "== document fetch =="
     node "$ROOT/modules/docs/test_docs_fetch.js" || FAILED=1
     echo ""
@@ -361,6 +368,16 @@ PYSTATUS
     out="$(python3 "$ROOT/modules/research-desk/dashboard.py" | sed 's/^wrote //; s/ (.*//')"
     echo "$out"
     open "$out" 2>/dev/null || echo "open it in your browser"
+    ;;
+
+  # `sentinel ask` — the Sentinel Desk Command Language.
+  #
+  # Forty investigative verbs (FOLLOWMONEY, FOLLOWLAND, DISPROVE) routed to the
+  # commands this repository can actually run. It prints a ROUTE, never an
+  # answer, and it says UNBACKED out loud for the eleven verbs nothing here can
+  # source. A language that answered would be a language that guessed.
+  ask)
+    node "$ROOT/modules/sdcl/cli.js" "$@"
     ;;
 
   connect)
