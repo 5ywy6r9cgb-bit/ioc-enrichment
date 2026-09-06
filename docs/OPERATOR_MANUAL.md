@@ -341,6 +341,11 @@ bin/sentinel connect senatelda --registrant "<firm>"   # every client a firm fil
 bin/sentinel connect senatelda --registrant "<firm>" --pages 20
 bin/sentinel connect graph                   # preview the Neo4j graph (writes nothing)
 bin/sentinel connect graph --push            # write it into Neo4j
+#   Then read it WITHOUT fooling yourself: docs/GRAPH_QUERIES.md has the
+#   schema and seven queries against it. Start with the one that counts how
+#   many organisations have no sworn edge at all — that is the denominator
+#   for every other row. On the 2026-09-06 run, 3,075 edges were sworn
+#   filings and 7,331 were search results, so seven in ten assert nothing.
 bin/sentinel connect graph --dashboard       # → evidence/graph-dashboard.html
 bin/sentinel connect graph --dashboard --side-a "ENERGY|POWER|GAS" --side-b "AWS|META|MICROSOFT"
 bin/sentinel connect <connector> "<query>"   # one source only
