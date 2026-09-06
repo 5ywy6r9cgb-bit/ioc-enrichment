@@ -28,6 +28,8 @@
 #   sentinel foia                   records desk: what needs you, most urgent first
 #   sentinel foia dash              every request on one screen, then open it
 #   sentinel home                   build the Sentinel folder on your Desktop
+#   sentinel tidy                   what is junk, and where you are named
+#   sentinel tidy --apply           delete only what is safe to regenerate
 #
 #   sentinel case new ID "..."      start a case file
 #   sentinel case add ID EX FILE    add an exhibit  (--kind financial --pages 44)
@@ -226,6 +228,7 @@ PYSTATUS
     echo ""
     echo "== the front door =="
     node "$ROOT/modules/home/test_home.js" || FAILED=1
+    node "$ROOT/modules/tidy/test_tidy.js" || FAILED=1
     echo ""
     echo "== capture recency =="
     node "$ROOT/modules/connectors/test_recency.js" || FAILED=1
@@ -361,6 +364,16 @@ PYSTATUS
   #
   # It copies no evidence: the Desktop is the least protected place on the
   # machine, and a copy would go stale anyway.
+  # `sentinel tidy` — clean, without reaching the evidence.
+  #
+  # Two halves: SPACE (files that exist for no reason) and EXPOSURE (where YOU
+  # are named, outside the investigation material). It deletes nothing without
+  # --apply, --apply touches only categories that regenerate themselves, and
+  # anything the provenance ledger has hashed is refused by name.
+  tidy)
+    node "$ROOT/modules/tidy/cli.js" "$@"
+    ;;
+
   home)
     node "$ROOT/modules/home/build_home.js" "$@"
     ;;

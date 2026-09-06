@@ -2307,6 +2307,51 @@ what the name means. `--rebind` if you mean it.
 
 ---
 
+## 4c-bis. Keeping it clean — `sentinel tidy`
+
+```bash
+bin/sentinel tidy              # what is junk, and where you are named
+bin/sentinel tidy --apply      # delete ONLY what regenerates itself
+bin/sentinel tidy --exposure   # just the places you are named
+bin/sentinel tidy --redact path/to/file.txt
+```
+
+Two halves, because the answers differ.
+
+**SPACE** — files that exist for no reason: Python bytecode, `.DS_Store`,
+editor backups, zero-byte remnants. Each is labelled `SAFE TO DELETE` (a tool
+regenerates it on demand) or `REPORTED ONLY` (you decide). `--apply` acts on
+the safe ones and nothing else.
+
+**EXPOSURE** — where *you* are named, in files that are not investigation
+material: a home directory in a path, a hostname in a pasted log, an email in a
+config. None of it is secret and all of it is identifying.
+
+These are **never** edited in place. A home directory inside your own
+provenance ledger is doing a job, and rewriting files to hide a username is how
+a working script stops working. To hand a file to somebody, write a copy:
+
+```bash
+bin/sentinel tidy --redact evidence/documents/session-log.txt
+```
+
+The copy is verified before it is called safe — if any identifier survives the
+replacement, the command says so and exits non-zero.
+
+### The rule that matters most
+
+**The evidence store is not reachable from here.** The walk skips it, and any
+file whose hash appears in `evidence/manifests/provenance.jsonl` is refused by
+name even if something else proposes it. A cleanup tool that can trim the
+evidence store has destroyed the thing the desk exists to hold.
+
+The scanner also contains **no personal data and cannot** — the patterns are
+built at run time from the machine (username, home directory, hostname) plus
+anything you put in `.env`. A scanner that hardcoded the name it protects would
+have published that name into every clone of the repository.
+
+---
+
 ## 4d. Asking a question instead of naming a command — `sentinel ask`
 
 Everything above this line requires you to already know which tool answers
