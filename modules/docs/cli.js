@@ -256,8 +256,9 @@ function cmdAbatements(file, opts = {}) {
 }
 
 function cmdSections(file, opts = {}) {
+  if (file || opts.last) file = resolveDoc(file, Object.assign({ ext: '.txt' }, opts));
   if (!file) {
-    console.error('\n  usage: sentinel doc sections FILE.txt --mentions TERM\n');
+    console.error('\n  usage: sentinel doc sections FILE.txt --mentions TERM   (or --last)\n');
     process.exit(2);
   }
   let text;
@@ -315,6 +316,70 @@ function cmdSections(file, opts = {}) {
 }
 
 /**
+ * `sentinel doc last` — what did I just fetch?
+ *
+ * The saved names are correct for an evidence store and unusable as something
+ * a person types. Without this, the next command in the chain gets written
+ * with a stand-in, and a stand-in pasted verbatim is an ARGUMENT: `doc quote
+ * THE_FILE.txt` reports that it cannot read THE_FILE.txt, which is true and
+ * useless. The worse version names a file that happens to exist, and the
+ * quote gets verified against the wrong document.
+ */
+function cmdLast(opts = {}) {
+  const RC = require('./recent.js');
+  const dir = path.join(R.EVIDENCE, 'documents');
+  const n = opts.limit || 5;
+  const texts = RC.list(dir, { ext: '.txt' }).slice(0, n);
+
+  console.log(`\n  ${C.b('LAST FETCHED')}  ${path.relative(process.cwd(), dir)}`);
+  if (!texts.length) {
+    console.log(C.dim('\n  Nothing has been fetched yet.'));
+    console.log(C.dim('  Start with:  bin/sentinel doc get "https://…"\n'));
+    return;
+  }
+  console.log('');
+  let i = 0;
+  for (const t of texts) {
+    i++;
+    const tag = i === 1 ? C.g('newest') : C.dim(`   ${i}   `);
+    console.log(`  ${tag}  ${t.stamp || C.dim('(added by hand)')}  ${t.slug.slice(0, 52)}`);
+    console.log(C.dim(`          ${path.relative(process.cwd(), t.path)}`));
+  }
+  console.log('');
+  console.log(C.b('  Use the newest without retyping it:'));
+  console.log('    bin/sentinel doc quote --last "the words you want to print"');
+  console.log('    bin/sentinel doc gaps --last --why');
+  console.log('');
+  console.log(C.dim('  Or copy a path above for any of the others.\n'));
+}
+
+/**
+ * Turn whatever the operator typed into a real file, or explain why not.
+ *
+ * Placeholders are named as placeholders rather than reported as a missing
+ * file, because "no such file: THE_FILE.txt" reads as a broken command and
+ * sends someone looking for the file instead of noticing they pasted a
+ * stand-in they were handed.
+ */
+function resolveDoc(arg, opts) {
+  const RC = require('./recent.js');
+  const dir = path.join(R.EVIDENCE, 'documents');
+  const r = RC.resolve(arg, dir, { last: opts.last, ext: opts.ext });
+  if (r.error) {
+    console.error(`\n  ${C.r(r.error)}`);
+    if (r.placeholder) {
+      console.error(C.dim('  Something handed you a stand-in and you pasted it. That is not your'));
+      console.error(C.dim('  typing — a placeholder in a command is an argument, and this desk'));
+      console.error(C.dim('  refuses them rather than guessing what you meant.'));
+    }
+    console.error(`\n  See what you actually have:\n    ${r.suggestion}\n`);
+    process.exit(2);
+  }
+  if (r.why) console.log(C.dim(`\n  ${r.why}`));
+  return r.path;
+}
+
+/**
  * `sentinel doc quote FILE.txt "the words in quotation marks"`
  *
  * The last check before a quotation is published. Everything else this desk
@@ -324,11 +389,13 @@ function cmdSections(file, opts = {}) {
  */
 function cmdQuote(file, quote, opts = {}) {
   const Q = require('./quote.js');
-  if (!file || !quote) {
+  if (!quote) {
     console.error('\n  usage: sentinel doc quote FILE.txt "the exact words you want to print"');
-    console.error('\n  The FILE is what `sentinel doc get` saved. Fetch the page first.\n');
+    console.error('         sentinel doc quote --last "the exact words you want to print"');
+    console.error('\n  The file is what `sentinel doc get` saved. See it with: bin/sentinel doc last\n');
     process.exit(2);
   }
+  file = resolveDoc(file, Object.assign({ ext: '.txt' }, opts));
   let text;
   try { text = fs.readFileSync(file, 'utf8'); }
   catch (e) { console.error(`\n  ${C.r('cannot read')} ${file}: ${e.message}\n`); process.exit(2); }
@@ -382,8 +449,9 @@ function cmdQuote(file, quote, opts = {}) {
 
 function cmdGaps(file, opts = {}) {
   const G = require('./gaps.js');
+  if (file || opts.last) file = resolveDoc(file, Object.assign({ ext: '.txt' }, opts));
   if (!file) {
-    console.error('\n  usage: sentinel doc gaps FILE.txt\n');
+    console.error('\n  usage: sentinel doc gaps FILE.txt   (or --last)\n');
     process.exit(2);
   }
   let text;
@@ -739,6 +807,19 @@ async function cmdGet(url, opts) {
     console.log(C.dim(`    bin/sentinel case read ${caseId} ${exId} ${pages}   `)
       + C.dim('# only after you have actually read it'));
   }
+  // ── THE NEXT COMMAND, WITH THE REAL PATH IN IT ────────────────────────
+  //
+  // The saved name is 90 characters of timestamp and hash. Nobody retypes
+  // that, so the next command gets written with a stand-in, and a stand-in
+  // pasted verbatim is an argument: `doc quote THE_FILE.txt` fails, or worse,
+  // silently checks the wrong document. Printing the real line here is the
+  // fix; `doc last` is the fix for when this scrollback is gone.
+  if (textPath) {
+    console.log(`\n  ${C.b('Check a quotation against it before you print one:')}`);
+    console.log(`    bin/sentinel doc quote "${path.relative(process.cwd(), textPath)}" "the words you want to print"`);
+    console.log(C.dim('    bin/sentinel doc quote --last "the words you want to print"'));
+  }
+
   console.log(C.dim('\n  Fetching is not reading. The gate counts pages you have marked read,'));
   console.log(C.dim('  and it is the only thing standing between a lead and a published claim.\n'));
 }
@@ -884,9 +965,20 @@ async function main() {
     const i = argv.indexOf(flag);
     return i >= 0 && argv[i + 1] && !argv[i + 1].startsWith('--') ? argv[i + 1] : null;
   };
+  // ── ONLY SOME FLAGS TAKE A VALUE ──────────────────────────────────────
+  //
+  // This dropped the token after ANY flag, on the assumption that every flag
+  // is followed by its value. `doc quote --last "the words"` therefore lost
+  // the quotation -- it was read as the value of --last -- and the command
+  // printed its usage screen as though nothing had been passed. Silent, and
+  // it looks like the operator's mistake.
+  //
+  // So the boolean flags are named. A flag not in VALUE_FLAGS consumes
+  // nothing, and the token after it stays positional.
+  const VALUE_FLAGS = new Set(['--case', '--as', '--mentions', '--limit']);
   const positional = argv.filter((a, i) => {
     if (a.startsWith('--')) return false;
-    if (i > 0 && argv[i - 1].startsWith('--') && !a.startsWith('--')) return false;
+    if (i > 0 && VALUE_FLAGS.has(argv[i - 1])) return false;
     return true;
   });
 
@@ -896,6 +988,7 @@ async function main() {
   if (action === 'gaps') {
     return cmdGaps(positional[1], {
       verbose: argv.includes('--verbose'), why: argv.includes('--why'),
+      last: argv.includes('--last'),
     });
   }
   if (action === 'abatements') {
@@ -904,10 +997,24 @@ async function main() {
   if (action === 'sections') {
     return cmdSections(positional[1], {
       term: val('--mentions'), verbose: argv.includes('--verbose'),
+      last: argv.includes('--last'),
     });
   }
+  if (action === 'last') {
+    const li = argv.indexOf('--limit');
+    return cmdLast({ limit: li >= 0 ? Number(argv[li + 1]) || 5 : 5 });
+  }
   if (action === 'quote') {
-    return cmdQuote(positional[1], positional[2], {});
+    // With --last there is no file argument, so the quotation is the FIRST
+    // positional rather than the second. Reading it from a fixed slot is what
+    // made `doc quote --last "the words"` look like a command with no
+    // quotation in it.
+    const useLast = argv.includes('--last');
+    return cmdQuote(
+      useLast ? null : positional[1],
+      useLast ? positional[1] : positional[2],
+      { last: useLast },
+    );
   }
   if (action === 'bills') {
     return cmdBills({});
@@ -920,7 +1027,9 @@ async function main() {
     + '\n         sentinel doc bills'
     + '\n         sentinel doc gaps FILE.txt'
     + '\n         sentinel doc sections FILE.txt --mentions TERM'
+    + '\n         sentinel doc last'
     + '\n         sentinel doc quote FILE.txt "the words you want to print"'
+    + '\n         sentinel doc quote --last "the words you want to print"'
     + '\n         sentinel doc abatements FILE.txt'
     + '\n         sentinel doc chain HOST\n');
   process.exit(2);

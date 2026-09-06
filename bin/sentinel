@@ -55,6 +55,7 @@
 #   sentinel assets                 where to drop images, and what is in the store
 #   sentinel assets ingest          take the inbox in: hashed, classified, filed
 #   sentinel assets clean           publication-safe copies, with the GPS removed
+#   sentinel doc last              what you just fetched, with its real path
 #   sentinel doc quote FILE "..."   did they actually say it, before you print it
 #   sentinel doc bills              which bills appear in more than one filing
 #   sentinel doc chain HOST         why a TLS handshake failed, and a PEM that fixes it
@@ -246,6 +247,7 @@ PYSTATUS
     echo ""
     node "$ROOT/modules/docs/test_gaps.js" || FAILED=1
     node "$ROOT/modules/docs/test_quote.js" || FAILED=1
+    node "$ROOT/modules/docs/test_recent.js" || FAILED=1
     node "$ROOT/modules/docs/test_abatements.js" || FAILED=1
     node "$ROOT/modules/docs/test_statute.js" || FAILED=1
 

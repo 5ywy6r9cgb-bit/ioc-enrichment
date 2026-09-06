@@ -25,7 +25,13 @@ const IMG = require('./image.js');
 const A = require('./assets.js');
 
 const ROOT = path.join(__dirname, '..', '..');
-const EVIDENCE = process.env.SENTINEL_EVIDENCE || path.join(ROOT, 'evidence');
+// SENTINEL_EVIDENCE_DIR is what the rest of the repo reads (registry.js).
+// A second spelling would mean a test, or an operator, could relocate the
+// evidence store for one module and not the others -- and then write into
+// the real tree while believing it was isolated.
+const EVIDENCE = process.env.SENTINEL_EVIDENCE_DIR
+  || process.env.SENTINEL_EVIDENCE
+  || path.join(ROOT, 'evidence');
 const STORE = path.join(EVIDENCE, 'assets');
 const INBOX = process.env.SENTINEL_ASSET_INBOX || path.join(STORE, 'inbox');
 const PUBLISH = path.join(STORE, 'publish');

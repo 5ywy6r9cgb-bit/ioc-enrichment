@@ -335,7 +335,7 @@ console.log('\n== assets: a picture of a source is not the source ==\n');
   fs.writeFileSync(path.join(inbox, 'notes.txt'), 'not an image');
 
   const env = Object.assign({}, process.env, {
-    SENTINEL_EVIDENCE: evid, SENTINEL_ASSET_INBOX: inbox,
+    SENTINEL_EVIDENCE_DIR: evid, SENTINEL_ASSET_INBOX: inbox,
   });
   // ANSI escapes are stripped before matching. Without this, the bold on a
   // count puts an escape sequence BETWEEN the number and the word -- so

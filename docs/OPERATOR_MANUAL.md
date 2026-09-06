@@ -1197,6 +1197,33 @@ bin/sentinel doc sections FILE.txt --mentions "Israel"
 bin/sentinel doc sections FILE.txt              # just the section count
 ```
 
+### Never retype a path — `sentinel doc last`
+
+```bash
+bin/sentinel doc last
+bin/sentinel doc quote --last "the words you want to print"
+bin/sentinel doc gaps --last --why
+```
+
+A saved document is named for the evidence store, not for typing:
+`2026-09-06T04-18-35-154Z__fa126858f579__ohio-senators-get-update.txt`. Nobody
+retypes that, so the next command gets written with a stand-in — and **a
+stand-in pasted into a command is an argument**. `doc quote THE_FILE.txt` fails
+with a message that reads like a broken command; the worse version names a file
+that happens to exist, and a quote gets verified against the wrong document.
+
+So: `doc get` now prints the ready-to-run `doc quote` line with the real path in
+it, `doc last` shows the last five, and `--last` means the newest without typing
+anything. A file argument that looks like a stand-in (`THE_FILE.txt`,
+`PASTE_THE_PATH`) is refused **as a placeholder**, not reported as a missing
+file, so it is obvious what happened.
+
+A file with no timestamp in its name — one you saved from a browser and dropped
+in by hand — has an **unknown** capture time and sorts *below* every stamped
+document. Unknown is not newest.
+
+---
+
 ### Before you print a quotation — `sentinel doc quote`
 
 ```bash
