@@ -52,6 +52,9 @@
 #   sentinel connect brief "NAME"   everything the library holds on one name
 #
 #   sentinel doc get URL            fetch a primary source, hashed + text-extracted
+#   sentinel assets                 where to drop images, and what is in the store
+#   sentinel assets ingest          take the inbox in: hashed, classified, filed
+#   sentinel assets clean           publication-safe copies, with the GPS removed
 #   sentinel doc bills              which bills appear in more than one filing
 #   sentinel doc chain HOST         why a TLS handshake failed, and a PEM that fixes it
 #   sentinel mail scan DIR          read a folder of Outlook .msg files in place
@@ -238,6 +241,7 @@ PYSTATUS
     echo ""
     echo "== document fetch =="
     node "$ROOT/modules/docs/test_docs_fetch.js" || FAILED=1
+    node "$ROOT/modules/assets/test_assets.js" || FAILED=1
     echo ""
     node "$ROOT/modules/docs/test_gaps.js" || FAILED=1
     node "$ROOT/modules/docs/test_abatements.js" || FAILED=1
@@ -494,6 +498,16 @@ PYSTATUS
   draft)
     # Captures -> open questions on the desk. RED only, by design.
     node "$ROOT/modules/bridge/draft.js" "$@"
+    ;;
+
+  # `sentinel assets` — images in, with the same discipline as documents.
+  #
+  # A screenshot is a picture OF a source and is not the source. A graphic this
+  # desk drew is never evidence, whatever it depicts. Only a photograph you took
+  # is a primary artifact — and it is also the only one that carries the exact
+  # spot you were standing when you took it.
+  assets)
+    node "$ROOT/modules/assets/cli.js" "$@"
     ;;
 
   doc)

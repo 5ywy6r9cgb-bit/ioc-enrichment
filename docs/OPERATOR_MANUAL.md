@@ -2331,6 +2331,69 @@ result means something. It routes. The thinking stays yours — same as §1.
 
 ---
 
+## 4e. Images — `sentinel assets`
+
+Photographs, screenshots and graphics arrive through the same folder and are
+three completely different things. This command tells them apart and files each
+under the tier it actually deserves.
+
+```bash
+bin/sentinel assets                    # where the inbox is, and what is in it
+bin/sentinel assets ingest             # take the inbox into the store
+bin/sentinel assets ingest --dry-run   # what would happen, touching nothing
+bin/sentinel assets list
+bin/sentinel assets clean              # publication-safe copies, GPS removed
+```
+
+Drop images into the inbox path that `sentinel assets` prints. From Photos on a
+Mac, use **File ▸ Export ▸ Export Unmodified Original** — the plain drag keeps
+the picture and throws away the metadata that makes it provable.
+
+### The three kinds, and why the difference matters
+
+| Kind | Tier | What it is |
+|---|---|---|
+| `PHOTOGRAPH` | `GREEN` | You pressed the shutter. A primary artifact you hold. |
+| `SCREENSHOT` | `SOURCE_NEEDED` | A picture **of** a source. It is not the source. |
+| `GRAPHIC` | `GENERATED` | Something this desk drew. Never evidence. |
+
+A screenshot can be scrolled, cropped, zoomed or assembled, so it proves only
+that a screen once showed those pixels. The source is the URL behind it. Tie the
+two together and then go get the real thing:
+
+```bash
+bin/sentinel assets source ASSET-ID "https://www.epa.gov/…"
+bin/sentinel doc get "https://www.epa.gov/…"
+```
+
+Recording the URL is not fetching it. Until `doc get` has run, the desk holds a
+picture and a claim about where it came from.
+
+### GPS
+
+An iPhone writes the exact coordinates and the second the shutter fired into
+every photograph. Both of these are true at once:
+
+* it is the best provenance you will ever have on your own fieldwork, and
+* publishing the file tells every reader precisely where you were standing.
+
+So the store keeps the original with its metadata intact, and `assets clean`
+writes a stripped copy to `evidence/assets/publish/`. **Publish from that
+folder.** `clean` re-reads its own output and refuses to call a file safe until
+the GPS is verifiably gone.
+
+Ingest **copies, never moves**. An image that arrived by text message exists in
+exactly one place, and a tool that relocates it on a first run is a tool that
+loses the only copy of a photograph you drove out to take.
+
+HEIC files are recognised but not parsed. Convert them first:
+
+```bash
+sips -s format jpeg IMG_0099.HEIC --out IMG_0099.jpg
+```
+
+---
+
 ## 5. Case files and the publication gate — `sentinel case`
 
 ```bash
