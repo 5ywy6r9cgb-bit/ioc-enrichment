@@ -472,8 +472,28 @@ module.exports = async function run() {
 
   check('coverage does not silently cap the number it is counting',
     !/LIMIT/.test(G.QUERIES.coverage.cypher));
-  check('bridges puts the small client counts first, not the big ones',
-    /ORDER BY[\s\S]*clients ASC/.test(G.QUERIES.bridges.cypher));
+  // ── A ONE-CLIENT FIRM CANNOT BRIDGE ANYTHING ────────────────────────
+  //
+  // Shipped without a client floor, so MCGINLEY LLC -- one client, Meta
+  // Platforms -- appeared in a list called "bridges" with 17 threads. Those
+  // 17 were Meta's own breadth, and Meta topped the noise query at 17 for the
+  // same reason: it had been searched under many spellings. The row was the
+  // operator's subject list reflected back at him, which is the exact defect
+  // the book-size ledger fixed in crosslink one commit earlier.
+  check('bridges requires at least two clients, since one cannot bridge',
+    /clients >= 2/.test(G.QUERIES.bridges.cypher));
+  check('bridges sorts by client count FIRST, so the floor is not a dead tiebreaker',
+    /ORDER BY clients ASC/.test(G.QUERIES.bridges.cypher));
+  // ORDER BY threads DESC, clients ASC put the megafirms straight back on top:
+  // thread counts are almost never tied, so the ascending clause never fired.
+  check('bridges does not order by threads first',
+    !/ORDER BY threads/.test(G.QUERIES.bridges.cypher));
+  // And when one client accounts for every thread, the row must say so on its
+  // face rather than leaving the operator to notice.
+  check('bridges shows how much comes through a single client',
+    /from_one_client/.test(G.QUERIES.bridges.cypher));
+  check('and explains what that column means',
+    /from_one_client/.test(G.QUERIES.bridges.why));
   check('firm returns the filing urls, since that is what gets cited',
     /urls/.test(G.QUERIES.firm.cypher));
   check('pair returns via, so the reason for the overlap is visible',

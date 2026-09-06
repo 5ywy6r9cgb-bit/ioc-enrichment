@@ -75,28 +75,44 @@ RETURN count(o) AS orgs_with_no_sworn_edge;
 Run this first, every time. It is the denominator for everything below: those
 organisations are in the graph only because a search returned their name.
 
-### 2. THE BRIDGES — the query worth running
-
-Registrants whose sworn filings connect more than one thread you are working.
-Ordered so the **small books come first**, because a firm with four hundred
-clients bridges four of anyone's subjects by arithmetic.
+### 2. THE BRIDGES — the query worth running, read carefully
 
 ```cypher
-MATCH (reg:Org)-[f:FILED_FOR]->(cli:Org)-[:APPEARS_UNDER]->(s:Subject)
-WITH reg,
-     count(DISTINCT s)             AS threads,
-     count(DISTINCT cli)           AS clients,
-     sum(f.filings)                AS filings_in_library,
-     collect(DISTINCT s.name)[..6] AS via
+MATCH (reg:Org)-[:FILED_FOR]->(cli:Org)-[:APPEARS_UNDER]->(s:Subject)
+WITH reg, cli, count(DISTINCT s) AS per_client
+WITH reg, count(DISTINCT cli) AS clients, max(per_client) AS from_one_client
+WHERE clients >= 2
+MATCH (reg)-[f:FILED_FOR]->(c2:Org)-[:APPEARS_UNDER]->(s2:Subject)
+WITH reg, clients, from_one_client,
+     count(DISTINCT s2)             AS threads,
+     sum(f.filings)                 AS filings_in_library,
+     collect(DISTINCT s2.name)[..4] AS via
 WHERE threads >= 2
-RETURN reg.name AS registrant, threads, clients, filings_in_library, via
-ORDER BY threads DESC, clients ASC
+RETURN reg.name AS registrant, clients, threads, from_one_client,
+       filings_in_library, via
+ORDER BY clients ASC, threads DESC
 LIMIT 30;
 ```
 
+**Read `from_one_client` before anything else.** It is the largest number of
+subjects reached through a *single* client. When it equals `threads`, the firm
+bridges nothing — one client of theirs is simply a name you searched under many
+spellings.
+
+That column exists because the first version of this query had neither it nor a
+client floor, and reported `MCGINLEY LLC — 17 threads` at the top of a list
+called *bridges*. McGinley has **one** client, Meta Platforms. Those 17 threads
+were Meta's own breadth, and Meta topped the noise query at 17 for exactly the
+same reason. The row was the operator's own subject list handed back to him.
+
+The first version also ordered `threads DESC, clients ASC`. Thread counts are
+almost never tied, so the ascending clause never fired and the megafirms —
+Akin Gump at 317 clients, Alpine at 398 — sat at the top. `clients ASC` is now
+the primary sort.
+
 `filings_in_library` counts filings **you captured**, not filings that exist.
-The firm's real book size lives in `evidence/registrant_books.json`, written by
-`connect expand`. Check it before believing any row here.
+The firm's real book size is in `evidence/registrant_books.json`, written by
+`connect expand`.
 
 ### 3. Pull one firm's sworn book, with the citations
 

@@ -320,22 +320,28 @@ const QUERIES = {
   },
 
   bridges: {
-    what: 'registrants whose sworn filings connect more than one of your threads',
-    why: 'Ordered so SMALL client counts come first. A firm with four hundred '
-      + 'clients bridges four of anyone\'s subjects by arithmetic, and sorting '
-      + 'the other way is how a 16,026-filing firm topped this list. '
-      + '`filings_in_library` counts what YOU captured, not what exists — the '
-      + 'real book size is in evidence/registrant_books.json.',
+    what: 'registrants whose sworn filings connect SEVERAL of your threads',
+    why: 'Ordered by client count ascending, so the small books come first. '
+      + 'Read `from_one_client` before anything else: it is the largest number '
+      + 'of subjects reached through a SINGLE client, so when it equals '
+      + '`threads`, this firm bridges nothing — one client of theirs is simply '
+      + 'a name you searched under many spellings. `filings_in_library` counts '
+      + 'what YOU captured, not what exists; the real book size is in '
+      + 'evidence/registrant_books.json.',
     cypher: `
-      MATCH (reg:Org)-[f:FILED_FOR]->(cli:Org)-[:APPEARS_UNDER]->(s:Subject)
-      WITH reg,
-           count(DISTINCT s)             AS threads,
-           count(DISTINCT cli)           AS clients,
-           sum(f.filings)                AS filings_in_library,
-           collect(DISTINCT s.name)[..5] AS via
+      MATCH (reg:Org)-[:FILED_FOR]->(cli:Org)-[:APPEARS_UNDER]->(s:Subject)
+      WITH reg, cli, count(DISTINCT s) AS per_client
+      WITH reg, count(DISTINCT cli) AS clients, max(per_client) AS from_one_client
+      WHERE clients >= 2
+      MATCH (reg)-[f:FILED_FOR]->(c2:Org)-[:APPEARS_UNDER]->(s2:Subject)
+      WITH reg, clients, from_one_client,
+           count(DISTINCT s2)             AS threads,
+           sum(f.filings)                 AS filings_in_library,
+           collect(DISTINCT s2.name)[..4] AS via
       WHERE threads >= 2
-      RETURN reg.name AS registrant, threads, clients, filings_in_library, via
-      ORDER BY threads DESC, clients ASC
+      RETURN reg.name AS registrant, clients, threads, from_one_client,
+             filings_in_library, via
+      ORDER BY clients ASC, threads DESC
       LIMIT $limit`,
   },
 
