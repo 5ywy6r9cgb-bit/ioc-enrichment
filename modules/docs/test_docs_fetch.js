@@ -402,6 +402,70 @@ module.exports = async function run() {
       D.rewriteForMachines('https://www.courtlistener.com/api/rest/v4/dockets/1/', {}).needsKey === true);
   }
 
+  // ══ SEC.GOV: THE BRANCH THAT COULD NOT RUN ═══════════════════════════
+  //
+  // `doc get` on the Ohio Phase-In-Recovery Funding 10-K answered HTTP 403,
+  // three times. The SEC refuses any automated client that does not declare a
+  // contact address in its User-Agent, and a sec.gov branch existed to send
+  // one — placed BELOW `if (!courtlistener) return null;`, so it never ran a
+  // single time. The code was there, it read correctly, and the desk could
+  // not reach the highest-value document it had found.
+  //
+  // These tests call the function on a real sec.gov URL rather than asserting
+  // that a sec.gov branch is present in the source. The dead branch would
+  // have passed the second kind of test.
+  {
+    const R = require('../connectors/registry.js');
+    const url = 'https://www.sec.gov/Archives/edgar/data/1577459/'
+      + '000157745919000007/ohiopirf201810k.htm';
+
+    const s1 = D.rewriteForMachines(url, { SEC_CONTACT: 'desk@example.org' });
+    check('a sec.gov URL is handled at all — the branch is reachable',
+      s1 !== null, String(s1));
+    check('and it declares the operator contact in the User-Agent',
+      /desk@example\.org/.test(s1.headers['User-Agent']), s1 && s1.headers['User-Agent']);
+    check('using the SAME string the connectors send, not a second spelling',
+      s1.headers['User-Agent'] === R.SEC_UA({ SEC_CONTACT: 'desk@example.org' }),
+      s1.headers['User-Agent']);
+    check('the document URL itself is not rewritten — SEC serves the filing',
+      s1.url === url, s1.url);
+    check('and no key is claimed to be missing; SEC has no key',
+      s1.needsKey === false);
+
+    const s2 = D.rewriteForMachines(url, {});
+    check('with no contact set the header still goes, saying so',
+      /not set/i.test(s2.headers['User-Agent']), s2.headers['User-Agent']);
+    check('and the operator is told a 403 is a refusal, not an empty document',
+      /403/.test(s2.note || ''), s2.note);
+
+    check('a bare sec.gov host is handled too',
+      D.rewriteForMachines('https://sec.gov/x.htm', {}) !== null);
+    check('efts.sec.gov, which the connector uses, is handled',
+      D.rewriteForMachines('https://efts.sec.gov/LATEST/search-index?q=x', {}) !== null);
+    check('a host that merely ENDS in something like it is not',
+      D.rewriteForMachines('https://notsec.gov/x.htm', {}) === null);
+
+    // The guard that caused this. If a host test ever moves back above the
+    // dispatch, sec.gov stops being reachable and only this test says so.
+    const src = fs.readFileSync(path.join(__dirname, 'document.js'), 'utf8');
+    const iSec = src.indexOf("sec\\.gov$");
+    const iGuard = src.indexOf("courtlistener\\.com$/i.test(u.hostname)) return null");
+    check('host dispatch happens BEFORE the courtlistener-only guard',
+      iSec > 0 && iGuard > 0 && iSec < iGuard, `sec@${iSec} guard@${iGuard}`);
+
+    // SEC_CONTACT lives in .env, and loadEnv() deliberately does not write
+    // into process.env (children inherit that). SEC_UA() takes no env
+    // argument, because connector run() specs are not given one — so it read
+    // process.env and could not see the contact the operator had actually
+    // set. The env loadEnv built is remembered for exactly those callers.
+    check('SEC_UA falls back to the env loadEnv built, not just process.env',
+      /AMBIENT_ENV/.test(fs.readFileSync(
+        path.join(__dirname, '..', 'connectors', 'registry.js'), 'utf8')));
+    check('and loadEnv still does NOT write secrets into process.env',
+      !/process\.env\[[^\]]+\]\s*=/.test(fs.readFileSync(
+        path.join(__dirname, '..', 'connectors', 'registry.js'), 'utf8')));
+  }
+
   // ══ AN API RECORD IS A FILE TYPE ═════════════════════════════════════
   //
   // The docket rewrite returns JSON. Sniffed as 'unknown' it was saved with

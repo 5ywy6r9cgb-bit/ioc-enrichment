@@ -194,16 +194,70 @@ def _log(d: dict, what: str) -> None:
     d.setdefault("log", []).append({"at": _now(), "what": what})
 
 
+def _pages(value, what="pages"):
+    """A page count, or a refusal that reads like a sentence.
+
+    THIS USED TO LIVE IN THE `read` BRANCH OF THE CLI AND NOWHERE ELSE.
+    `case read CASE EX PAGES_YOU_READ` refused cleanly -- "pages must be a
+    number, got 'PAGES_YOU_READ'" -- while `case add ... --pages REAL_COUNT`,
+    twelve lines away in the same file, threw:
+
+        ValueError: invalid literal for int() with base 10: 'REAL_COUNT'
+
+    Same operator, same paste, same session: one verb taught and the other
+    dumped a stack trace. A guard that protects one caller is not a guard, so
+    it moved into the model where every caller passes through it.
+    """
+    try:
+        return int(str(value).strip())
+    except (TypeError, ValueError):
+        raise CaseError(
+            f"{what} must be a number, got {str(value)!r}. "
+            "If that came out of a command block, it was a stand-in for a "
+            "number you look up -- not a value to paste.")
+
+
+def _placeholder(arg: str) -> bool:
+    """A stand-in that was pasted instead of being replaced.
+
+    Mirrors modules/docs/recent.js looksLikePlaceholder. THE_PATH_doc_last_PRINTED
+    was filed as an exhibit path because nothing on the Python side had ever
+    heard of the problem the JavaScript side had already been taught.
+    """
+    stem = re.sub(r"\.[A-Za-z0-9]+$", "", os.path.basename(str(arg or "")))
+    if not stem:
+        return False
+    if re.fullmatch(r"[A-Z0-9_]+", stem):
+        return "_" in stem or stem in {"FILE", "URL", "PATH", "ID"}
+    caps = [w for w in stem.split("_") if re.fullmatch(r"[A-Z][A-Z0-9]+", w)]
+    return len(caps) >= 2
+
+
 def add_exhibit(cid, ex_id, file, kind="other", pages=1) -> dict:
     d = load(cid)
     _safe_id(ex_id)
     if kind not in VALID_KINDS:
         raise CaseError(f"unknown kind {kind!r} -- one of: {', '.join(sorted(VALID_KINDS))}")
-    pages = int(pages)
-    if pages < 1:
-        raise CaseError("pages must be at least 1")
+    # An exhibit is a FILE. A case that cites a path nothing ever wrote is a
+    # case that looks complete and cannot be checked -- and the placeholder
+    # test catches the specific way that happened: a stand-in token pasted
+    # out of a command block, filed, and counted toward coverage.
+    # Identity first: an exhibit id that is already taken is the operator's
+    # problem whatever the path says, and reporting the path instead sends
+    # them to fix the wrong thing.
     if ex_id in d["exhibits"]:
         raise CaseError(f"{ex_id} already exists in {cid}")
+    if _placeholder(file):
+        raise CaseError(
+            f"{file!r} is a placeholder, not a file. "
+            "Run  sentinel doc last  and use the path it prints.")
+    if not os.path.exists(str(file)):
+        raise CaseError(
+            f"no such file: {file}. An exhibit has to be a document on disk. "
+            "Run  sentinel doc last  to see what has actually been fetched.")
+    pages = _pages(pages)
+    if pages < 1:
+        raise CaseError("pages must be at least 1")
     d["exhibits"][ex_id] = {"id": ex_id, "file": file, "kind": kind,
                             "pages_total": pages, "pages_read": 0, "broken": None,
                             "added_at": _now()}
@@ -217,7 +271,7 @@ def mark_read(cid, ex_id, pages) -> dict:
     e = d["exhibits"].get(ex_id)
     if not e:
         raise CaseError(f"no exhibit {ex_id} in {cid}")
-    pages = int(pages)
+    pages = _pages(pages, "pages read")
     if pages < 0:
         raise CaseError("pages read cannot be negative")
     if pages > e["pages_total"]:
@@ -407,12 +461,11 @@ def main(argv: list[str]) -> int:
                 pages_arg = argv2[2]
             if len(argv2) < 2:
                 raise CaseError("usage: sentinel case read CASE-ID EX-ID PAGES   (or --pages N)")
-            try:
-                int(pages_arg)
-            except ValueError:
-                raise CaseError(
-                    f"pages must be a number, got {pages_arg!r}. "
-                    "usage: sentinel case read CASE-ID EX-ID PAGES   (or --pages N)")
+            # The number check is NOT repeated here. It lives in _pages(),
+            # which mark_read() calls, so `add` and `read` refuse the same
+            # paste with the same sentence. Two spellings of one rule is how
+            # `add` ended up throwing a traceback while `read` explained
+            # itself.
             e = mark_read(argv2[0], argv2[1], pages_arg)
             done = e["pages_read"] == e["pages_total"]
             print(f"\n  {G if done else DIM}{'complete' if done else 'progress'}{X}  "

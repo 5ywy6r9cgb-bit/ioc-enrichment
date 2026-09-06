@@ -153,6 +153,24 @@ function findRecordArray(json, depth = 0) {
 }
 
 // ---------------------------------------------------------------- env
+/**
+ * The last environment `loadEnv()` built.
+ *
+ * WHY THIS EXISTS. `loadEnv()` merges .env over a COPY of process.env and
+ * hands the copy back; it deliberately does not write into process.env,
+ * because process.env is inherited by every child process this desk spawns
+ * (pdftotext, git) and an API key does not belong in a subprocess that has no
+ * use for it.
+ *
+ * The cost of that correct decision was that `SEC_UA()` — which takes no env
+ * argument, because connector `run()` specs do not get one — read process.env
+ * and therefore could not see a SEC_CONTACT that lives only in .env. The
+ * operator sets the contact, the file says it is set, and the header still
+ * goes out saying "not set". So the merged env is remembered here, in this
+ * process only, for the callers that cannot be handed one.
+ */
+let AMBIENT_ENV = process.env;
+
 function loadEnv() {
   // Keys live in a .env the operator controls. Read it, never echo it.
   const env = Object.assign({}, process.env);
@@ -163,6 +181,7 @@ function loadEnv() {
       if (m && !env[m[1]]) env[m[1]] = m[2].trim().replace(/^["']|["']$/g, '');
     }
   }
+  AMBIENT_ENV = env;
   return env;
 }
 
@@ -352,8 +371,9 @@ function retryAfterMs(res) {
  * parser reads as "no results" -- a confident zero about a company that files
  * every year. So the address is explicit, and its absence is visible.
  */
-function SEC_UA() {
-  const who = process.env.SEC_CONTACT || process.env.SEC_USER_AGENT || '';
+function SEC_UA(env) {
+  const e = env || AMBIENT_ENV || process.env;
+  const who = e.SEC_CONTACT || e.SEC_USER_AGENT || '';
   return who
     ? `sentinel-connectors/${VERSION} (${who})`
     : `sentinel-connectors/${VERSION} (SEC_CONTACT not set - see docs/OPERATOR_MANUAL.md)`;
@@ -2297,5 +2317,5 @@ module.exports = {
   checkKeyShape, KEY_SHAPES,
   stripAuth, AUTH_HEADERS, MAX_REDIRECTS,
   CONNECTORS, VERSION, EVIDENCE, CAPTURES, LEDGER, resolveKey, retryAfterMs, pace,
-  loadEnv, mask, request, runConnector,
+  loadEnv, mask, request, runConnector, SEC_UA,
 };

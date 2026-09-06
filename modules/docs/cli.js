@@ -584,6 +584,31 @@ async function cmdGet(url, opts) {
       process.exit(1);
     }
 
+    // AN HTTP 403 IS A REFUSAL OF *YOU*, NOT A MISSING DOCUMENT.
+    //
+    // Three attempts at an SEC filing returned "failed: HTTP 403" and nothing
+    // else, and from the terminal that reads as "the document is not there".
+    // It was there. The request did not say who was asking. A status code
+    // with no reading of it sends the operator to look for another copy of a
+    // document that was never gone.
+    if (got.status === 403) {
+      const host = (() => { try { return new URL(target).host; } catch { return ''; } })();
+      console.error('');
+      console.error(`  ${C.y('403 means the server refused THIS CLIENT — the document is likely still there.')}`);
+      if (/(^|\.)sec\.gov$/i.test(host)) {
+        console.error(C.dim('  sec.gov requires every automated request to declare a contact'));
+        console.error(C.dim('  address in its User-Agent, and refuses the ones that do not.'));
+        console.error(`  ${C.b('Set SEC_CONTACT=you@example.com in .env, then run this again.')}`);
+        console.error(C.dim('  Check what is being sent:  bin/sentinel connect test sec'));
+      } else {
+        console.error(C.dim(`  ${host} is blocking automated clients, rate-limiting, or`));
+        console.error(C.dim('  requires a session. Open the URL in a browser: if it loads'));
+        console.error(C.dim('  there, this is about the request, not the record.'));
+      }
+      console.error('');
+      process.exit(1);
+    }
+
     const tls = D.explainTlsError(got.error);
     if (tls) {
       const host = (() => { try { return new URL(url).host; } catch { return ''; } })();

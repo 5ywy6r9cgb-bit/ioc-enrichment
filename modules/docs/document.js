@@ -31,6 +31,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { execFileSync } = require('child_process');
+const { SEC_UA } = require('../connectors/registry.js');
 
 /**
  * Below this many characters per page, a PDF is almost certainly images.
@@ -369,6 +370,39 @@ function explainTlsError(err) {
 function rewriteForMachines(url, env) {
   let u;
   try { u = new URL(url); } catch { return null; }
+  // SEC.GOV REFUSES AN UNIDENTIFIED CLIENT — AND THIS BRANCH USED TO BE
+  // UNREACHABLE.
+  //
+  // `doc get` on an SEC filing returned HTTP 403 three times running. The SEC
+  // requires every automated request to declare a contact in its User-Agent
+  // and blocks the ones that do not. A sec.gov branch had been written for
+  // exactly that — and it was placed BELOW the CourtListener host guard three
+  // lines down, so `return null` fired first and the branch never ran once.
+  // A guard written for one host silently owned the whole function.
+  //
+  // So host dispatch happens here, before any host-specific guard, and the
+  // test suite asserts the header on a real sec.gov URL rather than asserting
+  // that the code exists.
+  if (/(^|\.)sec\.gov$/i.test(u.hostname)) {
+    const ua = SEC_UA(env);
+    const declared = /SEC_CONTACT not set/.test(ua) ? '' : ua;
+    return {
+      url,                                    // nothing to rewrite; SEC serves the document
+      // The SAME string the connectors send. This was a second, hand-rolled
+      // spelling ("Sentinel Research <addr>") that no connector used and no
+      // test covered — two formats for one policy is one format too many.
+      headers: { 'User-Agent': ua },
+      why: declared
+        ? 'sec.gov requires a declared contact; sending SEC_CONTACT'
+        : 'sec.gov requires a declared contact and SEC_CONTACT is NOT SET',
+      needsKey: false,
+      note: declared ? undefined
+        : 'Set SEC_CONTACT in .env to an email address you actually read. '
+          + 'Without it the SEC answers 403 with an HTML body, and a refusal '
+          + 'is not an empty document.',
+    };
+  }
+
   if (!/(^|\.)courtlistener\.com$/i.test(u.hostname)) return null;
 
   const key = (env && env.COURTLISTENER_API_TOKEN) || '';
@@ -425,29 +459,6 @@ function rewriteForMachines(url, env) {
   //
   // The entry number is what addresses the filing, so the rewrite goes to the
   // entry rather than the docket, and the entry carries the PDF path.
-  // SEC.GOV REFUSES AN UNIDENTIFIED CLIENT.
-  //
-  // `doc get` on an EX-21 subsidiary exhibit returned HTTP 403. The SEC
-  // requires every automated request to declare a contact in its User-Agent
-  // and blocks the ones that do not. The connector already does this; the
-  // document fetcher did not, so the one primary source that proves who owns
-  // a company was unreachable from the command that exists to fetch primary
-  // sources.
-  if (/(^|\.)sec\.gov$/i.test(u.hostname)) {
-    const contact = (env && env.SEC_CONTACT) || '';
-    return {
-      url,
-      headers: { 'User-Agent': `Sentinel Research ${contact || '(SEC_CONTACT NOT SET)'}` },
-      why: contact
-        ? `sec.gov requires a declared contact; sending SEC_CONTACT`
-        : 'sec.gov requires a declared contact and SEC_CONTACT is NOT SET',
-      needsKey: false,
-      note: contact ? undefined
-        : 'Set SEC_CONTACT in .env to an email address. Without it the SEC '
-          + 'may refuse the request, and a refusal is not an empty document.',
-    };
-  }
-
   const doc = /^\/docket\/(\d+)\/(\d+)\//.exec(u.pathname);
   if (doc) {
     return {

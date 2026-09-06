@@ -40,6 +40,15 @@ def throws(label, fn, needle):
 def main():
     tmp = tempfile.mkdtemp(prefix="sentinel-cases-")
     os.environ["SENTINEL_CASES"] = tmp
+
+    # Exhibit paths below are REAL FILES, because add_exhibit now requires the
+    # document to exist. A case that cites a path nothing ever wrote reads as
+    # complete and cannot be checked, which is the failure the requirement is
+    # for; the fixtures have to obey the same rule the operator does.
+    def fixture(name):
+        p = Path(tmp, name)
+        p.write_bytes(b"%PDF-1.4 fixture\n")
+        return str(p)
     import case as C
     import importlib
     importlib.reload(C)
@@ -65,7 +74,7 @@ def main():
            lambda: C.new_case("CASE-1", "again"), "already exists")
 
     # ── R-01: the unread financial page ──────────────────────────────────
-    C.add_exhibit("CASE-1", "EX-1", "gahanna_award.pdf", "financial", 44)
+    C.add_exhibit("CASE-1", "EX-1", fixture("gahanna_award.pdf"), "financial", 44)
     s = C.compute(C.load("CASE-1"))
     check("an unread financial exhibit blocks on R-01",
           any(c == "R-01" for c, _ in s["blockers"]), str(s["blockers"]))
@@ -87,9 +96,49 @@ def main():
     throws("an unknown exhibit is refused",
            lambda: C.mark_read("CASE-1", "NOPE", 1), "no exhibit")
     throws("a duplicate exhibit id is refused",
-           lambda: C.add_exhibit("CASE-1", "EX-1", "other.pdf"), "already exists")
+           lambda: C.add_exhibit("CASE-1", "EX-1", fixture("other.pdf")), "already exists")
     throws("an invented exhibit kind is refused",
-           lambda: C.add_exhibit("CASE-1", "EX-9", "x.pdf", "vibes", 2), "unknown kind")
+           lambda: C.add_exhibit("CASE-1", "EX-9", fixture("x.pdf"), "vibes", 2), "unknown kind")
+
+    # ── THE PASTED STAND-IN ──────────────────────────────────────────────
+    #
+    # A command block said:
+    #   case add securitization-2026 EX-1 THE_PATH_doc_last_PRINTED --pages REAL_COUNT
+    # meaning "put the path `doc last` printed here, and the page count you
+    # counted". It was pasted verbatim, and `add` answered with:
+    #
+    #   ValueError: invalid literal for int() with base 10: 'REAL_COUNT'
+    #
+    # -- a Python traceback, from the same file where `read` refused the same
+    # kind of paste in a clean sentence. Both verbs go through _pages() now,
+    # and the path itself is checked too: the run that produced the traceback
+    # would ALSO have filed a nonexistent document as an exhibit if the page
+    # count had happened to be a number.
+    throws("a stand-in page count is refused, not thrown",
+           lambda: C.add_exhibit("CASE-1", "EX-P", fixture("a.pdf"), "other", "REAL_COUNT"),
+           "must be a number")
+    throws("and `read` refuses it with the same sentence",
+           lambda: C.mark_read("CASE-1", "EX-1", "PAGES_YOU_READ"),
+           "must be a number")
+    throws("a stand-in path is refused as a placeholder",
+           lambda: C.add_exhibit("CASE-1", "EX-P", "THE_PATH_doc_last_PRINTED", "other", 4),
+           "placeholder")
+    throws("so is a shouted one with an extension",
+           lambda: C.add_exhibit("CASE-1", "EX-P", "/x/THE_FILE.pdf", "other", 4),
+           "placeholder")
+    throws("an exhibit whose file does not exist is refused",
+           lambda: C.add_exhibit("CASE-1", "EX-P", str(Path(tmp, "never-written.pdf")), "other", 4),
+           "no such file")
+    check("and none of those four landed in the case",
+          "EX-P" not in C.load("CASE-1")["exhibits"],
+          str(sorted(C.load("CASE-1")["exhibits"])))
+    # A real filename that happens to shout is still a real filename.
+    C.add_exhibit("CASE-1", "EX-OK", fixture("REPORT.pdf"), "other", 2)
+    check("a single shouted word is a filename, not a placeholder",
+          "EX-OK" in C.load("CASE-1")["exhibits"])
+    # Read it, so this fixture does not leave an unread exhibit holding the
+    # gate shut for every check below it.
+    C.mark_read("CASE-1", "EX-OK", 2)
 
     # ── R-02: broken evidence ────────────────────────────────────────────
     C.mark_broken("CASE-1", "EX-1", "404 since 2026-08-01")
