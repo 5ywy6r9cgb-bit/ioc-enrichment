@@ -1437,6 +1437,19 @@ async function cmdSweep(setName, opts) {
   const runnable = [];
   const skipped = [];
   for (const [name, c] of Object.entries(R.CONNECTORS)) {
+    // ── --skip AND --only, HONOURED IN THE COUNT AS WELL AS THE RUN ──────
+    //
+    // The sweep took neither, so a source with a hard daily cap could not be
+    // held back. CourtListener allows 125 calls a day; a twelve-subject sweep
+    // spends the entire allowance on the first four subjects and then reports
+    // "Did not complete" on the remaining eight -- which reads as the source
+    // being unreachable rather than as the operator having already used it.
+    // Running the same sweep twice in one evening does it twice.
+    //
+    // These are applied HERE, in the count, and not only at the call site,
+    // because a plan that announces 168 calls and makes 156 is decoration.
+    if (opts.only && !opts.only.includes(name)) { skipped.push([name, 'not in --only']); continue; }
+    if (opts.skip && opts.skip.includes(name)) { skipped.push([name, 'held back by --skip']); continue; }
     if (c.freeText === false) { skipped.push([name, 'takes an identifier, not a name']); continue; }
     if (c.keyRequired && !R.resolveKey(c, env)) { skipped.push([name, `${c.keyVar} not set`]); continue; }
     runnable.push(name);
@@ -1515,7 +1528,7 @@ async function cmdSweep(setName, opts) {
   for (const sub of willRun) {
     done++;
     console.log(C.b(`\n  [${done}/${willRun.length}] ${sub}`));
-    await cmdAll(sub, { into: set.into });
+    await cmdAll(sub, { into: set.into, skip: opts.skip, only: opts.only });
   }
   console.log(`\n  ${C.g('Sweep complete.')} ${C.dim('Fold it in with:')}`);
   console.log(C.dim('    sentinel connect crosslink'));
@@ -2765,9 +2778,30 @@ async function main() {
   }
   if (action === 'brief') return cmdBrief(args.slice(1).join(' '), {});
   if (action === 'sweep') {
+    const listAfter = (flag) => {
+      const i = argv.indexOf(flag);
+      if (i < 0 || !argv[i + 1] || argv[i + 1].startsWith('--')) return null;
+      return argv[i + 1].split(',').map((x) => x.trim()).filter(Boolean);
+    };
+    // A name that is not a connector is a typo, and a typo in --skip silently
+    // skips nothing: the sweep runs the source you were trying to hold back
+    // and spends the cap you were protecting. Refuse instead.
+    const known = Object.keys(R.CONNECTORS);
+    for (const flag of ['--skip', '--only']) {
+      const v = listAfter(flag);
+      if (!v) continue;
+      const bad = v.filter((n) => !known.includes(n));
+      if (bad.length) {
+        console.error(`\n  ${C.r(`not a connector: ${bad.join(', ')}`)}`);
+        console.error(`  ${C.dim(`known: ${known.join(' ')}`)}\n`);
+        process.exit(2);
+      }
+    }
     return cmdSweep(args[1], {
       go: argv.includes('--go'),
       newOnly: argv.includes('--new-only'),
+      skip: listAfter('--skip'),
+      only: listAfter('--only'),
     });
   }
   if (action === 'expand') {

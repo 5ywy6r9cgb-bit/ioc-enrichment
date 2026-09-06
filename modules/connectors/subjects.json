@@ -1,5 +1,5 @@
 {
-  "//": "Named subject sets for `sentinel connect sweep <set>`. Edit this file as you learn names — every abatement agreement and utility filing names the actual contracting entity, and that name is the one worth searching. A subject here is a SEARCH STRING, not a claim that the entity is involved in anything.",
+  "//": "Named subject sets for `sentinel connect sweep <set>`. Edit this file as you learn names \u2014 every abatement agreement and utility filing names the actual contracting entity, and that name is the one worth searching. A subject here is a SEARCH STRING, not a claim that the entity is involved in anything.",
   "datacenters": {
     "into": "datacenters",
     "note": "Operators and the single-purpose entities they file under.",
@@ -182,7 +182,7 @@
   },
   "police_oversight": {
     "into": "police-oversight",
-    "note": "Vendors and oversight bodies in the police-accountability thread. NOT a list of suspects and NOT officers: every entry is an ORGANISATION whose contracts, filings, grants or certifications are public records. A name here is a SEARCH STRING. No natural person belongs in a sweep — an officer is checked deliberately, one query at a time, against a named database, never fanned out across nine sources including a sanctions list.",
+    "note": "Vendors and oversight bodies in the police-accountability thread. NOT a list of suspects and NOT officers: every entry is an ORGANISATION whose contracts, filings, grants or certifications are public records. A name here is a SEARCH STRING. No natural person belongs in a sweep \u2014 an officer is checked deliberately, one query at a time, against a named database, never fanned out across nine sources including a sanctions list.",
     "subjects": [
       "Flock Safety",
       "Axon Enterprise",
@@ -196,6 +196,22 @@
       "Fraternal Order of Police Ohio Labor Council",
       "City of Gahanna",
       "Franklin County Sheriff"
+    ]
+  },
+  "securitization": {
+    "into": "securitization",
+    "note": "How a utility cost becomes a bond that customers repay. Ohio Phase-In-Recovery Funding LLC surfaced as the top SEC hit for Ohio Power Company and has never been opened. A nonbypassable charge is the one a customer cannot escape by switching suppliers -- which is the whole mechanism of cost socialization, stated in the language the filings actually use. Deliberately buildable without CourtListener: every subject here is answerable from SEC EDGAR, the Federal Register, OpenCorporates and the LDA.",
+    "subjects": [
+      "Ohio Phase-In-Recovery Funding LLC",
+      "phase-in recovery",
+      "nonbypassable charge",
+      "securitization rider",
+      "electric security plan",
+      "Ohio Air Quality Development Authority",
+      "FirstEnergy Ohio PIRB Special Purpose Trust",
+      "rate stabilization charge",
+      "deferred fuel cost recovery",
+      "distribution modernization rider"
     ]
   }
 }

@@ -324,6 +324,12 @@ bin/sentinel corpus ocr <dir> --out <dir>    # read the bundles that only look l
 bin/sentinel connect sweep                   # list the named subject sets
 bin/sentinel connect sweep datacenters       # the plan, no calls
 bin/sentinel connect sweep datacenters --go  # run it
+bin/sentinel connect sweep ratepayers --go --skip courtlistener
+#   --skip holds a source back. CourtListener allows 125 calls a DAY, and a
+#   twelve-subject sweep spends the whole allowance on the first four subjects,
+#   then reports "Did not complete" on the rest — which reads as the source
+#   being down rather than as you having already used it.
+bin/sentinel connect sweep ratepayers --go --only sec,opencorporates
 bin/sentinel connect expand                  # ask every registrant you already have
 bin/sentinel connect expand --limit 25
 #   …and it now WRITES DOWN each firm's total federal filing count into
