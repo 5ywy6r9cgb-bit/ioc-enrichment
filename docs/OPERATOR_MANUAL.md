@@ -341,6 +341,12 @@ bin/sentinel connect senatelda --registrant "<firm>"   # every client a firm fil
 bin/sentinel connect senatelda --registrant "<firm>" --pages 20
 bin/sentinel connect graph                   # preview the Neo4j graph (writes nothing)
 bin/sentinel connect graph --push            # write it into Neo4j
+bin/sentinel connect graph --ask coverage    # read it back, from the terminal
+bin/sentinel connect graph --ask bridges     # the query worth running
+bin/sentinel connect graph --ask firm --term "modern fortis"
+#   Cypher pasted into zsh does not fail cleanly — parentheses and brackets are
+#   shell metacharacters, so it globs and reports a filesystem error. --ask runs
+#   the query for you. docs/GRAPH_QUERIES.md has all six and the schema.
 #   Then read it WITHOUT fooling yourself: docs/GRAPH_QUERIES.md has the
 #   schema and seven queries against it. Start with the one that counts how
 #   many organisations have no sworn edge at all — that is the denominator

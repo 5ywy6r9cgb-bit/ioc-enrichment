@@ -420,7 +420,67 @@ module.exports = async function run() {
       s.calls.every((c) => typeof c.q === 'string'));
   }
 
-  console.log(`\n  ${FAIL ? 'FAIL' : 'PASS'} — ${PASS}/${PASS + FAIL} checks\n`);
+  
+// ── THE NAMED QUERIES ─────────────────────────────────────────────────
+//
+// A guide told the operator to open Neo4j Browser and paste Cypher. He pasted
+// it into zsh and got "no matches found" and "command not found: WITH",
+// because parentheses, brackets and > are shell metacharacters -- so Cypher at
+// a prompt does not fail cleanly, it globs. "Run this somewhere else" is the
+// weakest guard there is. These make the queries commands instead.
+{
+  const names = Object.keys(G.QUERIES);
+  check(`named queries exist (${names.join(' ')})`, names.length >= 5);
+
+  for (const [name, q] of Object.entries(G.QUERIES)) {
+    check(`${name}: says what it is for`, typeof q.what === 'string' && q.what.length > 10);
+    // A result set with no denominator beside it is how "bridges 4 of 4
+    // clients" became the strongest finding on this desk and turned out to be
+    // arithmetic. Every query states what its rows do NOT mean.
+    check(`${name}: states what the rows do not establish`,
+      typeof q.why === 'string' && q.why.length > 40);
+    check(`${name}: has cypher`, typeof q.cypher === 'string' && q.cypher.trim().length > 20);
+
+    // Every query is capped. An uncapped MATCH over 5,956 organisations and
+    // 7,331 relationships is how a terminal session becomes unusable.
+    check(`${name}: is limited`, /LIMIT/.test(q.cypher) || name === 'coverage');
+
+    // Parameters, never interpolation. A term spliced into Cypher is an
+    // injection, and the operator's search terms are free text.
+    check(`${name}: takes its term as a parameter, not by interpolation`,
+      !/\$\{/.test(q.cypher));
+    if (q.needsTerm) {
+      check(`${name}: actually reads $term`, /\$term/.test(q.cypher));
+    }
+
+    // The schema these run against must be the schema push() writes. A query
+    // naming a label or relationship that does not exist returns zero rows and
+    // reads as "no answer" rather than "wrong query".
+    for (const m of q.cypher.match(/:[A-Z][A-Za-z_]+/g) || []) {
+      check(`${name}: ${m} is a label or relationship push() creates`,
+        ['Org', 'Subject', 'FILED_FOR', 'APPEARS_UNDER'].includes(m.slice(1)));
+    }
+    // Same for properties, which is where a rename would silently empty a
+    // column rather than fail.
+    for (const m of q.cypher.match(/\b(?:o|o2|a|b|s|reg|cli|f)\.[a-z_]+/g) || []) {
+      const prop = m.split('.')[1];
+      check(`${name}: property ${prop} is one push() sets`,
+        ['key', 'name', 'subject_count', 'counts_are_floors',
+          'filings', 'subjects', 'urls', 'basis', 'hits', 'connectors'].includes(prop));
+    }
+  }
+
+  check('coverage does not silently cap the number it is counting',
+    !/LIMIT/.test(G.QUERIES.coverage.cypher));
+  check('bridges puts the small client counts first, not the big ones',
+    /ORDER BY[\s\S]*clients ASC/.test(G.QUERIES.bridges.cypher));
+  check('firm returns the filing urls, since that is what gets cited',
+    /urls/.test(G.QUERIES.firm.cypher));
+  check('pair returns via, so the reason for the overlap is visible',
+    /AS via/.test(G.QUERIES.pair.cypher));
+}
+
+console.log(`\n  ${FAIL ? 'FAIL' : 'PASS'} — ${PASS}/${PASS + FAIL} checks\n`);
   if (FAIL) process.exitCode = 1;
   return { pass: PASS, fail: FAIL };
 };

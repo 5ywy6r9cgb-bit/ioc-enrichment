@@ -827,7 +827,7 @@ async function cmdGraph(opts) {
     if (!opts.push) return;
   }
 
-  if (!opts.push) {
+  if (!opts.push && !opts.ask) {
     console.log(`\n  ${C.b('Nothing was written.')} ${C.dim('This is a preview.')}`);
     console.log(C.dim('  Statements that would run:'));
     for (const st of stmts) console.log(C.dim(`    - ${st.note}`));
@@ -893,6 +893,70 @@ async function cmdGraph(opts) {
 
   const driver = neo4j.driver(uri, neo4j.auth.basic(user, pass));
   const session = driver.session({ database });
+
+  // ── --ask: READ, from the terminal ──────────────────────────────────
+  //
+  // The alternative was a document telling the operator to open Neo4j Browser
+  // and paste Cypher. He pasted it into zsh -- because it arrived looking like
+  // every other command that day -- and got "no matches found" and "command
+  // not found: WITH", because parentheses, brackets and > are all shell
+  // metacharacters. Cypher at a shell prompt does not fail cleanly; it globs.
+  //
+  // "Run this somewhere else" is the weakest guard there is. This runs here.
+  if (opts.ask) {
+    try {
+      const spec = G.QUERIES[opts.ask];
+      console.log(`\n  ${C.b(opts.ask.toUpperCase())}  ${C.dim(spec.what)}`);
+      console.log(`  ${C.dim(`${uri}  database ${database}  as ${user}`)}`);
+      if (spec.needsTerm && !opts.term) {
+        console.error(`\n  ${C.r(`"${opts.ask}" needs something to look for.`)}`);
+        console.error(C.dim(`    sentinel connect graph --ask ${opts.ask} --term "modern fortis"\n`));
+        process.exitCode = 2;
+        return;
+      }
+      const res = await session.run(spec.cypher, {
+        limit: neo4j.int(opts.limit || 25),
+        term: opts.term || '',
+      });
+      const rows = res.records.map((rec) => {
+        const o = {};
+        for (const k of rec.keys) {
+          const v = rec.get(k);
+          o[k] = (v && typeof v.toNumber === 'function') ? v.toNumber()
+            : Array.isArray(v) ? v.join(' · ')
+              : (v === null ? '' : String(v));
+        }
+        return o;
+      });
+      console.log('');
+      if (!rows.length) {
+        console.log(`  ${C.y('No rows.')}`);
+        console.log(C.dim('  That is an answer about THIS graph, not about the world. If you have'));
+        console.log(C.dim('  not run  sentinel connect graph --push  since your last sweep, the'));
+        console.log(C.dim('  database is behind your captures.\n'));
+        return;
+      }
+      const cols = Object.keys(rows[0]);
+      const w = {};
+      for (const c of cols) {
+        w[c] = Math.min(52, Math.max(c.length, ...rows.map((r) => String(r[c]).length)));
+      }
+      console.log('  ' + cols.map((c) => C.b(c.padEnd(w[c]))).join('  '));
+      console.log('  ' + cols.map((c) => '─'.repeat(w[c])).join('  '));
+      for (const r of rows) {
+        console.log('  ' + cols.map((c) => String(r[c]).slice(0, w[c]).padEnd(w[c])).join('  '));
+      }
+      console.log(`\n  ${rows.length} row(s).`);
+      console.log('');
+      for (const line of spec.why.split(/(?<=\.)\s+/)) console.log(C.dim(`  ${line}`));
+      console.log('');
+      return;
+    } finally {
+      await session.close();
+      await driver.close();
+    }
+  }
+
   try {
     console.log(`\n  writing to ${C.b(uri)}  database ${C.b(database)}  as ${user} …`);
     const done = await G.push(g, session);
@@ -2676,10 +2740,29 @@ async function main() {
       if (argv[i + 1] && !argv[i + 1].startsWith('--')) return argv[i + 1];
       return true;
     };
+    // A bad --ask name must not connect, run nothing, and print "No rows" --
+    // that reads as "the graph has no answer" when the truth is "you named a
+    // query that does not exist."
+    const ask = flagVal('--ask');
+    // G is required inside cmdGraph, not at module scope.
+    const GQ = require('./graph.js').QUERIES;
+    if (ask === true || (typeof ask === 'string' && !GQ[ask])) {
+      console.error(`\n  ${C.r(ask === true ? '--ask needs a name.' : `not a query: ${ask}`)}\n`);
+      for (const [k, v] of Object.entries(GQ)) {
+        console.error(`    ${C.b(k.padEnd(10))} ${v.what}${v.needsTerm ? C.dim('   (needs --term)') : ''}`);
+      }
+      console.error(C.dim('\n    sentinel connect graph --ask coverage'));
+      console.error(C.dim('    sentinel connect graph --ask firm --term "modern fortis"\n'));
+      process.exit(2);
+    }
+    const lim = flagVal('--limit');
     return cmdGraph({
       push: argv.includes('--push'),
       allowRemote: argv.includes('--allow-remote'),
       dashboard: flagVal('--dashboard'),
+      ask: typeof ask === 'string' ? ask : null,
+      term: typeof flagVal('--term') === 'string' ? flagVal('--term') : null,
+      limit: typeof lim === 'string' ? Number(lim) || 25 : 25,
       sideA: typeof flagVal('--side-a') === 'string' ? flagVal('--side-a') : null,
       sideB: typeof flagVal('--side-b') === 'string' ? flagVal('--side-b') : null,
     });

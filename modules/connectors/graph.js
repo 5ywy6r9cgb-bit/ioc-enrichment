@@ -278,6 +278,127 @@ function toCypher(graph) {
 }
 
 /**
+ * QUERIES — reading the graph from the terminal.
+ *
+ * ─────────────────────────────────────────────────────────────────────────
+ * WHY THESE LIVE IN THE TOOL AND NOT IN A DOCUMENT
+ *
+ * A guide told the operator to open Neo4j Browser and paste Cypher into it.
+ * He pasted it into zsh, because it arrived in the same shape as every other
+ * command he had run that day, and got
+ *
+ *     zsh: no matches found: (o:Org)-[:APPEARS_UNDER]-/dev/fd/12
+ *     zsh: command not found: WITH
+ *
+ * That is not a user error. `(`, `[`, `>` and `*` are all shell metacharacters,
+ * so Cypher pasted at a prompt does not fail cleanly -- zsh globs it, opens
+ * process substitutions, and reports something that looks like a filesystem
+ * problem. The instruction "run this somewhere else" is the weakest guard
+ * there is: it depends on being read.
+ *
+ * So the queries are commands. `connect graph --ask bridges` runs one against
+ * the same database `--push` writes to, using the same credentials, and prints
+ * a table. There is nothing to paste anywhere.
+ *
+ * Each carries `why` — what the rows mean and what they do not — because a
+ * result set with no denominator beside it is how "bridges 4 of 4 clients"
+ * became the strongest finding on this desk and turned out to be arithmetic.
+ */
+const QUERIES = {
+  coverage: {
+    what: 'how much of the graph asserts nothing at all',
+    why: 'These organisations are in the graph ONLY because a search returned '
+      + 'their name. No filing connects them to anything. Run this first: it is '
+      + 'the denominator for every other query here.',
+    cypher: `
+      MATCH (o:Org)
+      WITH count(o) AS total
+      MATCH (o2:Org) WHERE NOT (o2)-[:FILED_FOR]-()
+      RETURN total AS organisations,
+             count(o2) AS no_sworn_edge,
+             total - count(o2) AS in_a_filing`,
+  },
+
+  bridges: {
+    what: 'registrants whose sworn filings connect more than one of your threads',
+    why: 'Ordered so SMALL client counts come first. A firm with four hundred '
+      + 'clients bridges four of anyone\'s subjects by arithmetic, and sorting '
+      + 'the other way is how a 16,026-filing firm topped this list. '
+      + '`filings_in_library` counts what YOU captured, not what exists — the '
+      + 'real book size is in evidence/registrant_books.json.',
+    cypher: `
+      MATCH (reg:Org)-[f:FILED_FOR]->(cli:Org)-[:APPEARS_UNDER]->(s:Subject)
+      WITH reg,
+           count(DISTINCT s)             AS threads,
+           count(DISTINCT cli)           AS clients,
+           sum(f.filings)                AS filings_in_library,
+           collect(DISTINCT s.name)[..5] AS via
+      WHERE threads >= 2
+      RETURN reg.name AS registrant, threads, clients, filings_in_library, via
+      ORDER BY threads DESC, clients ASC
+      LIMIT $limit`,
+  },
+
+  noise: {
+    what: 'names that turn up under everything, which is usually a name problem',
+    why: 'An organisation under a dozen unrelated subjects is generally a '
+      + 'generic name, a word inside a court caption, or a company so large it '
+      + 'appears everywhere. Distrust these rows before any others.',
+    cypher: `
+      MATCH (o:Org)-[:APPEARS_UNDER]->(s:Subject)
+      WITH o, count(DISTINCT s) AS breadth
+      WHERE breadth >= 10
+      RETURN o.name AS organisation, breadth
+      ORDER BY breadth DESC
+      LIMIT $limit`,
+  },
+
+  firm: {
+    what: 'one registrant\'s sworn book, with the filing URLs',
+    needsTerm: true,
+    why: 'FILED_FOR carries the filings themselves. THAT is what you cite. '
+      + 'Never cite the graph.',
+    cypher: `
+      MATCH (reg:Org)-[f:FILED_FOR]->(cli:Org)
+      WHERE toLower(reg.name) CONTAINS toLower($term)
+      RETURN reg.name AS registrant, cli.name AS client,
+             f.filings AS filings, f.subjects AS subjects, f.urls[0..2] AS cite
+      ORDER BY f.filings DESC
+      LIMIT $limit`,
+  },
+
+  thread: {
+    what: 'everything sitting under the subjects matching a word',
+    needsTerm: true,
+    why: 'These are SEARCH RESULTS. A row here means a source returned this '
+      + 'name for that subject, and nothing more.',
+    cypher: `
+      MATCH (o:Org)-[a:APPEARS_UNDER]->(s:Subject)
+      WHERE toLower(s.name) CONTAINS toLower($term)
+      RETURN s.name AS subject, o.name AS organisation,
+             a.hits AS hits, a.connectors AS sources
+      ORDER BY subject, hits DESC
+      LIMIT $limit`,
+  },
+
+  pair: {
+    what: 'organisations that share several subjects, and WHY',
+    why: 'The `via` column is the point. Two companies under one subject are '
+      + 'two hops apart THROUGH that subject; there is no edge between them. '
+      + 'Read `via` and you will often find the answer is "because you searched '
+      + 'for both of them".',
+    cypher: `
+      MATCH (a:Org)-[:APPEARS_UNDER]->(s:Subject)<-[:APPEARS_UNDER]-(b:Org)
+      WHERE a.key < b.key
+      WITH a, b, count(DISTINCT s) AS shared, collect(DISTINCT s.name)[..4] AS via
+      WHERE shared >= 3
+      RETURN a.name AS one, b.name AS other, shared, via
+      ORDER BY shared DESC
+      LIMIT $limit`,
+  },
+};
+
+/**
  * Run the statements against a session.
  *
  * `session` is anything with `.run(query, params)` returning a promise — the
@@ -395,6 +516,7 @@ function reconcile(graph, actual) {
 }
 
 module.exports = {
+  QUERIES,
   build, toCypher, push, isLocal, readEnv, LOCAL_HOSTS,
   isPlaceholderPassword, PLACEHOLDER_PASSWORDS, PLACEHOLDER_FRAGMENTS, describeSecret,
   verify, reconcile,

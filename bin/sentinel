@@ -76,6 +76,7 @@
 #   sentinel draft CASE --apply     file them as open questions on the desk
 #   sentinel connect graph          preview the Neo4j graph from your captures
 #   sentinel connect graph --push   write it into Neo4j
+#   sentinel connect graph --ask NAME  read it from the terminal, no Browser
 #
 #   sentinel watch run              run every saved search that is due
 #   sentinel watch run --all        ignore cadence, run them all

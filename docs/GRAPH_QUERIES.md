@@ -32,10 +32,31 @@ about itself.
 
 ---
 
-## Run one at a time
+## Run them from the terminal
 
-In Neo4j Browser: select database `neo4j` (or `:use neo4j`), clear the editor,
-paste one query, run it.
+```bash
+bin/sentinel connect graph --ask coverage
+bin/sentinel connect graph --ask bridges --limit 30
+bin/sentinel connect graph --ask noise
+bin/sentinel connect graph --ask firm   --term "modern fortis"
+bin/sentinel connect graph --ask thread --term securitization
+bin/sentinel connect graph --ask pair
+```
+
+**Do not paste the Cypher below into your shell.** `(`, `[`, `>` and `*` are
+all shell metacharacters, so Cypher at a zsh prompt does not fail cleanly — it
+globs, opens process substitutions, and reports something that looks like a
+filesystem error:
+
+```
+zsh: no matches found: (o:Org)-[:APPEARS_UNDER]-/dev/fd/12
+zsh: command not found: WITH
+```
+
+That is why `--ask` exists. It runs the same query against the same database
+`--push` writes to, with the same credentials, and prints a table. The Cypher
+is written out below so you can read and adapt it — paste it into **Neo4j
+Browser** if you want to change one, never into the shell.
 
 ### 0. What is actually in there
 
