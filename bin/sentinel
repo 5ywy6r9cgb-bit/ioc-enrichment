@@ -28,6 +28,7 @@
 #   sentinel foia                   records desk: what needs you, most urgent first
 #   sentinel foia dash              every request on one screen, then open it
 #   sentinel home                   build the Sentinel folder on your Desktop
+#   sentinel library                one folder of links to everything you have made
 #   sentinel tidy                   what is junk, and where you are named
 #   sentinel tidy --apply           delete only what is safe to regenerate
 #
@@ -229,6 +230,7 @@ PYSTATUS
     echo "== the front door =="
     node "$ROOT/modules/home/test_home.js" || FAILED=1
     node "$ROOT/modules/tidy/test_tidy.js" || FAILED=1
+    node "$ROOT/modules/home/test_library.js" || FAILED=1
     echo ""
     echo "== capture recency =="
     node "$ROOT/modules/connectors/test_recency.js" || FAILED=1
@@ -370,6 +372,17 @@ PYSTATUS
   # are named, outside the investigation material). It deletes nothing without
   # --apply, --apply touches only categories that regenerate themselves, and
   # anything the provenance ledger has hashed is refused by name.
+  # `sentinel library` — one folder on the Desktop, and one page that opens it.
+  #
+  # LINKS, never copies: a copy is stale the moment the next sweep runs, and it
+  # puts evidence on the Desktop. The index lists every artifact this desk can
+  # produce, including the ones NOT built yet, with the command for each — a
+  # page showing only what exists cannot tell you the difference between "no
+  # chart" and "nothing to chart".
+  library)
+    node "$ROOT/modules/home/library.js" "$@"
+    ;;
+
   tidy)
     node "$ROOT/modules/tidy/cli.js" "$@"
     ;;

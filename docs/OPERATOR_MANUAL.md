@@ -2307,6 +2307,48 @@ what the name means. `--rebind` if you mean it.
 
 ---
 
+## 2b. Everything you have made, in one folder — `sentinel library`
+
+```bash
+bin/sentinel library
+```
+
+Builds `~/Desktop/Sentinel Library/` — one folder of **links** to the live
+files, plus `START HERE.html`, a front door listing everything.
+
+### Links, not copies
+
+A copy is stale the moment the next sweep runs, and it puts evidence on the
+Desktop, which is the least protected place on the machine. Every entry is a
+symlink to the real file in the evidence store. **Deleting anything in that
+folder deletes a link, never the evidence.**
+
+### It lists what is missing, on purpose
+
+The index shows every artifact the desk *can* produce, whether or not it
+exists. A missing one is marked `NOT BUILT YET` and carries the command that
+builds it. A page listing only what exists looks complete on a desk where half
+the outputs were never generated, and gives you no way to tell "there is no
+chart" from "there is nothing to chart".
+
+### It never eats what you put in it
+
+A rebuild clears the previous run's links — but it checks first, and anything
+that is **not a symlink it created** is left alone and reported. Save a draft
+in that folder and it survives every rebuild.
+
+### What is deliberately not there
+
+Raw captures. There are thousands, they are inputs rather than outputs, and a
+folder of them is the same haystack with a nicer name. The library holds what
+was *derived* from them: reports, charts, fetched primary documents, case
+files, the ledger.
+
+The page is self-contained — no script, no CDN, no font host, no request of any
+kind. It opens offline and tells nobody when you looked at it.
+
+---
+
 ## 4c-bis. Keeping it clean — `sentinel tidy`
 
 ```bash
