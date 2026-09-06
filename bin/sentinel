@@ -215,6 +215,7 @@ PYSTATUS
     node "$ROOT/modules/connectors/test_entries.js" || FAILED=1
     node "$ROOT/modules/connectors/test_screen.js" || FAILED=1
     node "$ROOT/modules/connectors/test_entity.js" || FAILED=1
+    node "$ROOT/modules/connectors/test_books.js" || FAILED=1
     node "$ROOT/modules/connectors/test_fecspend.js" || FAILED=1
     echo ""
     echo "== the front door =="

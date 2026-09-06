@@ -21,6 +21,7 @@ const DK = require('./dockets.js');
 const EN = require('./entries.js');
 const SC = require('./screen.js');
 const ET = require('./entity.js');
+const B = require('./books.js');
 
 const C = {
   b: (s) => `\x1b[1m${s}\x1b[0m`,
@@ -608,7 +609,9 @@ function cmdCrosslink(opts) {
   // that represents four hundred clients carrying two of your subjects is the
   // least surprising row in the data; the six-client shop carrying both a
   // utility and a data-center operator is the story, and it was on page three.
-  const conc = X.concentrated(edges, { minClients: 2, minSubjects: 2 });
+  const conc = X.concentrated(edges, {
+    minClients: 2, minSubjects: 2, books: B.read(R.EVIDENCE),
+  });
   if (conc.length) {
     console.log(`  ${C.b('ONE REGISTRANT, SEVERAL OF YOUR THREADS')}`);
     console.log(C.dim('  Firms whose sworn filings connect more than one thread you are'));
@@ -629,11 +632,32 @@ function cmdCrosslink(opts) {
       // operator's own searches looks maximally concentrated -- because the
       // denominator IS the search list. Brownstein Hyatt led this section on
       // 4-of-4 and turned out to have 16,026 filings.
-      if (g.denominator_is_search_list) {
+      // ── THE BOOK SIZE REPLACES THE WARNING, WHERE IT IS KNOWN ────────
+      //
+      // "NO DENOMINATOR" is the right thing to say until someone goes and
+      // gets one. Once `connect expand` has, saying it anyway is no longer
+      // caution — it is discarding a fetched answer and asking the operator
+      // to fetch it again.
+      if (Number.isFinite(g.book_filings)) {
+        const tag = B.size(g.book_filings);
+        const line = `      BOOK SIZE — this firm has ${g.book_filings} federal filing(s) in total`;
+        console.log(tag === 'SMALL BOOK' ? C.y(`${line}  ${tag}`) : C.dim(line));
+        if (tag === 'SMALL BOOK') {
+          console.log(C.dim('      A book this small carrying several of your threads is not'));
+          console.log(C.dim('      something a firm does by having many clients. Read the filings.'));
+        } else if (tag === 'LARGE BOOK') {
+          console.log(C.dim('      A book this large bridges several of ANYONE\'s subjects by'));
+          console.log(C.dim('      arithmetic. This row is close to meaningless on its own.'));
+        }
+        console.log(C.dim('      Filings, not clients. Senate LDA and FEDERAL only — a firm that'));
+        console.log(C.dim('      works before a state commission has a small book and may have a'));
+        console.log(C.dim('      large practice.'));
+      } else if (g.denominator_is_search_list) {
         console.log(C.y('      NO DENOMINATOR — every client known for this firm came from your'));
         console.log(C.dim('      own searches, so "bridges N of N" is true of any firm at all.'));
         console.log(C.dim(`      Pull its book before believing this row:`));
         console.log(C.dim(`        sentinel connect senatelda --registrant "${g.registrant}" --pages 20`));
+        console.log(C.dim('        …or get all of them at once:  sentinel connect expand --limit 40'));
       }
       for (const m of g.matched.slice(0, opts.verbose ? 999 : 5)) {
         const yrs = m.from === null ? '' : (m.from === m.to ? ` ${m.from}` : ` ${m.from}–${m.to}`);
@@ -1245,6 +1269,10 @@ async function cmdExpand(opts) {
   for (const e of edges) { known.add(e.client_key); known.add(e.registrant_key); }
   const found = [];
   let failed = 0;
+  // Loaded, not replaced. A firm asked about three weeks ago keeps its
+  // recorded book size when today's run covers a different forty.
+  const books = B.read(R.EVIDENCE);
+  const booksBefore = Object.keys(books).length;
 
   for (const t of targets) {
     const out = await R.runConnector('senatelda', t.name, { mode: 'registrant', page: 1 });
@@ -1271,8 +1299,19 @@ async function cmdExpand(opts) {
       console.log(`  ${C.y('kept but unparsed')}  ${t.name} — ${e.message}`);
       continue;
     }
+    // ── WRITE THE NUMBER DOWN ────────────────────────────────────────────
+    //
+    // `total` is the size of this firm's whole federal book, and it is the
+    // one thing crosslink needs and does not have. It was printed here and
+    // discarded, so the very next crosslink run said NO DENOMINATOR over a
+    // firm whose denominator had just been fetched, read aloud, and thrown
+    // away. The operator paid for the call twice and learned it once.
+    B.record(books, X.normalise(t.name), t.name, total, new Date().toISOString());
     const totalTxt = total === null ? '?' : String(total);
-    console.log(`  ${C.g('ok')}    ${t.name}  ${C.dim(`${totalTxt} filings total · ${fresh.length} new client(s) on page 1`)}`);
+    const tag = B.size(total);
+    console.log(`  ${C.g('ok')}    ${t.name}  `
+      + C.dim(`${totalTxt} filings total · ${fresh.length} new client(s) on page 1`)
+      + (tag === 'SMALL BOOK' ? '  ' + C.y(tag) : ''));
     for (const cn of fresh) found.push({ registrant: t.name, client: cn, registrantTotal: total });
   }
 
@@ -1296,6 +1335,28 @@ async function cmdExpand(opts) {
       + `— raise --limit to include them.`));
   }
   if (failed) console.log(C.dim(`  ${failed} call(s) failed.`));
+
+  // ── THE LEDGER LINE ──────────────────────────────────────────────────
+  //
+  // Printed even when no new clients turned up, because on a mega-firm page 1
+  // of 20,001 filings is twenty-five rows of one client and "0 new clients"
+  // reads as a wasted call. It was not wasted: it bought the book size, which
+  // is the number that decides whether the next crosslink row means anything.
+  {
+    const after = Object.keys(books).length;
+    const p = B.write(R.EVIDENCE, books);
+    const small = Object.values(books).filter((b) => B.size(b.filings) === 'SMALL BOOK');
+    console.log(C.dim(`\n  BOOK SIZES  ${after} firm(s) on record `
+      + `(${after - booksBefore} new this run)  ${path.relative(R.EVIDENCE, p)}`));
+    console.log(C.dim('  crosslink reads this, so rows about these firms now carry a real'));
+    console.log(C.dim('  book size instead of NO DENOMINATOR.'));
+    if (small.length) {
+      console.log(`  ${C.y('SMALL BOOKS')} ${C.dim('— the firms where an overlap is not just arithmetic:')}`);
+      for (const b of small.sort((a, z) => a.filings - z.filings).slice(0, 8)) {
+        console.log(`    ${String(b.filings).padStart(6)}  ${b.registrant}`);
+      }
+    }
+  }
 
   console.log(C.dim('\n  Only page 1 of each firm was fetched, so every client list here is a'));
   console.log(C.dim('  FLOOR. Fold what you got into the graph with:'));

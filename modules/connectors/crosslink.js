@@ -478,11 +478,15 @@ function sharedRegistrants(edges, opts = {}) {
 function concentrated(edges, opts = {}) {
   const minClients = opts.minClients || 2;
   const minSubjects = opts.minSubjects || 2;
+  // How big each firm's whole federal book is, where `connect expand` has
+  // been and asked. Absent for most firms, and absent is the normal state --
+  // a missing entry restores exactly the behaviour this had before.
+  const books = opts.books || {};
 
   const byReg = new Map();
   for (const e of edges) {
     if (!byReg.has(e.registrant_key)) {
-      byReg.set(e.registrant_key, { registrant: e.registrant, clients: new Map() });
+      byReg.set(e.registrant_key, { key: e.registrant_key, registrant: e.registrant, clients: new Map() });
     }
     const g = byReg.get(e.registrant_key);
     if (!g.clients.has(e.client_key)) {
@@ -591,6 +595,20 @@ function concentrated(edges, opts = {}) {
       // a registrant pull, another thread's search -- do have a denominator,
       // partial and a floor, but real.
       denominator_is_search_list: clients.length === onSubjects.length,
+      // ── THE BOOK SIZE, WHERE IT IS KNOWN ─────────────────────────────────
+      //
+      // A count of FILINGS, from a registrant-scoped LDA call, recorded by
+      // `connect expand`. It is deliberately NOT divided into anything: the
+      // ratio "your threads over its clients" is the overclaim this row
+      // already refuses to print, and filings are not clients.
+      //
+      // What it settles is the only question that matters here. McNees
+      // Wallace & Nurick carries Industrial Energy Users-Ohio across a whole
+      // federal book of 101 filings. Akin Gump carries four of the operator's
+      // threads across 20,001. Those two rows looked identical before this
+      // number existed, and they are not remotely the same fact.
+      book_filings: (books[g.key] && Number.isFinite(books[g.key].filings))
+        ? books[g.key].filings : null,
       // Kept for ORDERING and never printed. As a displayed statistic it
       // overclaims (the denominator is only what you searched, and it can
       // exceed 1.0 when one client matches two spellings of the same
@@ -625,6 +643,23 @@ function concentrated(edges, opts = {}) {
     // row that has one, and is labelled where it lands.
     const blind = (x) => (x.denominator_is_search_list ? 1 : 0);
     if (blind(a) !== blind(b)) return blind(a) - blind(b);
+
+    // ── A MEASURED BOOK BEATS AN UNMEASURED ONE, AND SMALL BEATS LARGE ────
+    //
+    // Once `connect expand` has asked, the book size is the strongest signal
+    // available about whether an overlap means anything, so it sorts above
+    // the estimate. A firm with 101 federal filings carrying two of your
+    // threads is a lead; a firm with 20,001 carrying the same two is
+    // arithmetic. Before this, those two sorted on _rank -- which is computed
+    // from the operator's own search list -- and the arithmetic often won.
+    //
+    // Unknown ranks BELOW every measured row rather than at either extreme,
+    // for the same reason `blind` does: not having looked is not evidence.
+    const measured = (x) => (Number.isFinite(x.book_filings) ? 0 : 1);
+    if (measured(a) !== measured(b)) return measured(a) - measured(b);
+    if (measured(a) === 0 && a.book_filings !== b.book_filings) {
+      return a.book_filings - b.book_filings;
+    }
 
     if (b._rank !== a._rank) return b._rank - a._rank;
     if (b.threads !== a.threads) return b.threads - a.threads;

@@ -326,6 +326,9 @@ bin/sentinel connect sweep datacenters       # the plan, no calls
 bin/sentinel connect sweep datacenters --go  # run it
 bin/sentinel connect expand                  # ask every registrant you already have
 bin/sentinel connect expand --limit 25
+#   …and it now WRITES DOWN each firm's total federal filing count into
+#   evidence/registrant_books.json, which is what turns a crosslink row from
+#   "NO DENOMINATOR" into "this firm has 101 federal filings in total".
 bin/sentinel connect farascan --match "hikvision|q cyber|nso"   # scan the WHOLE FARA register
 bin/sentinel connect farascan --match "data center|colocation" --limit 50
 bin/sentinel connect senatelda --registrant "<firm>"   # every client a firm files for

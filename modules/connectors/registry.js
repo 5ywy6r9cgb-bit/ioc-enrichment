@@ -2004,7 +2004,16 @@ const CONNECTORS = {
     keyVar: null,
     keyRequired: false,
     calls: 1,
-    takesFreeText: false,        // it takes a registration number
+    // `freeText`, NOT `takesFreeText`. This was declared as `takesFreeText`
+    // and read by absolutely nothing: the sweep's skip predicate tests
+    // `c.freeText === false`, so faradocs was called with a company NAME on
+    // every subject of every sweep and answered HTTP 400 every single time.
+    // Twelve guaranteed-dead calls per twelve-subject sweep, for months.
+    //
+    // The test alongside it asserted `takesFreeText === false` and described
+    // the assertion as "so a sweep skips it" -- checking the declaration and
+    // never the behaviour, which is why it stayed green throughout.
+    freeText: false,             // it takes a registration number
     describe: (q) => `GET https://efile.fara.gov/api/v1/RegDocs/json/${encodeURIComponent(q)}`
       + '  (documents filed BY that registration number)',
     probe: () => ({

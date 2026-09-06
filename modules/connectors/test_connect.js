@@ -329,14 +329,42 @@ module.exports = function run() {
     check('a dry run makes no call',
       cli.indexOf('DRY RUN') < cli.indexOf('await R.runConnector'));
 
-    // A connector that cannot answer a name query must not be asked one.
-    check('BLS declares it does not take free text',
-      R.CONNECTORS.bls.freeText === false);
-    check('and the fan-out skips it with a reason',
+    // ── A CONNECTOR THAT CANNOT ANSWER A NAME MUST NOT BE ASKED ONE ──────
+    //
+    // This block used to hardcode `if (name === 'bls') continue;` and then
+    // assert that every OTHER connector accepts a name query. That assertion
+    // was false for faradocs, which takes a registration number -- and the
+    // test enshrined the defect rather than catching it, because the
+    // exception list was written by hand instead of read from the registry.
+    //
+    // Now the registry is the authority in both directions: whatever declares
+    // freeText false must be skipped, and whatever does not declare it must
+    // be asked. Add a name-only connector tomorrow and nothing here needs
+    // editing.
+    const nameOnly = Object.entries(R.CONNECTORS)
+      .filter(([, c]) => c.freeText === false).map(([n]) => n);
+    check(`the registry names the connectors that take an identifier `
+      + `(${nameOnly.join(', ') || 'none'})`, nameOnly.length >= 2);
+    check('BLS is one of them', nameOnly.includes('bls'));
+    check('and so is faradocs, which takes a FARA registration number',
+      nameOnly.includes('faradocs'));
+    check('the fan-out skips them with a reason',
       /takes an identifier, not a name/.test(cli));
-    for (const [name, c] of Object.entries(R.CONNECTORS)) {
-      if (name === 'bls') continue;
-      check(`${name} accepts a name query`, c.freeText !== false);
+
+    // THE BEHAVIOUR, NOT THE DECLARATION. `faradocs` declared this correctly
+    // the whole time -- under the name `takesFreeText`, which the skip
+    // predicate does not read. The only way to catch that is to look at what
+    // the command actually prints, so this runs the real dry run and reads
+    // the real output. It makes no network call.
+    {
+      const out = require('child_process').execFileSync(
+        'node', [require('path').join(__dirname, 'cli.js'), 'all', 'Acme Test Co', '--dry-run'],
+        { encoding: 'utf8', env: Object.assign({}, process.env, { SENTINEL_NO_ENV: '1' }) },
+      );
+      for (const n of nameOnly) {
+        check(`a dry run really skips ${n}, it does not merely declare it`,
+          new RegExp(`${n}\\s+SKIPPED — takes an identifier`).test(out));
+      }
     }
 
     check('the leads boundary is restated on the fan-out too',
@@ -781,8 +809,18 @@ module.exports = function run() {
     const D = R.CONNECTORS.faradocs;
     check('the documents connector is addressed by registration number',
       D.run('6170').url.endsWith('/RegDocs/json/6170'), D.run('6170').url);
-    check('and declares it does not take free text, so a sweep skips it',
-      D.takesFreeText === false);
+    // ── DECLARING A FLAG IS NOT HONOURING ONE ────────────────────────────
+    //
+    // This line read `D.takesFreeText === false` and described itself as
+    // "so a sweep skips it". The sweep's skip predicate tests `c.freeText`,
+    // so the field was read by NOTHING: faradocs was called with a company
+    // name on every subject of every sweep and answered HTTP 400 each time.
+    // Twelve guaranteed-dead calls per twelve-subject sweep.
+    //
+    // The assertion was true the whole time. It checked the declaration and
+    // called that the behaviour, which is the most expensive kind of green.
+    check('it declares it does not take free text, under the name the sweep reads',
+      D.freeText === false);
     check('a number with stray whitespace still addresses the right record',
       D.run('  6170 ').url.endsWith('/RegDocs/json/6170'));
     check('a value needing encoding is encoded, not interpolated raw',
