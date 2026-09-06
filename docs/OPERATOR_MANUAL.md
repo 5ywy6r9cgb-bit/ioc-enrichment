@@ -1197,6 +1197,30 @@ bin/sentinel doc sections FILE.txt --mentions "Israel"
 bin/sentinel doc sections FILE.txt              # just the section count
 ```
 
+### Before you print a quotation — `sentinel doc quote`
+
+```bash
+bin/sentinel doc quote FILE.txt "the exact words you want to print"
+```
+
+Everything else this desk handles is a filing somebody signed. A quotation is a
+claim about what a named living person **said**, and it is the one assertion no
+amount of care elsewhere repairs. Run this against the text `doc get` saved from
+the article, and it exits non-zero on anything unpublishable.
+
+| Verdict | What it means |
+|---|---|
+| `VERBATIM` | The words are there exactly. Publish in quotation marks. |
+| `NORMALIZED` | Identical once curly quotes, dashes and line breaks are set aside. Publish — but copy the text **from the source**, so the punctuation you print is theirs. |
+| `NEAR` | A **paraphrase inside quotation marks**. The usual way a careful desk publishes something false. |
+| `NOT FOUND` | Not in this document. The quote may be real and from elsewhere — in which case this is not its source, and you do not have one. |
+
+**The percentage is word overlap and nothing else.** "Trying to *sneak* a power
+plant into a data center approval process" against "trying to *bootstrap* a
+power plant into a data center approval process" is one word out of twelve —
+92% — and they are not the same allegation. The number never measures meaning.
+```
+
 Built after **two** hand-rolled greps over the same 794-page public law
 produced two different, confident, wrong lists:
 

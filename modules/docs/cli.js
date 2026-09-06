@@ -314,6 +314,72 @@ function cmdSections(file, opts = {}) {
   console.log(C.dim('  you WHERE TO READ. It does not tell you what the law does.\n'));
 }
 
+/**
+ * `sentinel doc quote FILE.txt "the words in quotation marks"`
+ *
+ * The last check before a quotation is published. Everything else this desk
+ * handles is a filing someone signed; a quotation is a claim about what a
+ * named living person said, and it is the one assertion no amount of care
+ * elsewhere repairs.
+ */
+function cmdQuote(file, quote, opts = {}) {
+  const Q = require('./quote.js');
+  if (!file || !quote) {
+    console.error('\n  usage: sentinel doc quote FILE.txt "the exact words you want to print"');
+    console.error('\n  The FILE is what `sentinel doc get` saved. Fetch the page first.\n');
+    process.exit(2);
+  }
+  let text;
+  try { text = fs.readFileSync(file, 'utf8'); }
+  catch (e) { console.error(`\n  ${C.r('cannot read')} ${file}: ${e.message}\n`); process.exit(2); }
+
+  const r = Q.verify(text, quote, opts);
+  const colour = r.verdict === 'VERBATIM' ? C.g
+    : r.verdict === 'NORMALIZED' ? C.g
+      : r.verdict === 'NEAR' ? C.y : C.r;
+
+  console.log(`\n  ${C.b('QUOTE CHECK')}  ${path.basename(file)}`);
+  console.log(`  ${C.dim(`${text.length.toLocaleString()} characters read`)}`);
+  console.log(`\n  you want to print:`);
+  console.log(`    ${C.b('"' + r.quote + '"')}`);
+  console.log(`\n  ${colour(r.verdict)}${r.overlap < 1 ? C.dim(`   ${Math.round(r.overlap * 100)}% of the words are in this document`) : ''}`);
+  console.log('');
+  for (const line of Q.MEANING[r.verdict].split(/(?<=\.)\s+/)) {
+    console.log(`    ${line}`);
+  }
+
+  if (r.verdict === 'NEAR') {
+    console.log(`\n  ${C.b('what the document actually says, at the closest point:')}`);
+    console.log(`    ${C.y(r.passage)}`);
+    if (r.diff && r.diff.notInSource.length) {
+      console.log(`\n  ${C.r('words you have that the document does NOT:')}  ${r.diff.notInSource.join(', ')}`);
+      // A single changed word is the WORST case, not the mildest. "Trying to
+      // sneak a power plant in" and "trying to bootstrap a power plant in"
+      // differ by one word out of twelve -- 92% agreement -- and they are not
+      // the same allegation. The percentage measures overlap, never meaning.
+      console.log(C.dim('    One changed word can reverse what a sentence alleges. The'));
+      console.log(C.dim('    percentage above measures word overlap and says NOTHING about'));
+      console.log(C.dim('    whether these two sentences mean the same thing. Read both.'));
+    }
+  } else if (r.verdict === 'NOT FOUND' && r.passage) {
+    console.log(`\n  ${C.dim('the least-unrelated passage, so you can see it is not the same thing:')}`);
+    console.log(`    ${C.dim(r.passage.slice(0, 200))}`);
+  }
+
+  console.log('');
+  if (r.verdict === 'VERBATIM' || r.verdict === 'NORMALIZED') {
+    console.log(C.dim('  This says the words are in THIS document. It does not say the'));
+    console.log(C.dim('  document quoted the speaker correctly, or that the speaker is who'));
+    console.log(C.dim('  it says. Attribution is still yours to check.'));
+  } else {
+    console.log(C.y('  Do not publish this inside quotation marks.'));
+    console.log(C.dim('  Either quote the passage above as it stands, or drop the quotation'));
+    console.log(C.dim('  marks and attribute the substance in your own words.'));
+  }
+  console.log('');
+  process.exitCode = (r.verdict === 'VERBATIM' || r.verdict === 'NORMALIZED') ? 0 : 1;
+}
+
 function cmdGaps(file, opts = {}) {
   const G = require('./gaps.js');
   if (!file) {
@@ -840,6 +906,9 @@ async function main() {
       term: val('--mentions'), verbose: argv.includes('--verbose'),
     });
   }
+  if (action === 'quote') {
+    return cmdQuote(positional[1], positional[2], {});
+  }
   if (action === 'bills') {
     return cmdBills({});
   }
@@ -851,6 +920,7 @@ async function main() {
     + '\n         sentinel doc bills'
     + '\n         sentinel doc gaps FILE.txt'
     + '\n         sentinel doc sections FILE.txt --mentions TERM'
+    + '\n         sentinel doc quote FILE.txt "the words you want to print"'
     + '\n         sentinel doc abatements FILE.txt'
     + '\n         sentinel doc chain HOST\n');
   process.exit(2);
