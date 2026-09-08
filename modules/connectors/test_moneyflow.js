@@ -446,6 +446,70 @@ module.exports = function run() {
       M.MONEY_CONNECTORS.length === 4, M.MONEY_CONNECTORS.join(', '));
   }
 
+  // ═══════════════════════════════════════════════════════════════════════
+  // THE CAVEAT MUST FOLLOW THE KIND, NOT THE DIRECTION
+  //
+  // Shipped wrong and caught on the first real library. The award caveat --
+  // "a ceiling, much of which may never be spent" -- was printed under MONEY
+  // IN unconditionally. On a lobbying FIRM every row in that block is a fee
+  // it was actually paid, and the block captioned real banked revenue with a
+  // warning that it might never materialise. These assert against the CLI
+  // output, because the defect was in the printing and not in the data.
+  // ═══════════════════════════════════════════════════════════════════════
+  {
+    const { execFileSync } = require('child_process');
+    const strip = (t) => t.replace(/\x1b\[[0-9;]*m/g, '');
+    const runCli = (root, args) => strip(execFileSync(process.execPath,
+      [path.join(__dirname, 'cli.js'), 'moneyflow', ...args],
+      { env: Object.assign({}, process.env, { SENTINEL_EVIDENCE_DIR: root }),
+        encoding: 'utf8' }));
+
+    // A registrant firm: every row it RECEIVES is a lobbying fee.
+    const root = path.dirname(fixture([
+      [capName('senatelda', 'FIRM', 0), lda([
+        { client: 'Client One', registrant: 'K Street LLP', income: '90000' },
+      ])],
+    ]));
+    const out = runCli(root, ['K Street LLP']);
+    check('a firm paid only fees is NOT captioned with the award ceiling caveat',
+      /MONEY IN/.test(out) && !/ceiling/i.test(out.split('MONEY IN')[1] || ''),
+      (out.split('MONEY IN')[1] || '').slice(0, 200));
+    check('and the fee rows say the money was actually paid',
+      /swore was PAID/i.test(out));
+
+    // A recipient of a federal award: the caveat MUST appear.
+    const root2 = path.dirname(fixture([
+      [capName('usaspending', 'AWD', 0),
+        award([{ recipient: 'Recipient Co', amount: 5000000 }])],
+    ]));
+    const out2 = runCli(root2, ['Recipient Co']);
+    check('a federal award IS captioned as a ceiling',
+      /MONEY IN/.test(out2) && /ceiling/i.test(out2.split('MONEY IN')[1] || ''),
+      (out2.split('MONEY IN')[1] || '').slice(0, 200));
+
+    // ── HLOGA: row counts are not comparable across 2008 ────────────────
+    const root3 = path.dirname(fixture([
+      [capName('senatelda', 'SPAN', 0), lda([
+        { client: 'Long Co', registrant: 'Firm', income: '500000', year: 2007, period: '1st Half' },
+        { client: 'Long Co', registrant: 'Firm', income: '250000', year: 2008, period: '1st Quarter' },
+      ])],
+    ]));
+    const out3 = runCli(root3, ['Long Co']);
+    check('a series crossing 2008 warns that row counts are not comparable',
+      /NOT COMPARABLE ACROSS 2008/.test(out3) && /HLOGA/.test(out3));
+
+    // A series entirely after the change must NOT carry the warning: a
+    // caveat that fires on every run is one nobody reads.
+    const root4 = path.dirname(fixture([
+      [capName('senatelda', 'MOD', 0), lda([
+        { client: 'New Co', registrant: 'Firm', income: '1000', year: 2024 },
+        { client: 'New Co', registrant: 'Firm', income: '2000', year: 2025, period: '2nd Quarter' },
+      ])],
+    ]));
+    check('a post-2008 series does NOT carry the HLOGA warning',
+      !/NOT COMPARABLE ACROSS 2008/.test(runCli(root4, ['New Co'])));
+  }
+
   console.log(`\n  ${FAIL ? 'FAIL' : 'PASS'}: ${PASS} passed, ${FAIL} failed\n`);
   return FAIL === 0;
 };

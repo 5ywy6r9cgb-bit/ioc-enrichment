@@ -1352,10 +1352,34 @@ function cmdMoneyflow(entity, opts = {}) {
     console.log('');
   };
 
-  block('MONEY OUT — WHO THIS ENTITY PAID', dirs.paid);
-  block('MONEY IN — WHO PAID THIS ENTITY', dirs.received,
-    'A federal award is a ceiling authorised over the award period. It is not'
-    + '\n  a payment and much of it may never be spent.');
+  // A CAVEAT BELONGS TO A KIND, NOT TO A DIRECTION.
+  //
+  // This was wrong first time and it was wrong in the direction that matters.
+  // The award caveat -- "a ceiling, much of which may never be spent" -- was
+  // printed under MONEY IN unconditionally. On a lobbying FIRM every row in
+  // that block is a fee it was actually paid, and the block was captioning
+  // real, banked revenue with a warning that it might never materialise. A
+  // caveat pointing at the wrong rows is worse than no caveat: it teaches the
+  // reader to discount a number that needed no discounting, and it is not
+  // there when a real award turns up in the same block.
+  const noteFor = (rows) => {
+    const kinds = new Set(rows.map((f) => f.kind));
+    const notes = [];
+    if (kinds.has('federal_contract') || kinds.has('federal_grant')) {
+      notes.push('Federal award rows are a CEILING authorised over the award period.'
+        + '\n  That is not a payment and much of it may never be spent.');
+    }
+    if (kinds.has('lobbying_fee')) {
+      notes.push('Lobbying fee rows are money the filer swore was PAID for that quarter.');
+    }
+    if (kinds.has('independent_expenditure')) {
+      notes.push('Expenditure rows name the VENDOR paid, not the candidate, and not the donor.');
+    }
+    return notes.join('\n  ');
+  };
+
+  block('MONEY OUT — WHO THIS ENTITY PAID', dirs.paid, noteFor(dirs.paid));
+  block('MONEY IN — WHO PAID THIS ENTITY', dirs.received, noteFor(dirs.received));
   block('IN-HOUSE SPEND — THE ENTITY ON BOTH SIDES', dirs.self,
     'Reported lobbying expenses. There is no counterparty: this is what the'
     + '\n  organisation spent on its own lobbying, never added to fees paid out.');
@@ -1381,6 +1405,28 @@ function cmdMoneyflow(entity, opts = {}) {
     console.log(`  ${C.b('BY YEAR')}`);
     console.log(C.dim('  Per kind, never merged. A year with rows but no figure prints as'));
     console.log(C.dim('  "no figure", not $0 — a disclosure gap is not a drop in spending.'));
+
+    // THE ROW COUNT IN THIS TABLE IS NOT AN ACTIVITY LEVEL, AND ACROSS 2008
+    // IT IS ACTIVELY MISLEADING.
+    //
+    // The Honest Leadership and Open Government Act of 2007 (P.L. 110-81)
+    // changed the LD-2 from SEMIANNUAL to QUARTERLY with effect from 1
+    // January 2008. Every continuing relationship therefore starts filing
+    // twice as often, for half as much each time, having changed nothing.
+    //
+    // On a real library the effect is unmistakable and unmistakably
+    // misreadable: one firm's rows go 136 -> 245 across that boundary while
+    // the money goes DOWN, from $10.0M to $8.8M. Read as activity, that is a
+    // surge that never happened. It is a filing-frequency change.
+    const ldaYears = ser.filter((y) => y.kind === 'lobbying_fee' || y.kind === 'lobbying_self_spend')
+      .map((y) => Number(y.year));
+    if (ldaYears.some((y) => y <= 2007) && ldaYears.some((y) => y >= 2008)) {
+      console.log(C.y('  ROW COUNTS ARE NOT COMPARABLE ACROSS 2008.'));
+      console.log(C.dim('  HLOGA (P.L. 110-81) moved the LD-2 from semiannual to quarterly on'));
+      console.log(C.dim('  1 Jan 2008. A relationship that changed nothing files twice as often'));
+      console.log(C.dim('  from then on, for half as much each time. Compare the MONEY across'));
+      console.log(C.dim('  that line, never the row count.'));
+    }
     let last = null;
     for (const y of ser) {
       if (y.kind !== last) { console.log(C.dim(`    ${y.label}`)); last = y.kind; }
