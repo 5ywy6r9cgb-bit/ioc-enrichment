@@ -103,6 +103,11 @@ const VERBS = {
     commands: (t) => [
       { run: `sentinel connect opencorporates ${q(t)}`, why: 'registration, jurisdiction, incorporation date' },
       { run: `sentinel connect sec ${q(t)}`, why: 'if it files: EX-21 lists the subsidiaries' },
+      // The two SEC lines answer different questions and the pair is
+      // deliberate: the search above finds documents that MENTION the name,
+      // this one lists what the entity itself filed. A registrant found by
+      // the first is a lead; its filing history is where the dates are.
+      { run: 'sentinel sec history CIK', why: 'once you have its CIK: every filing it made, with dates and URLs' },
       { run: `sentinel connect entity ${q(t)}`, why: 'the OpenSanctions record, read in plain words' },
     ],
     denominator: 'A registry hit proves the name exists there. It proves nothing about who controls it.',
@@ -687,6 +692,13 @@ const TEMPLATE_TOKENS = [
   'what this case asserts',
   'the question this hypothesis has to answer',
   'source A says X',
+  // Added the same hour it was introduced. `sentinel sec history CIK` was
+  // written into WHOIS below and it is a STAND-IN -- a number you look up,
+  // not a value to paste -- in the one file whose job is to refuse exactly
+  // that. It passed every test because nothing knew the word. The lesson is
+  // that this list is not a fixed set: a new stand-in is a new entry, and
+  // adding the command without adding the token is how the disease returns.
+  ' CIK',
 ];
 
 /** Can this line be executed as printed, or must you edit it first? */

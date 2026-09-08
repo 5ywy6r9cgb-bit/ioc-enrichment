@@ -107,6 +107,16 @@ const docActions = new Set(
 );
 ok(docActions.size >= 4, `read the doc actions (got ${docActions.size})`);
 
+// sec: same idea, one CLI over. Added the moment `sentinel sec` existed --
+// a new top-level verb whose SECOND token nothing validates is exactly the
+// hole this file was written to close, and it opens silently every time a
+// verb is added.
+const secSrc = uncommented(path.join(ROOT, 'modules', 'docs', 'sec_cli.js'), '//');
+const secActions = new Set(
+  [...secSrc.matchAll(/action === '([a-z]+)'/g)].map((m) => m[1]),
+);
+ok(secActions.size >= 1, `read the sec actions (got ${secActions.size})`);
+
 // case: the usage block in case.py is what an operator is shown.
 const caseSrc = fs.readFileSync(path.join(ROOT, 'modules', 'research-desk', 'case.py'), 'utf8');
 const caseSubs = new Set(
@@ -139,6 +149,8 @@ for (const n of names) {
         `${n}: "connect ${sub}" is a pass-through verb or a connector`);
     } else if (verb === 'doc') {
       ok(docActions.has(sub), `${n}: "doc ${sub}" is an action doc/cli.js handles`);
+    } else if (verb === 'sec') {
+      ok(secActions.has(sub), `${n}: "sec ${sub}" is an action sec_cli.js handles`);
     } else if (verb === 'case') {
       ok(caseSubs.has(sub), `${n}: "case ${sub}" is a documented case subcommand`);
     } else if (verb === 'pra') {

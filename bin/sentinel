@@ -55,6 +55,7 @@
 #   sentinel connect brief "NAME"   everything the library holds on one name
 #
 #   sentinel doc get URL            fetch a primary source, hashed + text-extracted
+#   sentinel sec history CIK        every filing one entity made, with fetchable URLs
 #   sentinel assets                 where to drop images, and what is in the store
 #   sentinel assets ingest          take the inbox in: hashed, classified, filed
 #   sentinel assets clean           publication-safe copies, with the GPS removed
@@ -249,6 +250,7 @@ PYSTATUS
     echo ""
     echo "== document fetch =="
     node "$ROOT/modules/docs/test_docs_fetch.js" || FAILED=1
+    node "$ROOT/modules/docs/test_sec.js" || FAILED=1
     node "$ROOT/modules/assets/test_assets.js" || FAILED=1
     echo ""
     node "$ROOT/modules/docs/test_gaps.js" || FAILED=1
@@ -544,6 +546,12 @@ PYSTATUS
   doc)
     # Fetch a primary source, hash it, and find out if it is readable.
     node "$ROOT/modules/docs/cli.js" "$@"
+    ;;
+
+  sec)
+    # One entity's SEC filing history. NOT `connect sec`, which searches the
+    # TEXT of filings -- this lists what a single filer filed, and when.
+    node "$ROOT/modules/docs/sec_cli.js" "$@"
     ;;
 
   mail)

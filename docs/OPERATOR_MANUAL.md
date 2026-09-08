@@ -78,6 +78,7 @@ bin/sentinel desk                 # open the research desk HTML in a browser
 bin/sentinel montage ...          # openmontage video engine
 bin/sentinel vuln ...             # atlas CVE prioritization
 bin/sentinel doc get <url>        # fetch one primary source, hashed
+bin/sentinel sec history <cik>    # every filing one entity made, with URLs
 bin/sentinel corpus <sub> ...     # inventory / OCR a folder of records
 bin/sentinel shelf <sub> ...      # external drives, by volume identity
 ```
@@ -1880,6 +1881,74 @@ If `pdftotext` cannot run at all, readability was never tested — and that is
 not the same as a PDF with no text. Those files read
 `UNKNOWN — readability never tested`, never `ok`. The reassuring word is
 never the default for a check that did not happen.
+
+---
+
+## 4a-bis. Everything one filer ever filed — `sentinel sec history`
+
+```bash
+bin/sentinel sec history 1577459
+bin/sentinel sec history 1577459 --form 10-D
+bin/sentinel sec history 1577459 --from evidence/documents/CIK0001577459.json
+```
+
+**This is not `connect sec`.** `connect sec` searches the *text* of filings:
+give it a phrase, it finds documents containing it. `sec history` takes one
+entity's CIK and prints everything that entity has filed, in date order, each
+with a URL you paste straight into `doc get`. Different questions. Knowing
+which one you are asking is most of the work.
+
+It prints four things:
+
+- **The entity** — name, state of incorporation, SIC code, and any **former
+  names**. A former name is a lead: an entity that filed under another name is
+  one that a search by its current name would never have found.
+- **Reporting ended** — any Form 15. See the warning below.
+- **By form** — how many of each, first and last date, the median interval
+  between them, and how long since the last one.
+- **The timeline** — every filing, oldest first, with a fetchable URL.
+
+### A Form 15 is not "the bonds were paid"
+
+`15`, `15-12B`, `15-12G` and `15-15D` end a reporting obligation, and the
+command surfaces them under their own heading because "the filings just stop"
+and "the issuer filed to stop" are different facts and only one is
+interesting.
+
+But a Form 15 **suspends a duty to file**. It says nothing about whether
+securities were repaid, a case settled, or a business closed. For bonds held
+in book-entry there is typically *one* holder of record — the depository's
+nominee — so the eligibility that makes deregistration available can exist
+from the first year, and the date a company chooses to use it is a decision
+rather than an event. Read the form. It names the rule it invokes and the
+holders it counted. Do not read the heading and stop.
+
+### The count can be a floor, and it says so
+
+`data.sec.gov/submissions/CIK##########.json` returns the entity's recent
+filings — and for a large filer, **only** the recent ones. The rest live in
+separate files named inside the same record.
+
+A small issuer fits entirely in the first page, so code tested on one looks
+correct. Point it at a company that has filed since the 1940s and it returns
+the most recent slice, in the same shape, with no error. So when there is
+more, the run prints `THIS IS NOT THE WHOLE HISTORY`, marks the count as a
+floor, and gives you a `doc get` line for each older file. **A cap is not a
+count.**
+
+### `--from` reads a file you already have
+
+If the submissions JSON is already in your evidence store, `--from <path>`
+parses it instead of fetching again. Nothing is written to the ledger in that
+mode and the run says so — the ledger records *fetches*, and re-reading a file
+you already have is not a new observation of the source.
+
+### A typical gap needs three filings
+
+The `typical gap` column is blank below three filings of a form, because one
+interval is not a pattern. There is deliberately no "this series stopped"
+flag: an annual filer is not missing in month eleven, and a boolean invites
+you to skip the dates that would have told you so.
 
 ---
 
