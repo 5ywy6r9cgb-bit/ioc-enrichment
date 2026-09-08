@@ -610,6 +610,87 @@ function looksLikeSubstringMatch(query, name) {
   return !bounded.test(n);
 }
 
+/**
+ * Did the term you searched for appear ANYWHERE in what came back?
+ *
+ * ─────────────────────────────────────────────────────────────────────────
+ * THE RUN THIS EXISTS FOR
+ *
+ *   connect courtlistener "Meliorator" --dockets
+ *   20 candidate lead(s)
+ *   coverage    20 of 149 matching docket(s) are in this capture.
+ *     Nichols v. Bodum USA, Inc.
+ *     Mallgren v. United States
+ *     Diane Blackman v. Teespring, Inc
+ *     Austin v. Transamerica Life Insurance Company
+ *     ...
+ *
+ * "Meliorator" is a coined name for one piece of software. It has no business
+ * returning 149 federal dockets spanning bankruptcy, patent, prisoner civil
+ * rights and life insurance -- and the word appears in NONE of the case names
+ * that came back.
+ *
+ * Two things can produce that, and they are indistinguishable from the
+ * terminal:
+ *
+ *   1. The match is real and lives in the text of a filed DOCUMENT, which the
+ *      docket summary does not include. Perfectly normal for a full-text
+ *      search, and the hits may be exactly right.
+ *   2. The engine did not search for your word. Elasticsearch stems English
+ *      by default, so "Meliorator" is reduced to "melior" and matches
+ *      "ameliorate" and "amelioration" -- words that appear in ordinary legal
+ *      prose constantly. 149 hits for a coined term is that signature.
+ *
+ * SUBSTRING NOISE IS A DIFFERENT PROBLEM AND THE EXISTING CHECK CANNOT SEE
+ * THIS ONE. `looksLikeSubstringMatch` asks whether the query appears in the
+ * name at a bad boundary -- ECOLOGIX for "cologix". Here the query does not
+ * appear in the name AT ALL, so that function correctly returns false for
+ * every row, and the run printed twenty confident-looking leads with no
+ * warning of any kind.
+ *
+ * This does not decide which cause it is, because it cannot. It reports the
+ * observable fact -- the term is not visible in any returned field -- and
+ * names both explanations, so the operator checks rather than reads twenty
+ * unrelated lawsuits as a match set.
+ *
+ * Returns null when the question does not apply: a multi-word query (a phrase
+ * legitimately matches records that show none of its words), a very short
+ * term, or a term that IS visible somewhere.
+ */
+const TERM_VISIBLE_FIELDS = [
+  'name', 'title', 'company_name', 'case_name', 'caseName',
+  'description', 'snippet', 'text', 'agency', 'registrant', 'client',
+  'issue', 'subject', 'docket', 'docketNumber', 'court',
+];
+
+function termNotVisible(query, results) {
+  const q = String(query || '').trim().replace(/^"|"$/g, '');
+  if (!q || /\s/.test(q)) return null;      // a phrase is a different question
+  // Short and common words legitimately hide inside longer text this does not
+  // read. The check is for a DISTINCTIVE term -- the kind whose absence is
+  // informative.
+  if (q.length < 5) return null;
+  if (!Array.isArray(results) || !results.length) return null;
+
+  const needle = q.toLowerCase();
+  let visible = 0;
+  for (const r of results) {
+    if (!r || typeof r !== 'object') continue;
+    const hay = TERM_VISIBLE_FIELDS
+      .map((f) => (r[f] == null ? '' : String(r[f])))
+      .join(' ')
+      .toLowerCase();
+    if (hay.includes(needle)) visible += 1;
+  }
+  if (visible) return null;                  // at least one row shows the term
+
+  return {
+    term: q,
+    checked: results.length,
+    note: `"${q}" does not appear in any field of the ${results.length} result(s) returned.`,
+  };
+}
+
 // ---------------------------------------------------------------- registry
 /**
  * Each connector declares what it will do BEFORE it does it, so the announce
@@ -2313,7 +2394,7 @@ async function runConnector(name, query, opts = {}) {
 module.exports = {
   phrase, phraseMode, PHRASE_WORD_LIMIT, findRecordArray, decodeBody,
   foreignEntitySummary, isDomesticCountry,
-  explainHttpError, looksLikeSubstringMatch,
+  explainHttpError, looksLikeSubstringMatch, termNotVisible, TERM_VISIBLE_FIELDS,
   checkKeyShape, KEY_SHAPES,
   stripAuth, AUTH_HEADERS, MAX_REDIRECTS,
   CONNECTORS, VERSION, EVIDENCE, CAPTURES, LEDGER, resolveKey, retryAfterMs, pace,

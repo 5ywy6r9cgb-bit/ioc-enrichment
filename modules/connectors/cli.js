@@ -1858,6 +1858,30 @@ async function cmdSearch(name, query, opts) {
     } catch { /* the capture is on disk either way */ }
   }
 
+  // DID THE SOURCE SEARCH FOR YOUR WORD AT ALL?
+  //
+  // `connect courtlistener "Meliorator" --dockets` returned 149 matching
+  // dockets -- Bodum, Teespring, Transamerica, a prisoner civil rights case
+  // -- for a coined software name that appears in none of their case names.
+  // Twenty confident-looking leads, no warning of any kind.
+  //
+  // The existing substring check cannot see this: it asks whether the query
+  // sits at a bad boundary INSIDE a name, and here it is not in the name at
+  // all, so it correctly returns false for every row.
+  const invisible = R.termNotVisible(query, out.results);
+  if (invisible) {
+    console.log('\n  ' + C.y('THE TERM YOU SEARCHED FOR IS NOT VISIBLE IN THESE RESULTS'));
+    console.log('    ' + invisible.note);
+    console.log(C.dim('    Two things do this and you cannot tell them apart from here:'));
+    console.log(C.dim('      1. the match is real and lives in the text of a filed document,'));
+    console.log(C.dim('         which this summary does not carry — normal for a full-text search;'));
+    console.log(C.dim('      2. the engine matched a STEM of your word, not your word. Search'));
+    console.log(C.dim('         engines reduce English to roots, so a coined term can match'));
+    console.log(C.dim('         ordinary prose that merely shares its beginning.'));
+    console.log(C.dim('    Open one hit and look for the term before treating any of this as a'));
+    console.log(C.dim('    match set. The rows are kept and hashed either way.'));
+  }
+
   // AN ANNOUNCED FILTER THAT DID NOT APPLY IS A SILENT LIE. The header
   // prints what you asked for; only the ROWS can say whether the service
   // honoured it. A 404 stops you — a filter quietly ignored hands you

@@ -466,6 +466,60 @@ module.exports = function run() {
     check('regex metacharacters in a query do not throw',
       (() => { try { f('a.b*c', 'xa.b*cy'); return true; } catch { return false; } })());
 
+    // ── AND THE NOISE THIS ONE CANNOT SEE ───────────────────────────────
+    //
+    // `connect courtlistener "Meliorator" --dockets` returned 149 matching
+    // dockets -- Bodum, Teespring, Transamerica, a prisoner civil rights
+    // case -- for a coined software name appearing in none of their case
+    // names. Twenty confident-looking leads and no warning.
+    //
+    // looksLikeSubstringMatch is the WRONG instrument for it and says so
+    // correctly: the query is not inside the name at a bad boundary, it is
+    // not in the name at all.
+    check('the substring check is silent on the Meliorator run — correctly',
+      f('Meliorator', 'Nichols v. Bodum USA, Inc.') === false
+      && f('Meliorator', 'Austin v. Transamerica Life Insurance Company') === false);
+
+    const tnv = R.termNotVisible;
+    const dockets = [
+      { name: 'Nichols v. Bodum USA, Inc.', court: 'D. Conn.', docket: '3:19-cv-00803' },
+      { name: 'Diane Blackman v. Teespring, Inc', court: 'C.D. Cal.' },
+      { name: 'Austin v. Transamerica Life Insurance Company', court: 'D. Ariz.' },
+    ];
+    check('a distinctive term absent from every returned field IS reported',
+      !!tnv('Meliorator', dockets));
+    check('and the report counts what it actually looked at',
+      tnv('Meliorator', dockets).checked === 3);
+    check('one row carrying the term silences it — the search did find the word',
+      tnv('Meliorator', dockets.concat([{ name: 'US v. Meliorator Software LLC' }])) === null);
+    check('it is case-insensitive, so a shouted docket name still counts',
+      tnv('meliorator', [{ name: 'UNITED STATES v. MELIORATOR' }]) === null);
+    check('a quoted term is unwrapped before the check',
+      !!tnv('"Meliorator"', dockets));
+
+    // The three ways this must stay quiet, or it becomes noise itself.
+    check('a multi-word query is NOT checked — a phrase legitimately matches '
+      + 'records showing none of its words',
+      tnv('bot farm', dockets) === null);
+    check('a short term is not checked — it hides inside text this cannot read',
+      tnv('aws', dockets) === null && tnv('meta', dockets) === null);
+    check('no results is a different message and not this one',
+      tnv('Meliorator', []) === null);
+    check('a malformed row does not throw',
+      (() => { try { tnv('Meliorator', [null, 5, { name: 'x' }]); return true; }
+               catch { return false; } })());
+    check('the term is found in a snippet, not only a name',
+      tnv('Meliorator', [{ name: 'US v. Doe', snippet: 'the Meliorator tool' }]) === null);
+
+    const cliT = require('fs').readFileSync(require.resolve('./cli.js'), 'utf8');
+    check('the single-connector run actually calls it',
+      /R\.termNotVisible\(query, out\.results\)/.test(cliT));
+    check('and names BOTH explanations rather than declaring the hits wrong',
+      /lives in the text of a filed document/.test(cliT)
+      && /matched a STEM of your word/.test(cliT));
+    check('the rows are kept, not filtered out',
+      /rows are kept and hashed either way/.test(cliT));
+
     const cli2 = require('fs').readFileSync(require.resolve('./cli.js'), 'utf8');
     check('flagged hits are marked, never dropped',
       /kept, not dropped/.test(cli2) && !/filter\(.*looksLikeSubstring/.test(cli2));
