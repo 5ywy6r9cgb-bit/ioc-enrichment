@@ -102,9 +102,15 @@ def main():
           P.sha256_json({**py_c, "recorded_at": "FIXED"}) ==
           P.sha256_json({**node_c, "recorded_at": "FIXED"}))
 
+    # The chain checks run inside main() rather than after it: main() ends in
+    # sys.exit, so anything appended below it never executed — the tests were
+    # in the file, reported nothing, and passed by never running.
+    chain_failures = _chain_tests()
+
     print()
-    print(f"{'FAIL' if FAIL else 'PASS'}: {FAIL} failure(s)")
-    sys.exit(1 if FAIL else 0)
+    total = FAIL + len(chain_failures)
+    print(f"{'FAIL' if total else 'PASS'}: {total} failure(s)")
+    sys.exit(1 if total else 0)
 
 
 def _node_record():
@@ -121,5 +127,130 @@ def _node_record():
     return json.loads(out)
 
 
+
+# ══ THE HASH CHAIN ═══════════════════════════════════════════════════════
+#
+# record_sha256 proves a line was not EDITED. It cannot see a line that was
+# DELETED -- every survivor still verifies -- nor one REORDERED or INSERTED,
+# since make_record() computes a perfectly valid hash for a fabricated row.
+def _chain_tests():
+    import tempfile
+    import provenance as P
+
+    fails = []
+
+    def ok(label, cond, detail=""):
+        if cond:
+            print(f"    PASS  {label}")
+        else:
+            fails.append(label)
+            print(f"    FAIL  {label}" + (f"\n          {detail}" if detail else ""))
+
+    def rec(n):
+        return P.make_record(kind="t", artifact_id=n, label=n, tool="x",
+                             tool_version="1", tier="GREEN", sha256=P.sha256_text(n))
+
+    print("\n  provenance: the hash chain\n")
+    d = tempfile.mkdtemp(prefix="sentinel-chain-")
+    path = os.path.join(d, "p.jsonl")
+    led = P.Ledger(path)
+    for n in ("a", "b", "c", "d"):
+        led.append(rec(n))
+
+    v = led.verify()
+    ok("a freshly written ledger verifies", v["ok"] is True, str(v))
+    ok("every row is chained", v["chained"] == 4 and v["unchained"] == 0)
+    ok("and it reports a tip to anchor elsewhere", bool(v["tip"]))
+    ok("the first row links to a NAMED genesis, not an empty string",
+       led.read_all()[0]["prev_sha256"] == P.GENESIS)
+    ok("each row's prev is the row above it's chain value",
+       all(led.read_all()[i + 1]["prev_sha256"] == led.read_all()[i]["chain_sha256"]
+           for i in range(3)))
+
+    def rewrite(lines):
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write("".join(l if l.endswith("\n") else l + "\n" for l in lines))
+
+    original = open(path, encoding="utf-8").read().splitlines()
+
+    # ── DELETION: invisible to record_sha256, caught by the chain ────────
+    rewrite([original[0], original[2], original[3]])
+    v = P.Ledger(path).verify()
+    ok("DELETING a middle line is caught", v["ok"] is False and len(v["breaks"]) >= 1)
+    ok("and no row is called EDITED, because none was",
+       not v["tampered"], str(v["tampered"]))
+    ok("the reason names removal/move/insertion, not a bad record",
+       "removed, moved, or inserted" in v["breaks"][0]["why"])
+
+    # ── REORDERING ──────────────────────────────────────────────────────
+    rewrite([original[0], original[2], original[1], original[3]])
+    ok("REORDERING is caught", P.Ledger(path).verify()["ok"] is False)
+
+    # ── INSERTING a perfectly valid record ──────────────────────────────
+    #
+    # THIS ONE FAILED FIRST TIME AND THE HOLE WAS REAL. verify() skipped any
+    # row with no chain fields -- for legacy support -- and did not advance
+    # the expected link. So a forged row that simply OMITTED the chain fields
+    # was waved through and the ledger verified clean. Legacy rows are only
+    # legitimate BEFORE the chain starts; after that, an unchained row is a
+    # splice.
+    forged = json.dumps(rec("forged"), sort_keys=True, separators=(",", ":"))
+    rewrite([original[0], original[1], forged, original[2], original[3]])
+    v = P.Ledger(path).verify()
+    ok("INSERTING a validly-hashed but UNCHAINED row is caught", v["ok"] is False, str(v))
+    ok("and the reason says a row was inserted or two ledgers spliced",
+       any("spliced" in b["why"] for b in v["breaks"]), str(v["breaks"]))
+
+    # The same forgery, chained to the wrong place, breaks the links instead.
+    chained_forgery = dict(json.loads(forged))
+    chained_forgery["prev_sha256"] = "deadbeef"
+    chained_forgery["chain_sha256"] = "deadbeef"
+    rewrite([original[0], original[1],
+             json.dumps(chained_forgery, sort_keys=True, separators=(",", ":")),
+             original[2], original[3]])
+    ok("a forged row that DOES carry chain fields is caught too",
+       P.Ledger(path).verify()["ok"] is False)
+
+    # ── TRUNCATION: the honest limit ────────────────────────────────────
+    rewrite(original[:2])
+    v = P.Ledger(path).verify()
+    ok("TRUNCATION is NOT detected — and the result says so",
+       v["ok"] is True and v["truncation_detectable"] is False, str(v))
+
+    # ── LEGACY ROWS ARE NOT FAILURES ────────────────────────────────────
+    #
+    # The operator's real ledger has thousands of rows written before this
+    # existed. A check that calls all of them broken is a check nobody runs.
+    legacy = os.path.join(d, "legacy.jsonl")
+    with open(legacy, "w", encoding="utf-8") as fh:
+        for n in ("x", "y", "z"):
+            fh.write(json.dumps(rec(n), sort_keys=True, separators=(",", ":")) + "\n")
+    v = P.Ledger(legacy).verify()
+    ok("an entirely unchained ledger still VERIFIES", v["ok"] is True, str(v))
+    ok("and its rows are counted as unchained, not broken",
+       v["unchained"] == 3 and v["chained"] == 0)
+
+    # Appending to it starts the chain from there without touching history.
+    P.Ledger(legacy).append(rec("new"))
+    v = P.Ledger(legacy).verify()
+    ok("appending to a legacy ledger starts a chain and still verifies",
+       v["ok"] is True and v["unchained"] == 3 and v["chained"] == 1, str(v))
+
+    # An edit to a legacy row is still caught by its own hash.
+    lines = open(legacy, encoding="utf-8").read().splitlines()
+    row = json.loads(lines[0]); row["label"] = "tampered"
+    rewrite_legacy = json.dumps(row, sort_keys=True, separators=(",", ":"))
+    with open(legacy, "w", encoding="utf-8") as fh:
+        fh.write("\n".join([rewrite_legacy] + lines[1:]) + "\n")
+    v = P.Ledger(legacy).verify()
+    ok("editing an unchained row is STILL caught by its own hash",
+       v["ok"] is False and len(v["tampered"]) == 1)
+
+    return fails
+
+
+# main() runs LAST, because it calls _chain_tests() which is defined above
+# this line. With the entry point in the middle of the file the chain tests
+# were a NameError -- and before that, unreachable.
 if __name__ == "__main__":
     main()

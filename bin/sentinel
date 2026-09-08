@@ -570,8 +570,24 @@ import provenance as P
 led = P.Ledger(sys.argv[1])
 r = led.verify()
 print(f"records: {r['total']}   ok: {r['ok']}")
-[print("  TAMPERED line", t['line'], t['artifact_id']) for t in r['tampered']]
-sys.exit(0 if r['ok'] else 1)
+print(f"chained: {r['chained']}   unchained: {r['unchained']}")
+for t in r["tampered"]:
+    print("  EDITED    line", t["line"], t["artifact_id"])
+for b in r["breaks"]:
+    print("  BROKEN    line", b["line"], b["artifact_id"])
+    print("            ", b["why"])
+if r["unchained"]:
+    print("")
+    print("  Unchained rows are NOT failures. They were written before the ledger")
+    print("  linked its lines together; each still verifies against its own hash,")
+    print("  but nothing proves one was not removed from among them.")
+if r["tip"]:
+    print("")
+    print(f"  chain tip  {r['tip']}")
+    print("  A passing chain does NOT prove the file was not TRUNCATED — nothing")
+    print("  inside a file can attest to what is no longer in it. Keep this tip")
+    print("  value somewhere else if that matters to you.")
+sys.exit(0 if r["ok"] else 1)
 PY
         ;;
       ingest) node "$ROOT/core/provenance/ingest_to_pra.js" "$@" ;;

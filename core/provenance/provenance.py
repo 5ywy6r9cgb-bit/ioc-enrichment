@@ -202,6 +202,14 @@ def make_record(
 # The append-only ledger
 # ---------------------------------------------------------------------------
 
+GENESIS = "genesis"
+
+
+def chain_value(prev: Optional[str], record_sha: str) -> str:
+    """sha256(previous chain value + this record's own hash)."""
+    return sha256_text(f"{prev or GENESIS}:{record_sha}")
+
+
 class Ledger:
     """
     Append-only JSONL provenance ledger. One record per line. This class never
@@ -213,12 +221,43 @@ class Ledger:
         self.path = path
         os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
 
+    def chain_tip(self) -> Optional[str]:
+        """The chain value of the last line, or None for an empty/unchained ledger."""
+        for row in reversed(self.read_all()):
+            if row.get("chain_sha256"):
+                return row["chain_sha256"]
+        return None
+
     def append(self, record: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Append one record, linked to the one before it.
+
+        WHAT record_sha256 PROVES, AND WHAT IT DOES NOT. Every record carries
+        a hash of its own body, so editing a line in place is detectable. That
+        leaves two edits invisible: DELETING a line (the survivors all still
+        verify) and REORDERING or INSERTING one built with make_record(),
+        which computes a perfectly valid record_sha256.
+
+        chain_sha256 = sha256(previous chain value + this record's own hash),
+        so each line depends on every line before it.
+
+        THE LIMIT, SAID OUT LOUD: this cannot detect TRUNCATION. Cutting the
+        file off at line N leaves a chain that verifies perfectly, because
+        nothing inside a file can attest to what is no longer in it. That
+        needs an anchor kept elsewhere.
+
+        record_sha256 IS NOT RECOMPUTED -- a ledger whose old rows suddenly
+        failed verification would be worse than no chain at all.
+        """
         if "record_sha256" not in record:
             raise ValueError("record must be built with make_record()")
+        prev = self.chain_tip()
+        linked = dict(record)
+        linked["prev_sha256"] = prev or GENESIS
+        linked["chain_sha256"] = chain_value(prev, record["record_sha256"])
         with open(self.path, "a", encoding="utf-8") as fh:
-            fh.write(json.dumps(record, sort_keys=True, separators=(",", ":")) + "\n")
-        return record
+            fh.write(json.dumps(linked, sort_keys=True, separators=(",", ":")) + "\n")
+        return linked
 
     def read_all(self) -> List[Dict[str, Any]]:
         if not os.path.exists(self.path):
@@ -233,17 +272,69 @@ class Ledger:
 
     def verify(self) -> Dict[str, Any]:
         """
-        Recompute every line's record_sha256 and report any that don't match —
-        i.e. lines that were edited in place after they were written.
+        Two questions, answered separately because they fail differently.
+
+            tampered — was a line EDITED after it was written?
+            breaks   — was a line DELETED, MOVED, or INSERTED?
+
+        UNCHAINED ROWS ARE NOT FAILURES. A ledger written before chaining
+        existed has no chain fields, and reporting thousands of an operator's
+        real captures as broken would make the check something to ignore --
+        which is the only way a tamper check ever actually fails.
         """
         rows = self.read_all()
         tampered = []
+        breaks = []
+        unchained = 0
+        chained = 0
+        expected_prev = None
+        skip = ("record_sha256", "prev_sha256", "chain_sha256")
+
         for idx, row in enumerate(rows):
-            claimed = row.get("record_sha256")
-            recomputed = sha256_json({k: v for k, v in row.items() if k != "record_sha256"})
-            if claimed != recomputed:
-                tampered.append({"line": idx + 1, "artifact_id": row.get("artifact_id")})
-        return {"total": len(rows), "tampered": tampered, "ok": not tampered}
+            line = idx + 1
+
+            body = {k: v for k, v in row.items() if k not in skip}
+            if row.get("record_sha256") != sha256_json(body):
+                tampered.append({"line": line, "artifact_id": row.get("artifact_id")})
+
+            # AN UNCHAINED ROW IS ONLY LEGITIMATE BEFORE THE CHAIN STARTS.
+            # Rows written before chaining existed sit at the top of the file;
+            # the chain begins and never stops. Allowing one ANYWHERE -- which
+            # the first version did, in the name of backward compatibility --
+            # lets a forged line omit the chain fields and be waved through.
+            if not row.get("chain_sha256"):
+                if chained > 0:
+                    breaks.append({
+                        "line": line,
+                        "artifact_id": row.get("artifact_id"),
+                        "why": ("an UNCHAINED row appears after the chain began — a line "
+                                "was inserted, or two ledgers were spliced together"),
+                    })
+                unchained += 1
+                continue
+            chained += 1
+            want = chain_value(expected_prev, row.get("record_sha256"))
+            if row["chain_sha256"] != want:
+                moved = (row.get("prev_sha256") or GENESIS) != (expected_prev or GENESIS)
+                breaks.append({
+                    "line": line,
+                    "artifact_id": row.get("artifact_id"),
+                    "why": ("the previous link does not match the line above it — a line "
+                            "was removed, moved, or inserted") if moved
+                           else "the chain value does not match this record — the row was edited",
+                })
+            expected_prev = row["chain_sha256"]
+
+        return {
+            "total": len(rows),
+            "tampered": tampered,
+            "breaks": breaks,
+            "chained": chained,
+            "unchained": unchained,
+            "tip": expected_prev,
+            "truncation_detectable": False,
+            "ok": not tampered and not breaks,
+        }
 
 
 if __name__ == "__main__":

@@ -208,16 +208,78 @@ function makeRecord(opts) {
 // The append-only ledger
 // ---------------------------------------------------------------------------
 
+/**
+ * The value a first record links to. A literal, not an empty string, so a
+ * genesis row is distinguishable from a row whose prev field went missing.
+ */
+const GENESIS = 'genesis';
+
+/** sha256(previous chain value + this record's own hash). */
+function chainValue(prev, recordSha) {
+  return sha256Text(`${prev || GENESIS}:${recordSha}`);
+}
+
 class Ledger {
   constructor(ledgerPath) {
     this.path = ledgerPath;
     fs.mkdirSync(path.dirname(path.resolve(ledgerPath)), { recursive: true });
   }
 
+  /**
+   * The chain value of the last line, or null for an empty/unchained ledger.
+   *
+   * Read from the tail rather than parsed from the whole file: a ledger this
+   * desk has been running for weeks is thousands of lines, and re-parsing all
+   * of them on every append turns a hashed capture into a slow one.
+   */
+  chainTip() {
+    const rows = this.readAll();
+    for (let i = rows.length - 1; i >= 0; i -= 1) {
+      if (rows[i] && rows[i].chain_sha256) return rows[i].chain_sha256;
+    }
+    return null;
+  }
+
+  /**
+   * Append one record, linked to the one before it.
+   *
+   * ─────────────────────────────────────────────────────────────────────
+   * WHAT record_sha256 PROVES, AND WHAT IT DOES NOT
+   *
+   * Every record already carries a hash of its own body, so editing a line
+   * in place is detectable. That is the whole of the old guarantee, and it
+   * leaves two edits invisible:
+   *
+   *   - DELETING a line. The survivors all still verify.
+   *   - REORDERING lines, or inserting a fabricated one built with
+   *     makeRecord(), which computes a perfectly valid record_sha256.
+   *
+   * chain_sha256 = sha256(previous chain value + this record's own hash).
+   * Each line therefore depends on every line before it, and removing or
+   * moving one breaks every link after it.
+   *
+   * THE LIMIT, SAID OUT LOUD: this cannot detect TRUNCATION. Cutting the
+   * file off at line N leaves a chain that verifies perfectly, because
+   * nothing inside a file can attest to what is no longer in it. Detecting
+   * that needs an anchor kept somewhere else -- the tip value written to a
+   * second medium, or an external timestamp. Do not read a passing chain as
+   * proof that nothing was removed from the end.
+   *
+   * record_sha256 IS NOT RECOMPUTED. It is the operator's existing,
+   * already-published hash of the record body, and chaining must not change
+   * it -- a ledger whose old rows suddenly failed verification would be a
+   * far worse outcome than no chain at all.
+   */
   append(record) {
     if (!record || !record.record_sha256) throw new Error('record must be built with makeRecord()');
-    fs.appendFileSync(this.path, canonicalJson(record) + '\n', 'utf8');
-    return record;
+    const prev = this.chainTip();
+    const linked = {
+      ...record,
+      prev_sha256: prev || GENESIS,
+      chain_sha256: chainValue(prev, record.record_sha256),
+    };
+    fs.appendFileSync(this.path, canonicalJson(linked) + '\n', 'utf8');
+    return linked;
   }
 
   readAll() {
@@ -229,19 +291,85 @@ class Ledger {
       .map((l) => JSON.parse(l));
   }
 
-  /** Recompute every line's record_sha256 and report lines edited after writing. */
+  /**
+   * Two questions, answered separately because they fail differently.
+   *
+   *   tampered — was a line EDITED after it was written?
+   *   breaks   — was a line DELETED, MOVED, or INSERTED?
+   *
+   * UNCHAINED ROWS ARE NOT FAILURES. A ledger written before chaining
+   * existed has no chain fields, and reporting thousands of an operator's
+   * real captures as broken would make the check something to ignore --
+   * which is the only way a tamper check ever actually fails. They are
+   * counted and named as what they are: unchained, and only self-verifying.
+   */
   verify() {
     const rows = this.readAll();
     const tampered = [];
+    const breaks = [];
+    let unchained = 0;
+    let chained = 0;
+    let expectedPrev = null;
+
     rows.forEach((row, idx) => {
-      const claimed = row.record_sha256;
+      const line = idx + 1;
+
+      // 1. the body still hashes to what the row claims
       const body = { ...row };
       delete body.record_sha256;
-      if (claimed !== sha256Json(body)) {
-        tampered.push({ line: idx + 1, artifact_id: row.artifact_id });
+      delete body.prev_sha256;
+      delete body.chain_sha256;
+      if (row.record_sha256 !== sha256Json(body)) {
+        tampered.push({ line, artifact_id: row.artifact_id });
       }
+
+      // 2. the link
+      //
+      // AN UNCHAINED ROW IS ONLY LEGITIMATE BEFORE THE CHAIN STARTS. Rows
+      // written before chaining existed all sit at the top of the file; the
+      // chain begins and never stops. Allowing an unchained row ANYWHERE --
+      // which the first version of this did, in the name of backward
+      // compatibility -- means a forged line can simply omit the chain
+      // fields and be waved through, and the ledger verifies clean. A test
+      // that inserted a validly-hashed row caught it.
+      if (!row.chain_sha256) {
+        if (chained > 0) {
+          breaks.push({
+            line,
+            artifact_id: row.artifact_id,
+            why: 'an UNCHAINED row appears after the chain began — a line was '
+              + 'inserted, or two ledgers were spliced together',
+          });
+        }
+        unchained += 1;
+        return;
+      }
+      chained += 1;
+      const want = chainValue(expectedPrev, row.record_sha256);
+      if (row.chain_sha256 !== want) {
+        breaks.push({
+          line,
+          artifact_id: row.artifact_id,
+          why: (row.prev_sha256 || GENESIS) !== (expectedPrev || GENESIS)
+            ? 'the previous link does not match the line above it — a line was '
+              + 'removed, moved, or inserted'
+            : 'the chain value does not match this record — the row was edited',
+        });
+      }
+      expectedPrev = row.chain_sha256;
     });
-    return { total: rows.length, tampered, ok: tampered.length === 0 };
+
+    return {
+      total: rows.length,
+      tampered,
+      breaks,
+      chained,
+      unchained,
+      tip: expectedPrev,
+      // Note what this does NOT cover. See append().
+      truncationDetectable: false,
+      ok: !tampered.length && !breaks.length,
+    };
   }
 }
 
@@ -249,4 +377,5 @@ module.exports = {
   SCHEMA_VERSION, TIERS,
   canonicalJson, sha256Bytes, sha256Text, sha256Json, sha256File,
   isAbsolute, relativize, validTier, utcNow, makeRecord, Ledger,
+  GENESIS, chainValue,
 };

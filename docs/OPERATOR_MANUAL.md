@@ -1884,6 +1884,64 @@ never the default for a check that did not happen.
 
 ---
 
+## 4a-ter. The ledger is a chain — `sentinel prov verify`
+
+```bash
+bin/sentinel prov verify evidence/manifests/provenance.jsonl
+```
+
+Every provenance record has always carried `record_sha256`, a hash of its own
+body. That proves one thing: the line was not **edited** after it was written.
+It leaves two edits completely invisible.
+
+- **Deleting a line.** Every survivor still verifies.
+- **Reordering, or inserting a fabricated line.** `makeRecord()` computes a
+  perfectly valid `record_sha256` for anything you hand it.
+
+So each row now also carries `chain_sha256` — the hash of the previous row's
+chain value combined with this row's own hash. Every line depends on every line
+before it. Remove one, move one, or splice two ledgers together, and every link
+after the seam breaks.
+
+`prov verify` reports the two failures separately, because they mean different
+things:
+
+```
+records: 412   ok: False
+chained: 89   unchained: 323
+  EDITED    line 44 a3f9…      ← the row's body no longer matches its own hash
+  BROKEN    line 91 c71e…      ← a row was removed, moved, or inserted
+```
+
+### Your existing rows are not failures
+
+A ledger written before this existed has no chain fields, and a check that
+called thousands of real captures "broken" would be a check nobody runs — which
+is the only way a tamper check ever truly fails. Unchained rows are counted and
+named as what they are: self-verifying, but with nothing proving one was not
+removed from among them. The chain starts at your next capture and runs forward.
+
+**An unchained row is only legitimate BEFORE the chain starts.** Once a chained
+row appears, any later unchained row is reported as a splice. The first version
+of this check skipped every unchained row wherever it sat — so a forged line
+could simply omit the chain fields and be waved through. A test that inserted a
+validly-hashed row caught it.
+
+### What a passing chain does NOT prove
+
+**It cannot detect truncation.** Cut the file off at line N and what remains
+verifies perfectly, because nothing inside a file can attest to what is no
+longer in it.
+
+That is not a bug to be fixed inside the file; it is the reason WORM storage and
+external timestamping exist. The cheap version: `prov verify` prints the **chain
+tip** at the end of a clean run. Write that value down somewhere the ledger
+cannot reach — a notebook, a second machine, a message to yourself. A tip you
+recorded last week and can still reproduce today proves nothing was removed
+from the end in between. That is a real anchor and it costs nothing.
+
+---
+
 ## 4a-bis. Everything one filer ever filed — `sentinel sec history`
 
 ```bash
