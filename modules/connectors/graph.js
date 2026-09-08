@@ -63,6 +63,7 @@
 const path = require('path');
 const fs = require('fs');
 const X = require('./crosslink.js');
+const L = require('./lobby.js');
 
 /** Hosts that live on this machine. Anything else leaves it. */
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '0.0.0.0']);
@@ -199,6 +200,198 @@ function build(captures) {
 }
 
 /**
+ * The lobbying layer: people, money, agencies and time.
+ *
+ * ─────────────────────────────────────────────────────────────────────────
+ * WHY THIS EXISTS
+ *
+ * build() above turns captures into two edge types: a registrant FILED_FOR a
+ * client, and an org APPEARS_UNDER a search subject. That is the whole graph.
+ *
+ * Meanwhile lobby.js has been parsing every Senate LDA capture on disk into
+ * filings that carry: the LOBBYISTS by name, the GOVERNMENT ENTITIES they
+ * contacted, the INCOME the firm reported receiving, the EXPENSES an
+ * organisation reported spending on itself, the ISSUE codes, the filing YEAR
+ * and QUARTER, and a URL to the sworn document. All of it. On disk. Parsed.
+ *
+ * And the graph threw every field of it away except two names.
+ *
+ * So a question like "who actually lobbied for this client, at which agency,
+ * in which quarter, for how much" was unanswerable from a graph built on the
+ * exact filings that answer it. This is the bridge. It adds no new source and
+ * makes no new request; it stops discarding what was already read.
+ *
+ * ─────────────────────────────────────────────────────────────────────────
+ * THREE RULES THAT ARE NOT NEGOTIABLE HERE
+ *
+ * 1. INCOME AND EXPENSES ARE NOT THE SAME MONEY, and are never added.
+ *    `income` is what an outside firm reports RECEIVING from a client.
+ *    `expenses` is what an organisation reports SPENDING lobbying for itself.
+ *    Summing them double-counts in one direction and invents a payer in the
+ *    other. They stay in separate fields, with separate names, forever.
+ *
+ * 2. AMENDMENTS RESTATE A QUARTER, they do not add to it. Money is summed
+ *    over DEDUPED filings only — lobby.js's dedupe() keeps the amendment and
+ *    drops the original — or a corrected filing is counted twice and the
+ *    total is simply wrong.
+ *
+ * 3. A LOBBYIST NAME IS NOT A PERSON. "J. Smith" at two firms may be two
+ *    people; the LDA carries no identifier. These nodes are keyed on the
+ *    name as filed and say so. Treating them as resolved identities is the
+ *    error this desk exists to refuse, and it is the operator's call to
+ *    make with a document in hand, not this file's to make silently.
+ */
+function buildLobbyLayer(captureDir, L) {
+  const read = L.readFilings(captureDir);
+  const filings = L.dedupe(read.filings);
+
+  // THE ORG KEY MUST BE THE SAME ONE build() USED. Org nodes are keyed on the
+  // normalised name, so an edge carrying the raw display name matches nothing
+  // and the whole layer lands as orphans that no query ever returns — a graph
+  // that looks richer and answers exactly as much as before.
+  const key = (name) => X.normalise(name);
+
+  const people = new Map();     // name -> {name}
+  const agencies = new Map();   // name -> {name}
+  const issues = new Map();     // code -> {code}
+
+  const lobbiedFor = new Map();     // person -> client
+  const registeredWith = new Map(); // person -> registrant firm
+  const contacted = new Map();      // client -> agency
+  const onIssue = new Map();        // client -> issue
+  const money = new Map();          // registrant|client -> money + time
+
+  const bump = (map, key, seed) => {
+    if (!map.has(key)) map.set(key, seed());
+    return map.get(key);
+  };
+  const yr = (f) => (f.year == null ? null : String(f.year));
+
+  for (const f of filings) {
+    const client = (f.client || '').trim();
+    const registrant = (f.registrant || '').trim();
+    if (!client && !registrant) continue;
+
+    // ---- money and time on the registrant→client relationship --------
+    if (client && registrant) {
+      // KEYED ON THE NORMALISED NAMES, NOT THE RAW ONES, and this was wrong
+      // first time. "Vantage Data Centers, LLC" and "Vantage Data Centers
+      // LLC" made two money rows; both then MERGE onto the SAME FILED_FOR
+      // edge in Cypher, where the second SET overwrites the first — $50,000
+      // reported in Q1 silently replaced by $60,000 from Q2, with nothing
+      // anywhere saying a quarter had been dropped. build() has always keyed
+      // FILED_FOR on the normalised pair; this has to agree with it exactly.
+      const k = JSON.stringify([key(registrant), key(client)]);
+      const m = bump(money, k, () => ({
+        registrant, client,
+        registrant_key: key(registrant), client_key: key(client),
+        filings: 0,
+        income_reported: null, expenses_reported: null,
+        years: new Set(), quarters: new Set(), urls: new Set(),
+        // Counted, not silently absorbed: a filing that reports no money is
+        // a real filing, and "3 filings, $0" and "3 filings, unreported" are
+        // different facts about a relationship.
+        filings_with_no_income: 0,
+      }));
+      m.filings += 1;
+      if (Number.isFinite(f.income)) m.income_reported = (m.income_reported || 0) + f.income;
+      else m.filings_with_no_income += 1;
+      if (Number.isFinite(f.expenses)) m.expenses_reported = (m.expenses_reported || 0) + f.expenses;
+      if (yr(f)) m.years.add(yr(f));
+      if (f.period) m.quarters.add(f.period);
+      if (f.url) m.urls.add(f.url);
+    }
+
+    // ---- people -------------------------------------------------------
+    for (const name of new Set(f.lobbyists || [])) {
+      if (!people.has(name)) people.set(name, { name });
+      if (client) {
+        const k = JSON.stringify([name, key(client)]);
+        const e = bump(lobbiedFor, k, () => ({
+          person: name, org: client, org_key: key(client),
+          filings: 0, years: new Set(), urls: new Set(),
+        }));
+        e.filings += 1;
+        if (yr(f)) e.years.add(yr(f));
+        if (f.url) e.urls.add(f.url);
+      }
+      if (registrant) {
+        const k = JSON.stringify([name, key(registrant)]);
+        const e = bump(registeredWith, k, () => ({
+          person: name, org: registrant, org_key: key(registrant),
+          filings: 0, years: new Set(),
+        }));
+        e.filings += 1;
+        if (yr(f)) e.years.add(yr(f));
+      }
+    }
+
+    // ---- agencies contacted -------------------------------------------
+    for (const name of new Set(f.entities || [])) {
+      if (!agencies.has(name)) agencies.set(name, { name });
+      if (!client) continue;
+      const k = JSON.stringify([key(client), name]);
+      const e = bump(contacted, k, () => ({
+        org: client, org_key: key(client), agency: name,
+        filings: 0, years: new Set(), urls: new Set(),
+      }));
+      e.filings += 1;
+      if (yr(f)) e.years.add(yr(f));
+      if (f.url) e.urls.add(f.url);
+    }
+
+    // ---- issues --------------------------------------------------------
+    for (const code of new Set(f.issues || [])) {
+      if (!issues.has(code)) issues.set(code, { code });
+      if (!client) continue;
+      const k = JSON.stringify([key(client), code]);
+      const e = bump(onIssue, k, () => ({
+        org: client, org_key: key(client), issue: code,
+        filings: 0, years: new Set(),
+      }));
+      e.filings += 1;
+      if (yr(f)) e.years.add(yr(f));
+    }
+  }
+
+  const yrs = (s) => [...s].sort();
+  const out = (m, extra) => [...m.values()].map((e) => ({
+    ...e, years: yrs(e.years), ...(extra ? extra(e) : {}),
+  }));
+
+  return {
+    people: [...people.values()],
+    agencies: [...agencies.values()],
+    issues: [...issues.values()],
+    lobbied_for: out(lobbiedFor, (e) => ({ urls: [...e.urls].sort() })),
+    registered_with: out(registeredWith),
+    contacted: out(contacted, (e) => ({ urls: [...e.urls].sort() })),
+    on_issue: out(onIssue),
+    money: [...money.values()].map((m) => ({
+      registrant: m.registrant,
+      client: m.client,
+      registrant_key: m.registrant_key,
+      client_key: m.client_key,
+      filings: m.filings,
+      // Two numbers, never one. See rule 1.
+      income_reported: m.income_reported,
+      expenses_reported: m.expenses_reported,
+      filings_with_no_income: m.filings_with_no_income,
+      years: yrs(m.years),
+      first_year: yrs(m.years)[0] || null,
+      last_year: yrs(m.years).slice(-1)[0] || null,
+      quarters: [...m.quarters].sort(),
+      urls: [...m.urls].sort(),
+    })),
+    // Coverage, beside the counts rather than under them.
+    filings_read: read.filings.length,
+    filings_after_dedupe: filings.length,
+    truncated_subjects: read.subjects.filter((s) => s.truncated).length,
+    unparsed: read.unparsed.length,
+  };
+}
+
+/**
  * The Cypher that would be run, as parameterised statements.
  *
  * MERGE, never CREATE. Running this twice must leave the same graph, not two
@@ -271,6 +464,100 @@ function toCypher(graph) {
               a.basis = 'search_result'`,
       params: { rows: graph.appears },
       note: `${graph.appears.length} APPEARS_UNDER relationships (search results, NOT relationships between orgs)`,
+    });
+  }
+
+
+  // ── THE LOBBYING LAYER: people, money, agencies, time ────────────────
+  //
+  // Every edge below comes from a SWORN, DATED filing with a URL. That is
+  // what makes them DOCUMENTED rather than derived, and why each carries
+  // `basis` and its source urls: an edge you cannot walk back to a document
+  // is an assertion, and this graph does not store assertions.
+  if (graph.lobby) {
+    const g = graph.lobby;
+
+    stmts.push({
+      q: 'CREATE CONSTRAINT person_name IF NOT EXISTS FOR (p:Person) REQUIRE p.name IS UNIQUE',
+      params: {},
+      note: 'one node per lobbyist NAME AS FILED — not per person; the LDA carries no identifier',
+    });
+    stmts.push({
+      q: 'CREATE CONSTRAINT agency_name IF NOT EXISTS FOR (a:Agency) REQUIRE a.name IS UNIQUE',
+      params: {}, note: 'one node per government entity lobbied',
+    });
+    stmts.push({
+      q: 'CREATE CONSTRAINT issue_code IF NOT EXISTS FOR (i:Issue) REQUIRE i.code IS UNIQUE',
+      params: {}, note: 'one node per general issue code',
+    });
+
+    if (g.people.length) stmts.push({
+      q: `UNWIND $rows AS r
+          MERGE (p:Person {name: r.name})
+          SET p.is_resolved_identity = false`,
+      params: { rows: g.people },
+      note: `${g.people.length} lobbyist name(s) — a NAME, not a resolved person`,
+    });
+    if (g.agencies.length) stmts.push({
+      q: 'UNWIND $rows AS r MERGE (a:Agency {name: r.name})',
+      params: { rows: g.agencies }, note: `${g.agencies.length} government entities`,
+    });
+    if (g.issues.length) stmts.push({
+      q: 'UNWIND $rows AS r MERGE (i:Issue {code: r.code})',
+      params: { rows: g.issues }, note: `${g.issues.length} issue codes`,
+    });
+
+    if (g.lobbied_for.length) stmts.push({
+      q: `UNWIND $rows AS r
+          MATCH (p:Person {name: r.person})
+          MATCH (o:Org {key: r.org_key})
+          MERGE (p)-[e:LOBBIED_FOR]->(o)
+          SET e.filings = toInteger(r.filings), e.years = r.years,
+              e.urls = r.urls, e.basis = 'senate_lda_filing'`,
+      params: { rows: g.lobbied_for }, note: `${g.lobbied_for.length} person → client`,
+    });
+    if (g.registered_with.length) stmts.push({
+      q: `UNWIND $rows AS r
+          MATCH (p:Person {name: r.person})
+          MATCH (o:Org {key: r.org_key})
+          MERGE (p)-[e:REGISTERED_WITH]->(o)
+          SET e.filings = toInteger(r.filings), e.years = r.years,
+              e.basis = 'senate_lda_filing'`,
+      params: { rows: g.registered_with }, note: `${g.registered_with.length} person → firm`,
+    });
+    if (g.contacted.length) stmts.push({
+      q: `UNWIND $rows AS r
+          MATCH (o:Org {key: r.org_key})
+          MATCH (a:Agency {name: r.agency})
+          MERGE (o)-[e:LOBBIED]->(a)
+          SET e.filings = toInteger(r.filings), e.years = r.years,
+              e.urls = r.urls, e.basis = 'senate_lda_filing'`,
+      params: { rows: g.contacted }, note: `${g.contacted.length} client → agency` });
+    if (g.on_issue.length) stmts.push({
+      q: `UNWIND $rows AS r
+          MATCH (o:Org {key: r.org_key})
+          MATCH (i:Issue {code: r.issue})
+          MERGE (o)-[e:ON_ISSUE]->(i)
+          SET e.filings = toInteger(r.filings), e.years = r.years,
+              e.basis = 'senate_lda_filing'`,
+      params: { rows: g.on_issue }, note: `${g.on_issue.length} client → issue` });
+
+    // Money goes onto the EXISTING FILED_FOR edge rather than a new one:
+    // it is a property of that relationship, and a second parallel edge
+    // would double every count anyone runs over it.
+    if (g.money.length) stmts.push({
+      q: `UNWIND $rows AS r
+          MATCH (reg:Org {key: r.registrant_key})
+          MATCH (cli:Org {key: r.client_key})
+          MERGE (reg)-[f:FILED_FOR]->(cli)
+          SET f.income_reported = r.income_reported,
+              f.expenses_reported = r.expenses_reported,
+              f.filings_with_no_income = toInteger(r.filings_with_no_income),
+              f.years = r.years, f.first_year = r.first_year,
+              f.last_year = r.last_year, f.quarters = r.quarters`,
+      params: { rows: g.money },
+      note: `money and time on ${g.money.length} filing relationship(s) — `
+        + 'income and expenses are SEPARATE fields and are never added',
     });
   }
 
@@ -523,7 +810,7 @@ function reconcile(graph, actual) {
 
 module.exports = {
   QUERIES,
-  build, toCypher, push, isLocal, readEnv, LOCAL_HOSTS,
+  build, buildLobbyLayer, toCypher, push, isLocal, readEnv, LOCAL_HOSTS,
   isPlaceholderPassword, PLACEHOLDER_PASSWORDS, PLACEHOLDER_FRAGMENTS, describeSecret,
   verify, reconcile,
 };

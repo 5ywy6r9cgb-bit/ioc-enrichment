@@ -500,6 +500,113 @@ module.exports = async function run() {
     /AS via/.test(G.QUERIES.pair.cypher));
 }
 
+// ══ THE LOBBYING LAYER: people, money, agencies, time ════════════════════
+//
+// lobby.js has been parsing every LDA capture into filings carrying the
+// lobbyists by name, the agencies they contacted, the income reported, the
+// issue codes and the quarter. build() used two fields of it and discarded
+// the rest, so the graph could not answer a question the filings answer.
+{
+  const F = (o) => Object.assign({
+    uuid: '', subject: 's', client: '', registrant: '', year: 2024,
+    period: '2024Q1', type: 'Q1', typeDisplay: '', amended: false, posted: '',
+    income: null, expenses: null, issues: [], lobbyists: [], entities: [], url: '',
+  }, o);
+  const fakeLobby = (filings) => ({
+    readFilings: () => ({ filings, subjects: [{ truncated: false }], unparsed: [] }),
+    dedupe: (f) => f,
+  });
+
+  const g = G.buildLobbyLayer('/unused', fakeLobby([
+    F({ client: 'Vantage Data Centers, LLC', registrant: 'CORNERSTONE GOVERNMENT AFFAIRS, INC.',
+        income: 50000, issues: ['Energy'], lobbyists: ['Michael Cuzzi', 'Colleen Moss'],
+        entities: ['U.S. Senate', 'DOE'], url: 'https://lda.gov/f/1', period: '2024Q1' }),
+    F({ client: 'Vantage Data Centers LLC', registrant: 'Cornerstone Government Affairs Inc',
+        income: 60000, issues: ['Energy', 'Taxation'], lobbyists: ['Michael Cuzzi'],
+        entities: ['U.S. House'], url: 'https://lda.gov/f/2', period: '2024Q2' }),
+  ]));
+
+  check('lobbyists become Person nodes', g.people.length === 2,
+    g.people.map((p) => p.name).join(', '));
+  check('government entities become Agency nodes', g.agencies.length === 3,
+    g.agencies.map((a) => a.name).join(', '));
+  check('issue codes become Issue nodes', g.issues.length === 2);
+
+  // ── THE BUG THIS CAUGHT, AND IT LOST MONEY ─────────────────────────
+  //
+  // The money map was first keyed on the RAW names, so "Vantage Data
+  // Centers, LLC" and "Vantage Data Centers LLC" produced two rows. Both
+  // then MERGE onto the SAME FILED_FOR edge in Cypher, where the second SET
+  // overwrites the first: $50,000 reported in Q1 silently replaced by
+  // $60,000 from Q2, with nothing saying a quarter had been dropped.
+  check('two spellings of one client are ONE money relationship',
+    g.money.length === 1, JSON.stringify(g.money.map((m) => m.client)));
+  check('and the quarters are summed, not overwritten',
+    g.money[0].income_reported === 110000, String(g.money[0].income_reported));
+  check('both quarters are named on the edge',
+    g.money[0].quarters.join(',') === '2024Q1,2024Q2', g.money[0].quarters.join(','));
+
+  // ── THE ORG KEY MUST MATCH build() ──────────────────────────────────
+  // An edge carrying the raw display name MATCHes no Org node, and the whole
+  // layer lands as orphans no query ever returns.
+  check('money rows carry the same normalised key build() uses for Org',
+    g.money[0].client_key === X.normalise('Vantage Data Centers, LLC')
+    && g.money[0].registrant_key === X.normalise('CORNERSTONE GOVERNMENT AFFAIRS, INC.'),
+    `${g.money[0].client_key} / ${g.money[0].registrant_key}`);
+  check('so do person→org and org→agency edges',
+    g.lobbied_for.every((e) => e.org_key === X.normalise(e.org))
+    && g.contacted.every((e) => e.org_key === X.normalise(e.org)));
+
+  check('one person on two filings is one edge with a count',
+    g.lobbied_for.filter((e) => e.person === 'Michael Cuzzi').length === 1
+    && g.lobbied_for.find((e) => e.person === 'Michael Cuzzi').filings === 2);
+  check('every documented edge carries the filing URLs it came from',
+    g.lobbied_for.every((e) => Array.isArray(e.urls))
+    && g.contacted.every((e) => Array.isArray(e.urls))
+    && g.money.every((m) => m.urls.length > 0));
+
+  // ── INCOME AND EXPENSES ARE NOT THE SAME MONEY ──────────────────────
+  const inhouse = G.buildLobbyLayer('/unused', fakeLobby([
+    F({ client: 'Self Lobbying Corp', registrant: 'Self Lobbying Corp', expenses: 90000, url: 'u' }),
+  ]));
+  check('expenses land in their own field, never added to income',
+    inhouse.money[0].expenses_reported === 90000
+    && inhouse.money[0].income_reported === null,
+    JSON.stringify(inhouse.money[0]));
+
+  const noMoney = G.buildLobbyLayer('/unused', fakeLobby([
+    F({ client: 'A Co', registrant: 'B LLC', income: null, url: 'u' }),
+  ]));
+  check('a filing reporting NO income is counted, not absorbed as zero',
+    noMoney.money[0].income_reported === null
+    && noMoney.money[0].filings_with_no_income === 1,
+    JSON.stringify(noMoney.money[0]));
+
+  // ── A NAME IS NOT A PERSON ──────────────────────────────────────────
+  const cy = G.toCypher({ orgs: [], subjects: [], filed: [], appears: [],
+    counts_are_floors: false, lobby: g });
+  const personStmt = cy.find((c) => /MERGE \(p:Person/.test(c.q));
+  check('Person nodes are written flagged as unresolved identities',
+    /is_resolved_identity = false/.test(personStmt.q), personStmt.q);
+  check('and the note says a name is not a person',
+    /not a resolved person/.test(personStmt.note), personStmt.note);
+  check('the constraint note says the same, where a reader meets it first',
+    /not per person/.test(cy.find((c) => /CONSTRAINT person_name/.test(c.q)).note));
+
+  check('every lobbying edge records its basis',
+    cy.filter((c) => /MERGE \((p|o)\)-\[e:/.test(c.q))
+      .every((c) => /basis = 'senate_lda_filing'/.test(c.q)));
+  check('names travel as PARAMETERS, never interpolated into the query',
+    cy.every((c) => !/Cuzzi|Vantage|Cornerstone/.test(c.q)));
+  check('money is SET on the existing FILED_FOR edge, not a parallel one',
+    /MERGE \(reg\)-\[f:FILED_FOR\]->\(cli\)[\s\S]*income_reported/.test(
+      cy.find((c) => /income_reported/.test(c.q)).q));
+
+  // Coverage travels with the layer, not under it.
+  check('the layer reports what it read and what it deduped',
+    g.filings_read === 2 && g.filings_after_dedupe === 2);
+}
+
 console.log(`\n  ${FAIL ? 'FAIL' : 'PASS'} — ${PASS}/${PASS + FAIL} checks\n`);
   if (FAIL) process.exitCode = 1;
   return { pass: PASS, fail: FAIL };
