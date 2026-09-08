@@ -62,13 +62,48 @@ function sniff(buf) {
   if (head.slice(0, 4).toString('latin1') === '%!PS') return 'postscript';
   if (head[0] === 0xFF && head[1] === 0xD8) return 'jpeg';
   if (head.slice(0, 8).toString('latin1') === '\x89PNG\r\n\x1a\n') return 'png';
-  if (head.slice(0, 5).toString('latin1').toLowerCase() === '<html'
-      || buf.slice(0, 200).toString('latin1').toLowerCase().includes('<!doctype html')) return 'html';
+  // ── MARKUP, AND WHY THIS WINDOW IS NOT FIVE BYTES ────────────────────
+  //
+  // This used to be: `<html` in the first FIVE bytes, or `<!doctype html`
+  // in the first 200. `doc get` on two SEC Form 10-D filings, same issuer,
+  // same form, same host, both .htm -- one extracted 10,275 characters and
+  // the other printed "Not a PDF (looks like: unknown) -- no extraction
+  // attempted" and sat on disk unread.
+  //
+  // Nothing was wrong with the second document. It simply did not begin with
+  // the tag: EDGAR filings routinely open with a byte-order mark, blank
+  // lines, an <?xml?> declaration, an HTML comment, or the SGML wrapper
+  // (<SEC-DOCUMENT>, <SEC-HEADER>, <TYPE>10-D) before any <html> appears.
+  //
+  // The failure is the dangerous kind. It does not error. It reports a fact
+  // about the FILE ("looks like: unknown") when the fact is about the
+  // SNIFFER, and the operator reads it as "this document is not readable"
+  // and moves on. So: skip whitespace and a BOM, require the first real
+  // character to be `<`, and then look through a 4KB window.
+  const lead = buf.slice(0, 4096).toString('latin1');
+  // The BOM is read as BYTES here, not characters: this buffer is decoded
+  // latin1, so a UTF-8 BOM arrives as \xEF\xBB\xBF and a \uFEFF test misses
+  // it entirely. Both spellings are stripped, plus UTF-16's, or a file that
+  // announces its own encoding is classified 'unknown' for doing so.
+  const trimmed = lead
+    .replace(/^(?:\xEF\xBB\xBF|\uFEFF|\xFF\xFE|\xFE\xFF)/, '')
+    .replace(/^[\s\u0000]+/, '');
+  if (trimmed.startsWith('<')) {
+    const low = lead.toLowerCase();
+    if (low.includes('<!doctype html') || /<html[\s>]/.test(low)) return 'html';
+    // EDGAR's SGML wrapper. Text, extractable, and not HTML -- saying so is
+    // the difference between a document you can read and one you skip.
+    if (low.includes('<sec-document') || low.includes('<sec-header')) return 'sgml';
+    // Markup with no <html> tag at all: a fragment, or a filing served as a
+    // bare table. extractHtmlText handles it; 'unknown' would not.
+    if (/<(body|table|div|font|p)[\s>]/.test(low)) return 'html';
+    if (trimmed.startsWith('<?xml')) return 'xml';
+  }
   // An API record is a legitimate primary source and lands here often — the
   // CourtListener docket rewrite returns one. Saved as 'unknown' it got a
   // filename with no extension, which nothing downstream can open by type.
-  const lead = buf.slice(0, 64).toString('latin1').trimStart()[0];
-  if (lead === '{' || lead === '[') {
+  const firstChar = buf.slice(0, 64).toString('latin1').trimStart()[0];
+  if (firstChar === '{' || firstChar === '[') {
     try { JSON.parse(buf.toString('utf8')); return 'json'; } catch { /* not json */ }
   }
   return 'unknown';

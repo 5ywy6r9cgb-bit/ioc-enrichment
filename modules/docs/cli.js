@@ -729,11 +729,22 @@ async function cmdGet(url, opts) {
     console.log(C.dim('  and a null result on a file like this is NOT evidence of absence.'));
     console.log(C.dim('  Unpack and OCR it:'));
     console.log(C.dim(`    bin/sentinel corpus ocr "${path.dirname(got.file)}" --out "${path.dirname(got.file)}_derived"`));
-  } else if (got.magic === 'html') {
+  } else if (got.magic === 'html' || got.magic === 'sgml' || got.magic === 'xml') {
     // The Senate LDA serves filings as HTML. Those are the strongest records
     // this desk handles, and "no extraction attempted" left them on disk
     // unsearchable -- which six months later reads exactly like a record that
     // says nothing.
+    //
+    // SGML and XML land here for the same reason. EDGAR wraps filings in an
+    // SGML envelope and serves some documents as bare XML; both are markup,
+    // both are text, and extractHtmlText strips tags from any of them. The
+    // alternative -- what this did before -- was "looks like: unknown, no
+    // extraction attempted" on a Form 10-D whose sibling from the same
+    // issuer extracted 10,275 characters. Same host, same form, one read and
+    // one not, and nothing said why.
+    if (got.magic !== 'html') {
+      console.log(C.dim(`  markup  ${got.magic.toUpperCase()}, not HTML — text extracted the same way`));
+    }
     const ex = D.extractHtmlText(fs.readFileSync(got.file));
     const txt = got.file.replace(/\.[^.]*$/, '') + '.txt';
     fs.writeFileSync(txt, ex.text);
