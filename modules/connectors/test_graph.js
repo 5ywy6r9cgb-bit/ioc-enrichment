@@ -429,6 +429,49 @@ module.exports = async function run() {
 // a prompt does not fail cleanly, it globs. "Run this somewhere else" is the
 // weakest guard there is. These make the queries commands instead.
 {
+  // THE ALLOW-LIST IS DERIVED FROM push(), NOT TYPED OUT BESIDE IT.
+  //
+  // It used to be four hardcoded strings. When the lobbying layer added
+  // Person, Agency, Issue, LOBBIED_FOR and the rest, this list did not know
+  // and every query over them would have been rejected by a test that was
+  // itself out of date -- the guard drifting from the thing it guards.
+  // Reading the labels and properties out of the emitted Cypher means the
+  // schema and the queries cannot disagree without the disagreement failing.
+  const SCHEMA_G = (() => {
+    const dir = fixture({
+      'live_capture_senatelda_SCHEMA_2026-08-25T01-00-00-000Z.json':
+        lda([['A CLIENT', 'A REGISTRANT']]),
+    });
+    const base = G.build(X.readCaptures(dir));
+    const F2 = (o) => Object.assign({
+      uuid: '', subject: 's', client: 'A CLIENT', registrant: 'A REGISTRANT',
+      year: 2024, period: 'Q1', type: 'Q1', typeDisplay: '', amended: false,
+      posted: '', income: 1, expenses: 1, issues: ['Energy'],
+      lobbyists: ['A Person'], entities: ['An Agency'], url: 'u',
+    }, o);
+    const stub = {
+      readFilings: () => ({ filings: [F2({})], subjects: [{ truncated: false }], unparsed: [] }),
+      dedupe: (f) => ({ filings: f, superseded: 0 }),
+    };
+    base.lobby = G.buildLobbyLayer('/unused', stub);
+    return base;
+  })();
+  const SCHEMA_CY = G.toCypher(SCHEMA_G).map((c) => c.q).join('\n');
+  const WRITTEN_LABELS = new Set(
+    (SCHEMA_CY.match(/:[A-Z][A-Za-z_]+/g) || []).map((m) => m.slice(1)));
+  const WRITTEN_PROPS = new Set([
+    ...(SCHEMA_CY.match(/\b\w+\.([a-z_]+)\s*=/g) || [])
+      .map((m) => m.trim().split('.')[1].split(/\s*=/)[0]),
+    ...(SCHEMA_CY.match(/\{\s*([a-z_]+)\s*:/g) || [])
+      .map((m) => m.replace(/[{:\s]/g, '')),
+  ]);
+  check('the derived schema knows the lobbying layer exists',
+    WRITTEN_LABELS.has('Person') && WRITTEN_LABELS.has('Agency')
+    && WRITTEN_LABELS.has('LOBBIED_FOR'),
+    [...WRITTEN_LABELS].sort().join(' '));
+  check('and knows quarters is a property push() sets',
+    WRITTEN_PROPS.has('quarters'), [...WRITTEN_PROPS].sort().join(' '));
+
   const names = Object.keys(G.QUERIES);
   check(`named queries exist (${names.join(' ')})`, names.length >= 5);
 
@@ -458,15 +501,16 @@ module.exports = async function run() {
     // reads as "no answer" rather than "wrong query".
     for (const m of q.cypher.match(/:[A-Z][A-Za-z_]+/g) || []) {
       check(`${name}: ${m} is a label or relationship push() creates`,
-        ['Org', 'Subject', 'FILED_FOR', 'APPEARS_UNDER'].includes(m.slice(1)));
+        WRITTEN_LABELS.has(m.slice(1)),
+        `known: ${[...WRITTEN_LABELS].sort().join(' ')}`);
     }
     // Same for properties, which is where a rename would silently empty a
     // column rather than fail.
-    for (const m of q.cypher.match(/\b(?:o|o2|a|b|s|reg|cli|f)\.[a-z_]+/g) || []) {
+    for (const m of q.cypher.match(/\b(?:o|o1|o2|a|b|x|y|s|p|ag|i|reg|cli|f|target|other)\.[a-z_]+/g) || []) {
       const prop = m.split('.')[1];
       check(`${name}: property ${prop} is one push() sets`,
-        ['key', 'name', 'subject_count', 'counts_are_floors',
-          'filings', 'subjects', 'urls', 'basis', 'hits', 'connectors'].includes(prop));
+        WRITTEN_PROPS.has(prop),
+        `known: ${[...WRITTEN_PROPS].sort().join(' ')}`);
     }
   }
 
@@ -507,15 +551,41 @@ module.exports = async function run() {
 // issue codes and the quarter. build() used two fields of it and discarded
 // the rest, so the graph could not answer a question the filings answer.
 {
+  // THE STUB MUST MATCH THE REAL MODULE OR IT TESTS ITSELF.
+  //
+  // This stub shipped with `dedupe: (f) => f` while the real lobby.dedupe
+  // returns { filings, superseded }, and with period '2024Q1' while the real
+  // periodKey returns 'Q1'. Nineteen checks passed and buildLobbyLayer threw
+  // `filings is not iterable` the first time it met the real module. The
+  // contract assertions below this stub exist so that cannot happen twice.
   const F = (o) => Object.assign({
     uuid: '', subject: 's', client: '', registrant: '', year: 2024,
-    period: '2024Q1', type: 'Q1', typeDisplay: '', amended: false, posted: '',
+    period: 'Q1', type: 'Q1', typeDisplay: '', amended: false, posted: '',
     income: null, expenses: null, issues: [], lobbyists: [], entities: [], url: '',
   }, o);
   const fakeLobby = (filings) => ({
     readFilings: () => ({ filings, subjects: [{ truncated: false }], unparsed: [] }),
-    dedupe: (f) => f,
+    dedupe: (f) => ({ filings: f, superseded: 0 }),
   });
+
+  // ---- the stub's contract, checked against the real module -----------
+  {
+    const REAL = require('./lobby.js');
+    const d = REAL.dedupe([]);
+    check('the real dedupe returns an OBJECT with filings, not a bare array',
+      d && !Array.isArray(d) && Array.isArray(d.filings) && 'superseded' in d,
+      JSON.stringify(d));
+    const stub = fakeLobby([]).dedupe([]);
+    check('and the stub returns the same shape',
+      stub && !Array.isArray(stub) && Array.isArray(stub.filings) && 'superseded' in stub);
+    check('the real periodKey returns a BARE quarter, which the stub must mirror',
+      REAL.periodKey({ filing_period: '1st Quarter' }) === 'Q1'
+      && F({}).period === REAL.periodKey({ filing_period: '1st Quarter' }),
+      `real=${REAL.periodKey({ filing_period: '1st Quarter' })} stub=${F({}).period}`);
+    const r = REAL.readFilings('/definitely-not-a-directory');
+    check('the real readFilings returns filings/subjects/unparsed, as the stub does',
+      Array.isArray(r.filings) && Array.isArray(r.subjects) && Array.isArray(r.unparsed));
+  }
 
   const g = G.buildLobbyLayer('/unused', fakeLobby([
     F({ client: 'Vantage Data Centers, LLC', registrant: 'CORNERSTONE GOVERNMENT AFFAIRS, INC.',
@@ -605,6 +675,107 @@ module.exports = async function run() {
   // Coverage travels with the layer, not under it.
   check('the layer reports what it read and what it deduped',
     g.filings_read === 2 && g.filings_after_dedupe === 2);
+}
+
+// ══ THE PERSON LAYER: quarter resolution and the three convergence queries ══
+//
+// `bridges` says which FIRM connects several threads. On a firm with 15,124
+// filings that is nearly content-free -- a firm that size carries a
+// data-centre operator, a utility and the National Wild Turkey Federation.
+// A named lobbyist on two filings IN THE SAME QUARTER is the narrow version,
+// and the graph carried the people since c611af0 with nothing to ask it.
+{
+  const cap = fixture({
+    'live_capture_senatelda_stack_2026-09-08T12-00-00-000Z.json': {
+      count: 3,
+      results: [
+        { filing_uuid: 'a', client: { name: 'Vantage Data Centers LLC' },
+          registrant: { name: 'Cornerstone Government Affairs' },
+          income: '50000', filing_year: 2025, filing_period: '2nd Quarter',
+          filing_document_url: 'https://lda.gov/a',
+          lobbying_activities: [{ general_issue_code_display: 'Energy/Nuclear',
+            government_entities: [{ name: 'Dept of Energy' }],
+            lobbyists: [{ lobbyist: { first_name: 'Jane', last_name: 'Doe' } }] }] },
+        // SAME lobbyist, SAME quarter, different client.
+        { filing_uuid: 'b', client: { name: 'Treaty Oak Clean Energy, LLC' },
+          registrant: { name: 'Cornerstone Government Affairs' },
+          income: '60000', filing_year: 2025, filing_period: '2nd Quarter',
+          filing_document_url: 'https://lda.gov/b',
+          lobbying_activities: [{ general_issue_code_display: 'Energy/Nuclear',
+            government_entities: [{ name: 'Dept of Energy' }],
+            lobbyists: [{ lobbyist: { first_name: 'Jane', last_name: 'Doe' } }] }] },
+        // Same lobbyist, DIFFERENT year -- must not count as a shared quarter.
+        { filing_uuid: 'c', client: { name: 'Unrelated Charity' },
+          registrant: { name: 'Cornerstone Government Affairs' },
+          income: '5000', filing_year: 2019, filing_period: '1st Quarter',
+          filing_document_url: 'https://lda.gov/c',
+          lobbying_activities: [{ general_issue_code_display: 'Education',
+            government_entities: [{ name: 'Dept of Education' }],
+            lobbyists: [{ lobbyist: { first_name: 'Jane', last_name: 'Doe' } }] }] },
+      ],
+    },
+  });
+  const L = require('./lobby.js');
+  const g = G.buildLobbyLayer(cap, L);
+
+  const vantage = g.lobbied_for.find((e) => /Vantage/.test(e.org));
+  const treaty = g.lobbied_for.find((e) => /Treaty Oak/.test(e.org));
+  const charity = g.lobbied_for.find((e) => /Charity/.test(e.org));
+
+  check('a person→client edge now carries QUARTERS, not just years',
+    Array.isArray(vantage.quarters) && vantage.quarters.includes('2025Q2'),
+    JSON.stringify(vantage.quarters));
+  check('two clients of one lobbyist in one quarter share that quarter',
+    vantage.quarters.some((q) => treaty.quarters.includes(q)));
+  check('and a client six years earlier shares NO quarter with them',
+    !charity.quarters.some((q) => vantage.quarters.includes(q)),
+    JSON.stringify(charity.quarters));
+
+  const contacted = g.contacted.find((e) => /Vantage/.test(e.org));
+  check('an org→agency edge carries quarters too',
+    contacted.quarters.includes('2025Q2'), JSON.stringify(contacted.quarters));
+
+  const cy = G.toCypher({ orgs: [], subjects: [], appears: [], filed: [],
+    cases: [], lobby: g });
+  check('quarters are actually written to the LOBBIED_FOR edge',
+    cy.some((c) => /LOBBIED_FOR/.test(c.q) && /e\.quarters = r\.quarters/.test(c.q)));
+  check('and to the LOBBIED edge',
+    cy.some((c) => /\[e:LOBBIED\]/.test(c.q) && /e\.quarters = r\.quarters/.test(c.q)));
+
+  // ---- the queries themselves ----------------------------------------
+  const Q = G.QUERIES;
+  for (const name of ['lobbyist', 'agency', 'converge']) {
+    check(`${name} is a named query`, !!Q[name]);
+    check(`${name} says what it does NOT establish`,
+      /not|never|no /i.test(Q[name].why), Q[name].why.slice(0, 60));
+  }
+  check('converge needs a term — it is about ONE client',
+    Q.converge.needsTerm === true);
+  check('lobbyist and agency do NOT need a term — they scan the library',
+    !Q.lobbyist.needsTerm && !Q.agency.needsTerm);
+
+  // THE ONE THAT MATTERS. A pair query that does not compare quarters is
+  // the weak finding wearing the strong finding's name: two clients "in
+  // 2025" may be ten months apart.
+  for (const name of ['lobbyist', 'agency', 'converge']) {
+    check(`${name} compares QUARTERS, not just years`,
+      /quarters/.test(Q[name].cypher), name);
+  }
+  // Each side of a pair must be ordered so a pair appears once, not twice
+  // mirrored -- otherwise every finding is silently doubled.
+  for (const name of ['lobbyist', 'agency']) {
+    check(`${name} emits each pair once, not mirrored`,
+      /key <|key <>/.test(Q[name].cypher), name);
+  }
+  check('converge excludes the target from its own results',
+    /other\.key <> target\.key/.test(Q.converge.cypher));
+
+  // A shared lobbyist NAME is not a resolved person, and the query that
+  // trades on it must say so where it will be read.
+  check('the lobbyist query warns a shared name is not a resolved person',
+    /not a resolved person|no identifier/i.test(Q.lobbyist.why));
+  check('the agency query refuses to imply the parties met',
+    /who was in the room|coordinated|never as a link/i.test(Q.agency.why));
 }
 
 console.log(`\n  ${FAIL ? 'FAIL' : 'PASS'} — ${PASS}/${PASS + FAIL} checks\n`);

@@ -243,7 +243,14 @@ function build(captures) {
  */
 function buildLobbyLayer(captureDir, L) {
   const read = L.readFilings(captureDir);
-  const filings = L.dedupe(read.filings);
+  // DESTRUCTURED, AND THIS WAS A REAL BUG THAT SHIPPED. lobby.dedupe returns
+  // { filings, superseded }, not an array. Assigning the object and iterating
+  // it threw `filings is not iterable` on the FIRST call with the real
+  // module -- and no test caught it, because every test passed a stub whose
+  // dedupe returned the array. Nineteen checks all passed against a contract
+  // the real module does not implement. A stub that does not match its
+  // subject tests the stub.
+  const { filings, superseded } = L.dedupe(read.filings);
 
   // THE ORG KEY MUST BE THE SAME ONE build() USED. Org nodes are keyed on the
   // normalised name, so an edge carrying the raw display name matches nothing
@@ -266,6 +273,12 @@ function buildLobbyLayer(captureDir, L) {
     return map.get(key);
   };
   const yr = (f) => (f.year == null ? null : String(f.year));
+  // YEAR OVERLAP IS NOT QUARTER OVERLAP, AND THE DIFFERENCE DECIDES WHETHER
+  // A FINDING IS PUBLISHABLE. Two clients of one lobbyist "in 2025" may be
+  // ten months apart; the same pair in 2025Q2 is a much narrower claim. The
+  // edges carried years only, so every convergence question that could be
+  // asked of this graph was asked at the weaker resolution.
+  const per = (f) => (f.year == null || !f.period ? null : `${f.year}${f.period}`);
 
   for (const f of filings) {
     const client = (f.client || '').trim();
@@ -309,10 +322,11 @@ function buildLobbyLayer(captureDir, L) {
         const k = JSON.stringify([name, key(client)]);
         const e = bump(lobbiedFor, k, () => ({
           person: name, org: client, org_key: key(client),
-          filings: 0, years: new Set(), urls: new Set(),
+          filings: 0, years: new Set(), quarters: new Set(), urls: new Set(),
         }));
         e.filings += 1;
         if (yr(f)) e.years.add(yr(f));
+        if (per(f)) e.quarters.add(per(f));
         if (f.url) e.urls.add(f.url);
       }
       if (registrant) {
@@ -333,10 +347,11 @@ function buildLobbyLayer(captureDir, L) {
       const k = JSON.stringify([key(client), name]);
       const e = bump(contacted, k, () => ({
         org: client, org_key: key(client), agency: name,
-        filings: 0, years: new Set(), urls: new Set(),
+        filings: 0, years: new Set(), quarters: new Set(), urls: new Set(),
       }));
       e.filings += 1;
       if (yr(f)) e.years.add(yr(f));
+      if (per(f)) e.quarters.add(per(f));
       if (f.url) e.urls.add(f.url);
     }
 
@@ -363,9 +378,11 @@ function buildLobbyLayer(captureDir, L) {
     people: [...people.values()],
     agencies: [...agencies.values()],
     issues: [...issues.values()],
-    lobbied_for: out(lobbiedFor, (e) => ({ urls: [...e.urls].sort() })),
+    lobbied_for: out(lobbiedFor, (e) => ({
+      urls: [...e.urls].sort(), quarters: [...e.quarters].sort() })),
     registered_with: out(registeredWith),
-    contacted: out(contacted, (e) => ({ urls: [...e.urls].sort() })),
+    contacted: out(contacted, (e) => ({
+      urls: [...e.urls].sort(), quarters: [...e.quarters].sort() })),
     on_issue: out(onIssue),
     money: [...money.values()].map((m) => ({
       registrant: m.registrant,
@@ -385,6 +402,7 @@ function buildLobbyLayer(captureDir, L) {
     })),
     // Coverage, beside the counts rather than under them.
     filings_read: read.filings.length,
+    amendments_superseded: superseded,
     filings_after_dedupe: filings.length,
     truncated_subjects: read.subjects.filter((s) => s.truncated).length,
     unparsed: read.unparsed.length,
@@ -513,6 +531,7 @@ function toCypher(graph) {
           MATCH (o:Org {key: r.org_key})
           MERGE (p)-[e:LOBBIED_FOR]->(o)
           SET e.filings = toInteger(r.filings), e.years = r.years,
+              e.quarters = r.quarters,
               e.urls = r.urls, e.basis = 'senate_lda_filing'`,
       params: { rows: g.lobbied_for }, note: `${g.lobbied_for.length} person → client`,
     });
@@ -531,6 +550,7 @@ function toCypher(graph) {
           MATCH (a:Agency {name: r.agency})
           MERGE (o)-[e:LOBBIED]->(a)
           SET e.filings = toInteger(r.filings), e.years = r.years,
+              e.quarters = r.quarters,
               e.urls = r.urls, e.basis = 'senate_lda_filing'`,
       params: { rows: g.contacted }, note: `${g.contacted.length} client → agency` });
     if (g.on_issue.length) stmts.push({
@@ -629,6 +649,101 @@ const QUERIES = {
       RETURN reg.name AS registrant, clients, threads, from_one_client,
              filings_in_library, via
       ORDER BY clients ASC, threads DESC
+      LIMIT $limit`,
+  },
+
+  // ── THE PERSON LAYER ──────────────────────────────────────────────────
+  //
+  // `bridges` answers "which FIRM connects several of your threads". On a
+  // firm with 15,124 filings that answer is nearly meaningless: a firm that
+  // size carries a data-centre operator, a utility, NASCAR and the National
+  // Wild Turkey Federation, and the shared registrant tells you only that
+  // they are large. The base rate eats the finding.
+  //
+  // A NAMED LOBBYIST is a much narrower object. A person filed on two
+  // clients' disclosures, in the same quarter, contacting the same
+  // government body, is a specific and checkable claim about specific
+  // filings. These three queries ask that, and they read data that has been
+  // in the graph since c611af0 with nothing to query it.
+  //
+  // WHAT NONE OF THEM ESTABLISH, and every one of them says so in its own
+  // output: a lobbyist name on two filings is a NAME on two filings. The
+  // LDA carries no identifier for a person, so two "J. Smith" rows may be
+  // two people, and one person may appear under three spellings. Person
+  // nodes are written is_resolved_identity = false for that reason.
+  // Resolving them is done against a document, by the operator.
+
+  lobbyist: {
+    what: 'named lobbyists who filed for MORE THAN ONE of your clients',
+    why: 'The narrowest form of the shared-representation finding this graph '
+      + 'can produce. `shared_quarters` is the column that matters: two '
+      + 'clients "in 2025" may be ten months apart, the same pair in 2025Q2 '
+      + 'is a much tighter claim. A shared NAME is not a resolved person — '
+      + 'the LDA carries no identifier, so confirm the individual against '
+      + 'the filings before writing anything down.',
+    cypher: `
+      MATCH (p:Person)-[a:LOBBIED_FOR]->(c1:Org)
+      MATCH (p)-[b:LOBBIED_FOR]->(c2:Org)
+      WHERE c1.key < c2.key
+      WITH p, c1, c2, a, b,
+           [q IN coalesce(a.quarters, []) WHERE q IN coalesce(b.quarters, [])] AS shared
+      RETURN p.name                       AS lobbyist,
+             c1.name                      AS client_a,
+             c2.name                      AS client_b,
+             size(shared)                 AS shared_quarters,
+             shared[..6]                  AS quarters,
+             a.filings + b.filings        AS filings,
+             (coalesce(a.urls, []) + coalesce(b.urls, []))[..2] AS cite
+      ORDER BY shared_quarters DESC, filings DESC
+      LIMIT $limit`,
+  },
+
+  agency: {
+    what: 'organisations that lobbied the SAME government body in the SAME quarter',
+    why: 'Two clients reporting contact with one agency in one quarter is '
+      + 'co-occurrence in a disclosure, and that is all. It does not mean '
+      + 'they met, coordinated, or knew of each other — the LDA reports '
+      + 'WHICH body was contacted, never who was in the room or what was '
+      + 'said. Read this as a place to look, never as a link.',
+    cypher: `
+      MATCH (o1:Org)-[x:LOBBIED]->(ag:Agency)<-[y:LOBBIED]-(o2:Org)
+      WHERE o1.key < o2.key
+      WITH ag, o1, o2, x, y,
+           [q IN coalesce(x.quarters, []) WHERE q IN coalesce(y.quarters, [])] AS shared
+      WHERE size(shared) > 0
+      RETURN ag.name        AS agency,
+             o1.name        AS organisation_a,
+             o2.name        AS organisation_b,
+             size(shared)   AS shared_quarters,
+             shared[..6]    AS quarters,
+             (coalesce(x.urls, []) + coalesce(y.urls, []))[..2] AS cite
+      ORDER BY shared_quarters DESC
+      LIMIT $limit`,
+  },
+
+  converge: {
+    what: 'one client: who else its lobbyists carry, and where those overlap',
+    needsTerm: true,
+    why: 'The question the Cornerstone run raised and could not answer. Given '
+      + 'ONE client, it finds the named people on its filings and every OTHER '
+      + 'client those same people filed for, with the quarters both were '
+      + 'active. This is a SAMPLE of the firm\'s book, not the firm\'s book: '
+      + 'run `connect senatelda --registrant` to depth before reading a '
+      + 'convergence as an absence of anything else.',
+    cypher: `
+      MATCH (p:Person)-[a:LOBBIED_FOR]->(target:Org)
+      WHERE toLower(target.name) CONTAINS toLower($term)
+      MATCH (p)-[b:LOBBIED_FOR]->(other:Org)
+      WHERE other.key <> target.key
+      WITH target, other, p, a, b,
+           [q IN coalesce(a.quarters, []) WHERE q IN coalesce(b.quarters, [])] AS shared
+      RETURN other.name                    AS other_client,
+             collect(DISTINCT p.name)[..4] AS via_lobbyists,
+             count(DISTINCT p)             AS lobbyists_in_common,
+             max(size(shared))             AS best_quarter_overlap,
+             sum(b.filings)                AS their_filings,
+             (collect(b.urls)[0])[..2]     AS cite
+      ORDER BY lobbyists_in_common DESC, best_quarter_overlap DESC
       LIMIT $limit`,
   },
 

@@ -789,6 +789,33 @@ async function cmdGraph(opts) {
   }
 
   const g = G.build(captures);
+
+  // THE LOBBYING LAYER WAS BUILT AND NEVER CALLED.
+  //
+  // c611af0 added buildLobbyLayer -- people, agencies, issues, money and
+  // time, lifted out of filings the graph had been discarding -- and wired
+  // it into nothing. `connect graph` pushed the same org/subject graph it
+  // always had, the new queries would have returned nothing, and the commit
+  // message said the graph had stopped discarding them. Tested, committed,
+  // pushed, dead. A layer nobody calls is a layer that does not exist.
+  const L = require('./lobby.js');
+  let lobby = null;
+  try {
+    lobby = G.buildLobbyLayer(R.CAPTURES, L);
+    // ATTACHED AS g.lobby, NOT SPREAD ONTO g. toCypher reads `graph.lobby`,
+    // so a flat merge produces a graph object that looks complete, passes
+    // every shape check, and emits not one lobbying statement. That was the
+    // third way this layer was disconnected: wrong contract, never called,
+    // wrong key.
+    g.lobby = lobby;
+  } catch (e) {
+    // A failure here must not take the base graph down with it: the
+    // org/subject layer is older, independently useful, and was working
+    // before this existed.
+    console.log(`\n  ${C.y('the lobbying layer could not be built')} — ${e.message}`);
+    console.log(C.dim('  The org/subject graph below is unaffected.'));
+  }
+
   const stmts = G.toCypher(g);
 
   console.log(`\n  ${C.b('Graph from the captured library')}`);
@@ -797,6 +824,21 @@ async function cmdGraph(opts) {
   console.log(`    ${String(g.subjects.length).padStart(5)}  subjects (searches you ran)`);
   console.log(`    ${String(g.filed.length).padStart(5)}  FILED_FOR    ${C.dim('sworn lobbying filings')}`);
   console.log(`    ${String(g.appears.length).padStart(5)}  APPEARS_UNDER ${C.dim('search results, NOT links between orgs')}`);
+
+  if (lobby) {
+    console.log('');
+    console.log(`    ${String(lobby.people.length).padStart(5)}  people        ${C.dim('lobbyist NAMES — not resolved identities')}`);
+    console.log(`    ${String(lobby.agencies.length).padStart(5)}  agencies      ${C.dim('government bodies reported contacted')}`);
+    console.log(`    ${String(lobby.issues.length).padStart(5)}  issues`);
+    console.log(`    ${String(lobby.lobbied_for.length).padStart(5)}  LOBBIED_FOR   ${C.dim('person → client')}`);
+    console.log(`    ${String(lobby.contacted.length).padStart(5)}  LOBBIED       ${C.dim('client → agency')}`);
+    console.log(C.dim(`\n  ${lobby.filings_read} filing(s) read · `
+      + `${lobby.amendments_superseded} amendment(s) collapsed · `
+      + `${lobby.filings_after_dedupe} counted`));
+    if (lobby.truncated_subjects) {
+      console.log(C.dim(`  ${lobby.truncated_subjects} subject(s) truncated — these counts are floors.`));
+    }
+  }
 
   if (g.counts_are_floors) {
     console.log(`\n  ${C.y('TRUNCATED')} — ${g.truncated_captures} capture(s) held fewer rows than the source reported.`);
