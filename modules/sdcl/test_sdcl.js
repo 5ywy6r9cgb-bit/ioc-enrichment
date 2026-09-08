@@ -155,6 +155,14 @@ for (const n of names) {
       ok(caseSubs.has(sub), `${n}: "case ${sub}" is a documented case subcommand`);
     } else if (verb === 'pra') {
       ok(praSubs.has(sub), `${n}: "pra ${sub}" is an advertised pra subcommand`);
+    } else if (verb === 'moneyflow') {
+      // moneyflow takes a TARGET, not a subcommand, so there is no action list
+      // to check it against. The failure mode for a target-taking verb is the
+      // opposite one: a line that routes perfectly and asks about nothing,
+      // because the target got dropped while building the string. Run with no
+      // target, `sentinel moneyflow` reports the whole library -- which looks
+      // like a working command and answers a question nobody asked.
+      ok(c.run.includes(PROBE), `${n}: "${c.run}" carries the target, not just the verb`);
     }
     ok(typeof c.why === 'string' && c.why.length > 10, `${n}: "${c.run}" says why`);
   }

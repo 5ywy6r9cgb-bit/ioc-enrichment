@@ -79,6 +79,7 @@ bin/sentinel montage ...          # openmontage video engine
 bin/sentinel vuln ...             # atlas CVE prioritization
 bin/sentinel doc get <url>        # fetch one primary source, hashed
 bin/sentinel sec history <cik>    # every filing one entity made, with URLs
+bin/sentinel moneyflow "ENTITY"    # every dollar figure on disk touching a name
 bin/sentinel corpus <sub> ...     # inventory / OCR a folder of records
 bin/sentinel shelf <sub> ...      # external drives, by volume identity
 ```
@@ -1484,6 +1485,104 @@ this desk's own captures, `ALPINE GROUP PARTNERS, LLC.` files for both
 and a gas utility. That is a thread worth pulling. It is still a lead: a firm
 with four hundred clients will appear there for reasons that mean nothing.
 
+### `sentinel moneyflow` — every dollar figure on disk, in one place
+
+```bash
+bin/sentinel moneyflow "Vantage Data Centers"       # in, out, by kind
+bin/sentinel moneyflow "Vantage Data Centers LLC" --exact
+bin/sentinel moneyflow                              # what money is in the library at all
+bin/sentinel connect moneyflow "NiSource"           # same command, either spelling
+```
+
+Four connectors on this desk carry dollar figures, and until now each was
+read on its own. That is why "what money is around this name" had no answer:
+the same company is a CLIENT in one capture, a RECIPIENT in another, and a
+PAYEE in a third, and nothing put those three facts beside each other.
+
+`moneyflow` reads all four out of `evidence/captures/` and reports them as
+payer → payee rows. No network call. Nothing is fetched.
+
+| Source | Kind of money | Direction |
+|---|---|---|
+| `senatelda` | lobbying fees | client → outside firm |
+| `senatelda` | in-house lobbying spend | the organisation, on itself |
+| `fecspend` | independent expenditures | committee → vendor, about a candidate |
+| `usaspending` | federal contracts | agency → recipient |
+| `federalgrants` | federal grants | agency → recipient |
+
+### There is no total line, and there never will be
+
+A lobbying fee, a contract award and an ad buy are three different objects
+that happen to be counted in dollars.
+
+- A **lobbying fee** is money that moved, in a quarter, for a service.
+- A **contract award** is a ceiling authorised over a multi-year period.
+  Much of it may never be spent. It is not a payment.
+- An **independent expenditure** is what one committee spent on an ad. It
+  says nothing about who gave that committee the money.
+
+Add them and you get a figure that is arithmetically correct, looks
+authoritative on a chart, and means nothing. So every total is **per kind**,
+each prints its unit and its legal authority above the number, and there is
+no grand total anywhere in the code — not as a field, not behind a flag.
+
+### The same filing, five hundred times
+
+Your capture directory holds roughly 500 `senatelda` captures for one
+registrant, written one per second by a pagination run. They all contain the
+same filings.
+
+A reader that walked that directory adding up `income` would report that
+firm's lobbying revenue as **500× its real value**, sourced to real sworn
+filings, with nothing about the output looking wrong.
+
+So every source is deduplicated on the identity the source gives its own
+rows before a single figure is added — and the number of duplicate rows
+dropped is printed at the top of every run. On your library that number will
+be in the thousands. That is the library being read correctly, not an error.
+
+Amendments are collapsed the same way: a quarter filed and then amended is
+**one** quarter, because an amendment restates rather than adds.
+
+### A partial name match never happens silently
+
+`moneyflow "Vantage"` matches nothing exactly, so it widens to a fragment
+match — and then says so, lists every legal name it matched, and prints the
+figures **again split by legal name**:
+
+```
+THE SAME FIGURES, SPLIT BY LEGAL NAME
+  Vantage Data Centers LLC
+    lobbying fees                           $110,000  2 row(s)
+    federal contracts                     $9,200,000  1 row(s)
+  Vantage Data Centers OH-E, LLC
+    lobbying fees                            $20,000  1 row(s)
+```
+
+`Vantage Data Centers LLC` and `Vantage Data Centers OH-E, LLC` are separate
+Ohio registrations. Whether they are one body is a corporate-registry
+question, not a filing question, and this command will not answer it for
+you. Use `--exact` to refuse fragment matching entirely.
+
+### What is absent by design
+
+Printed at the bottom of every run, so a null is never read as a zero:
+
+- **State and local money, entirely.** All four sources are federal. Ohio
+  campaign finance, Ohio lobbying (JCARR/OLIG), county boards of elections
+  and every municipal contract are invisible here. For an Ohio subject this
+  can print nothing while large sums moved.
+- **Donors.** Schedule E names who SPENT. Who funded the spender is a
+  different filing, and for a 501(c)(4) may not be filed anywhere.
+- **Candidate committee spending** — a different schedule.
+- **Federal loans and guarantees** (award groups 07/08) — never requested by
+  either USAspending connector. A DOE Loan Programs Office loan hides here.
+- **Tax abatements.** `doc abatements` reads GASB 77 out of audited annual
+  reports — a document store, not a capture store, and foregone revenue is
+  not a payment. A known gap, not an empty result.
+
+---
+
 ### `connect brief` — read what you captured
 
 ```bash
@@ -2570,7 +2669,7 @@ No search reaches FINDING. Searches reach EVIDENCE at best. A CLAIM is what
 | `UNBACKED` | Nothing in this system reads that source. The route is a records request, and the verb says so instead of printing a command that would merely look busy. |
 
 Run `bin/sentinel ask coverage` for the current split and every gap by name.
-As of this writing: **15 BACKED, 14 PARTIAL, 11 UNBACKED**.
+As of this writing: **16 BACKED, 13 PARTIAL, 11 UNBACKED**.
 
 Eleven UNBACKED verbs is not a defect in the vocabulary — it is §9 of this
 manual, made executable. `FOLLOWLAND`, `PROPERTY`, `BOR` and `VALUATION` are

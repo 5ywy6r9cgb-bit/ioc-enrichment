@@ -48,6 +48,8 @@
 #   sentinel connect all "SUBJECT"  search every source at once
 #   sentinel connect crosslink      what appears under more than one subject
 #   sentinel connect lobby --chart  read the captured lobbying filings, charted
+#   sentinel moneyflow "ENTITY"     every dollar figure on disk touching a name
+#   sentinel moneyflow "ENTITY" --exact   no partial name match, ever
 #   sentinel connect expand         ask every registrant who else they file for
 #   sentinel connect sweep SET      run a whole named subject list
 #   sentinel connect farascan --match RE   scan the WHOLE FARA register for a principal
@@ -245,6 +247,9 @@ PYSTATUS
     echo "== graph =="
     node "$ROOT/modules/connectors/test_graph.js" || FAILED=1
 
+    echo "== moneyflow =="
+    node "$ROOT/modules/connectors/test_moneyflow.js" || FAILED=1
+
     echo "== the command language =="
     node "$ROOT/modules/sdcl/test_sdcl.js" || FAILED=1
     echo ""
@@ -427,7 +432,7 @@ PYSTATUS
     # works when the module is called directly is not yet a command that works.
     action="${1:-test}"; shift || true
     case "$action" in
-      test|list|all|crosslink|foreign|lobby|graph|expand|sweep|brief|farascan|dockets|entries|screen|entity)
+      test|list|all|crosslink|foreign|lobby|moneyflow|graph|expand|sweep|brief|farascan|dockets|entries|screen|entity)
         node "$ROOT/modules/connectors/cli.js" "$action" "$@"
         ;;
       *)
@@ -546,6 +551,13 @@ PYSTATUS
   doc)
     # Fetch a primary source, hash it, and find out if it is readable.
     node "$ROOT/modules/docs/cli.js" "$@"
+    ;;
+
+  moneyflow)
+    # Every dollar figure already on disk that touches one name, from every
+    # direction, with the KIND of money never lost. Reads captures only --
+    # no network call. Also reachable as `sentinel connect moneyflow`.
+    node "$ROOT/modules/connectors/cli.js" moneyflow "$@"
     ;;
 
   sec)

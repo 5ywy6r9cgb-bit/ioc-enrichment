@@ -1167,6 +1167,257 @@ function cmdLobby(opts) {
 }
 
 /**
+ * `sentinel moneyflow ENTITY` — every dollar figure on disk that touches one
+ * name, from every direction, with the kind of money never lost.
+ *
+ * WHY THE OUTPUT IS SHAPED THIS WAY
+ *
+ * The temptation in a money report is one big number at the bottom. There
+ * isn't one here and there never will be: a contract ceiling, a lobbying fee
+ * and an ad buy are three different objects, and the sum of them is a figure
+ * that is arithmetically correct and factually meaningless. So every total is
+ * per kind, each kind states its unit and its legal authority above the
+ * figure, and the closing line says why nothing is added up.
+ *
+ * Coverage prints BEFORE any figure, because every number in this report is a
+ * floor over a library the operator assembled by searching. What was never
+ * searched is not zero.
+ */
+function cmdMoneyflow(entity, opts = {}) {
+  const M = require('./moneyflow.js');
+  const dir = path.join(R.EVIDENCE, 'captures');
+  const usd = (n) => '$' + Number(n).toLocaleString('en-US');
+
+  const read = M.readFlows(dir);
+
+  if (!read.capturesRead) {
+    console.log(`\n  ${C.dim('No money captures on disk yet. These four carry dollar figures:')}`);
+    console.log(C.dim('    sentinel connect senatelda "Vantage Data Centers"     lobbying fees'));
+    console.log(C.dim('    sentinel connect fecspend "Growth PAC"                independent expenditures'));
+    console.log(C.dim('    sentinel connect usaspending "Vantage Data Centers"   federal contracts'));
+    console.log(C.dim('    sentinel connect federalgrants "Vantage Data Centers" federal grants\n'));
+    return;
+  }
+
+  console.log(`\n  ${C.b('MONEYFLOW')}  ${entity ? C.b(entity) : C.dim('(whole library)')}`);
+  console.log(C.dim(`  ${read.capturesRead} money capture(s) read · ${read.flows.length} distinct row(s) · no network call`));
+
+  // ── the deduplication, said out loud ──────────────────────────────────
+  //
+  // Not a footnote. On the live desk this number is in the thousands, and it
+  // is the difference between this report and one that multiplies a
+  // registrant's revenue by how many times a search was re-run.
+  if (read.duplicatesDropped) {
+    console.log(C.dim(`  ${read.duplicatesDropped} duplicate row(s) dropped — the same filing or award`));
+    console.log(C.dim('  appearing in more than one capture is counted ONCE, not once per capture.'));
+  }
+  console.log('');
+
+  // ── coverage, before any figure that depends on it ────────────────────
+  const cov = M.coverage(read.sources);
+  const truncated = cov.filter((c) => c.truncated);
+  const unknown = cov.filter((c) => c.totalUnknown && !c.truncated);
+  if (truncated.length) {
+    console.log(`  ${C.y('TRUNCATED — EVERY FIGURE BELOW IS A FLOOR')}`);
+    console.log(C.dim('  These searches returned fewer rows than the source said exist.'));
+    const show = opts.verbose ? truncated.length : Math.min(truncated.length, 8);
+    for (const c of truncated.slice(0, show)) {
+      const denom = c.worstTotal === null
+        ? 'more exist, how many is unstated'
+        : `kept ${c.worstKept} of ${c.worstTotal}`;
+      const times = c.captures > 1 ? C.dim(`  (×${c.captures} captures)`) : '';
+      console.log(C.dim(`    ${c.connector.padEnd(14)}${c.subject.slice(0, 34).padEnd(36)}${denom}`) + times);
+    }
+    if (truncated.length > show) {
+      console.log(C.dim(`    …and ${truncated.length - show} more subject(s) (--verbose for all)`));
+    }
+    console.log('');
+  }
+  if (unknown.length) {
+    console.log(C.dim(`  ${unknown.length} subject(s) reported no total — whether those captures are`));
+    console.log(C.dim('  complete is UNKNOWN, which is not the same as complete.\n'));
+  }
+
+  if (!entity) {
+    // No name given: say what is in the library rather than guessing a subject.
+    const s = M.summarise(read.flows);
+    console.log(`  ${C.b('WHAT IS IN THE LIBRARY')}`);
+    for (const k of s) {
+      const span = !k.years.length ? 'no dates'
+        : k.years.length === 1 ? k.years[0]
+        : `${k.years[0]}–${k.years[k.years.length - 1]}`;
+      console.log(`    ${k.label.padEnd(38)}${C.dim(`${k.rows} row(s) · ${span}`)}`);
+    }
+    console.log(C.dim('\n    sentinel moneyflow "Vantage Data Centers"\n'));
+    return;
+  }
+
+  // ── the entity ────────────────────────────────────────────────────────
+  const found = M.flowsFor(read.flows, entity, { exact: opts.exact });
+  if (!found.hits.length) {
+    console.log(`  ${C.y('NOTHING ON DISK TOUCHES THAT NAME.')}`);
+    console.log(C.dim('  That is a fact about your library, not about the entity. It has four'));
+    console.log(C.dim('  ordinary causes before it has an interesting one:'));
+    console.log(C.dim('    1. You have not searched it yet — nothing here goes to the network.'));
+    console.log(C.dim('    2. The filings spell it differently. Try a shorter fragment.'));
+    console.log(C.dim('    3. The money is STATE or LOCAL. All four sources are federal only.'));
+    console.log(C.dim('    4. It is a federal LOAN — award groups 07/08 are not captured at all.'));
+    if (opts.exact) console.log(C.dim('    (--exact was set, so no partial match was attempted.)'));
+    console.log('');
+    return;
+  }
+
+  // A WIDENED MATCH IS AN IDENTIFICATION THE OPERATOR HAS TO MAKE.
+  //
+  // "Vantage Data Centers LLC" and "Vantage Data Centers OH-E, LLC" are
+  // separate corporations with separate Ohio registrations. Adding their
+  // money together asserts a corporate relationship that no filing here
+  // establishes. So the names are printed, always, and the operator decides.
+  if (found.widened) {
+    console.log(`  ${C.y('MATCHED ON A NAME FRAGMENT — READ THIS BEFORE THE FIGURES')}`);
+    console.log(C.dim(`  No party is named exactly "${entity}". These ${found.names.length} name(s) contain it:`));
+    for (const nm of found.names) console.log(`    ${nm}`);
+    console.log(C.dim('  If those are separate legal entities, their money is being shown'));
+    console.log(C.dim('  together here and should not be totalled as one body. Confirm against'));
+    console.log(C.dim('  a corporate registry, or re-run with --exact.\n'));
+  } else {
+    console.log(C.dim(`  Exact name match. ${found.names.length} party spelling(s): ${found.names.join(' · ').slice(0, 120)}\n`));
+  }
+
+  const dirs = M.directions(found.hits, found.key, found.widened);
+  const summary = M.summarise(found.hits);
+
+  // ── totals, per kind, never across ────────────────────────────────────
+  console.log(`  ${C.b('REPORTED FIGURES, BY KIND')}`);
+  for (const k of summary) {
+    const fig = k.reported === null ? C.dim('none reported') : C.b(usd(k.reported));
+    console.log(`    ${C.b(k.label)}`);
+    console.log(C.dim(`      unit       ${k.unit}`));
+    console.log(C.dim(`      source     ${k.authority}`));
+    console.log(`      reported   ${fig}  ${C.dim(`across ${k.rowsWithAmount} of ${k.rows} row(s)`)}`);
+    if (k.rowsWithNoAmount) {
+      console.log(C.dim(`      ${k.rowsWithNoAmount} row(s) reported NO figure — not counted as $0.`));
+    }
+    if (k.years.length) console.log(C.dim(`      years      ${k.years.join(', ')}`));
+    console.log('');
+  }
+  console.log(C.y('  THERE IS NO TOTAL LINE, ON PURPOSE.'));
+  console.log(C.dim('  A contract ceiling, a lobbying fee and an ad buy are different objects.'));
+  console.log(C.dim('  Adding them gives a number that is correct and means nothing.\n'));
+
+  // ── UNDO THE MERGE THE WIDENED MATCH JUST MADE ────────────────────────
+  //
+  // A banner saying "these might be different companies" above a single
+  // combined figure is a warning nobody can act on: the reader has no way to
+  // see how much of the total belongs to which body. So on a widened match
+  // the same figures are shown again, split by the legal name they were
+  // filed under. If the split shows one name carrying everything, the
+  // widening cost nothing. If it shows three, the combined figure above was
+  // never one company's money and this is where that becomes visible.
+  if (found.widened && found.names.length > 1) {
+    console.log(`  ${C.b('THE SAME FIGURES, SPLIT BY LEGAL NAME')}`);
+    console.log(C.dim('  Because the match was on a fragment. Nothing here says these are one'));
+    console.log(C.dim('  body -- that is a corporate-registry question, not a filing question.'));
+    for (const nm of found.names) {
+      const own = M.flowsFor(found.hits, nm, { exact: true });
+      const sub = M.summarise(own.hits);
+      console.log(`    ${C.b(nm.slice(0, 60))}`);
+      if (!sub.length) { console.log(C.dim('      (named only as the target of an expenditure)')); continue; }
+      for (const k of sub) {
+        const fig = k.reported === null ? C.dim('none reported') : usd(k.reported);
+        console.log(`      ${k.label.padEnd(34)}${fig.padStart(14)}  ${C.dim(`${k.rows} row(s)`)}`);
+      }
+    }
+    console.log('');
+  }
+
+  // ── direction ─────────────────────────────────────────────────────────
+  const block = (title, rows, note) => {
+    if (!rows.length) return;
+    console.log(`  ${C.b(title)}`);
+    if (note) console.log(C.dim(`  ${note}`));
+    const cp = M.byCounterparty(rows, found.key, found.widened);
+    for (const e of cp.slice(0, opts.verbose ? 999 : 12)) {
+      const fig = e.reported === null ? C.dim('no figure') : usd(e.reported);
+      console.log(`    ${e.counterparty.slice(0, 44).padEnd(46)}${fig.padStart(14)}  ${C.dim(`${e.rows} row(s) · ${e.label}`)}`);
+      if (e.names.length > 1) {
+        console.log(C.dim(`      ${e.names.length} spellings folded here: ${e.names.join(' | ').slice(0, 90)}`));
+      }
+      if (e.years.length) console.log(C.dim(`      ${e.years.join(', ')}`));
+      for (const u of e.urls) console.log(C.dim(`      ${u}`));
+    }
+    if (cp.length > 12 && !opts.verbose) {
+      console.log(C.dim(`    …and ${cp.length - 12} more (--verbose for all)`));
+    }
+    console.log('');
+  };
+
+  block('MONEY OUT — WHO THIS ENTITY PAID', dirs.paid);
+  block('MONEY IN — WHO PAID THIS ENTITY', dirs.received,
+    'A federal award is a ceiling authorised over the award period. It is not'
+    + '\n  a payment and much of it may never be spent.');
+  block('IN-HOUSE SPEND — THE ENTITY ON BOTH SIDES', dirs.self,
+    'Reported lobbying expenses. There is no counterparty: this is what the'
+    + '\n  organisation spent on its own lobbying, never added to fees paid out.');
+
+  // The target of an independent expenditure is neither payer nor payee.
+  if (dirs.mentioned.length) {
+    console.log(`  ${C.b('SPENT ABOUT THIS NAME — NOT PAID TO IT')}`);
+    console.log(C.dim('  Independent expenditures naming this entity as the candidate. The money'));
+    console.log(C.dim('  went to a vendor, NOT to the candidate — that is what makes it'));
+    console.log(C.dim('  independent. Roughly half of large IE money is spent AGAINST someone.'));
+    for (const f of dirs.mentioned.slice(0, opts.verbose ? 999 : 12)) {
+      const fig = f.amount === null ? C.dim('no figure') : usd(f.amount);
+      const em = /^OPPOSING/.test(f.about) ? C.y(f.about) : f.about;
+      console.log(`    ${(f.date || '').padEnd(12)}${fig.padStart(14)}  ${em.slice(0, 60)}`);
+      console.log(C.dim(`      spender ${f.payer.slice(0, 40)}   paid to ${f.payee.slice(0, 40)}`));
+    }
+    console.log('');
+  }
+
+  // ── time ──────────────────────────────────────────────────────────────
+  const ser = M.series(found.hits);
+  if (ser.length > 1) {
+    console.log(`  ${C.b('BY YEAR')}`);
+    console.log(C.dim('  Per kind, never merged. A year with rows but no figure prints as'));
+    console.log(C.dim('  "no figure", not $0 — a disclosure gap is not a drop in spending.'));
+    let last = null;
+    for (const y of ser) {
+      if (y.kind !== last) { console.log(C.dim(`    ${y.label}`)); last = y.kind; }
+      const fig = y.reported === null ? C.dim('no figure') : usd(y.reported);
+      console.log(`      ${y.year}  ${fig.padStart(14)}  ${C.dim(`${y.rows} row(s)`)}`);
+    }
+    console.log('');
+  }
+
+  if (read.unparsed.length) {
+    console.log(C.y(`  ${read.unparsed.length} capture(s) would not parse and are excluded`));
+    for (const u of read.unparsed.slice(0, 5)) console.log(C.dim(`    ${u.file}`));
+    console.log('');
+  }
+
+  // ── what is absent by design ──────────────────────────────────────────
+  console.log(C.dim('  ' + '─'.repeat(74)));
+  console.log(C.y('  WHAT IS NOT IN THIS REPORT, SO A NULL IS NEVER READ AS A ZERO'));
+  console.log(C.dim('    STATE AND LOCAL MONEY, ENTIRELY. All four sources are federal. Ohio'));
+  console.log(C.dim('      campaign finance, Ohio lobbying (JCARR/OLIG), county boards of'));
+  console.log(C.dim('      elections and every municipal contract are absent. For an Ohio'));
+  console.log(C.dim('      subject this can print nothing while large sums moved.'));
+  console.log(C.dim('    DONORS. Schedule E names who SPENT. Who funded the spender is a'));
+  console.log(C.dim('      different filing, and for a 501(c)(4) may not be filed anywhere.'));
+  console.log(C.dim('    CANDIDATE COMMITTEE SPENDING — a different schedule, not captured.'));
+  console.log(C.dim('    FEDERAL LOANS AND GUARANTEES (award groups 07/08) — never requested.'));
+  console.log(C.dim('    TAX ABATEMENTS. `sentinel doc abatements` reads GASB 77 out of audited'));
+  console.log(C.dim('      annual reports. Foregone revenue is not a payment and is a separate'));
+  console.log(C.dim('      store; it is a known gap, not an empty result.'));
+  console.log('');
+  console.log(C.y('  A FILING IS AN ASSERTION, NOT A FINDING.'));
+  console.log(C.dim('  Every row above is someone swearing they paid or received this. That is'));
+  console.log(C.dim('  far stronger than a name overlap and still is not proof of what was'));
+  console.log(C.dim('  done with the money. Pull the filing and cite that.\n'));
+}
+
+/**
  * connect senatelda --registrant "FIRM NAME" — every client a firm files for.
  *
  * WHY THIS IS A SEPARATE COMMAND
@@ -2987,6 +3238,18 @@ async function main() {
     return i >= 0 && list[i + 1] && !list[i + 1].startsWith('--') ? list[i + 1] : null;
   };
 
+  if (action === 'moneyflow') {
+    // The ENTITY is positional. A flag-only invocation reports what is in the
+    // library rather than guessing a subject -- guessing which of a hundred
+    // captured names the operator meant is how a report about the wrong
+    // company gets published under the right heading.
+    const name = positional(1).join(' ').trim();
+    return cmdMoneyflow(name, {
+      verbose: argv.includes('--verbose'),
+      exact: argv.includes('--exact'),
+    });
+  }
+
   if (action === 'search') {
     return cmdSearch(args[1], positional(2).join(' '),
       Object.assign({}, opts, searchFlags(), { into: intoOf(argv) }));
@@ -2997,7 +3260,7 @@ async function main() {
   }
 
   console.error(`unknown action: ${action}`);
-  console.error('usage: cli.js test | list | all "SUBJECT" [--into INV] | crosslink | lobby [--chart] | search <connector> "QUERY" [--dry-run]');
+  console.error('usage: cli.js test | list | all "SUBJECT" [--into INV] | crosslink | lobby [--chart] | moneyflow "ENTITY" [--exact] | search <connector> "QUERY" [--dry-run]');
   process.exit(2);
 }
 
@@ -3007,4 +3270,4 @@ if (require.main === module) {
   main().catch((e) => { console.error(e); process.exit(1); });
 }
 
-module.exports = { verdictFor, cmdTest, cmdFaraScan, cmdFaraLayers, wrap, parseAllArgs, cmdLobby, cmdGraph, cmdRegistrant, cmdExpand, cmdSweep, cmdBrief };
+module.exports = { verdictFor, cmdTest, cmdFaraScan, cmdFaraLayers, wrap, parseAllArgs, cmdLobby, cmdMoneyflow, cmdGraph, cmdRegistrant, cmdExpand, cmdSweep, cmdBrief };

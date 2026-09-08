@@ -21,8 +21,8 @@ So SDCL is a **router**. Each verb carries a status:
 
 | Status | Count | Meaning |
 |---|---|---|
-| `BACKED` | 15 | A real connector or reader answers this. |
-| `PARTIAL` | 14 | Something runs, and it answers less than the verb promises. The gap is printed above the commands. |
+| `BACKED` | 16 | A real connector or reader answers this. |
+| `PARTIAL` | 13 | Something runs, and it answers less than the verb promises. The gap is printed above the commands. |
 | `UNBACKED` | 11 | Nothing here reads that source. The route is a records request, and the verb says so. |
 
 `modules/sdcl/test_sdcl.js` enforces the part that matters: **every command
@@ -71,7 +71,7 @@ and the gate has four rules and no `--force`.
 | Verb | Status | Ceiling | Asks |
 |---|---|---|---|
 | `FOLLOWMONEY` | `BACKED` | `EVIDENCE` | Who paid whom, on the record, and how much. |
-| `MONEYFLOW` | `PARTIAL` | `LEAD` | Which direction the money ran, and through how many hands. |
+| `MONEYFLOW` | `BACKED` | `EVIDENCE` | Which direction the money ran, and through how many hands. |
 | `SUBSIDY` | `BACKED` | `EVIDENCE` | How much tax revenue a government gave up, and to whom. |
 | `PUBLICBENEFIT` | `UNBACKED` | `LEAD` | What the public was promised in return, and whether it arrived. |
 | `CONTRACTS` | `BACKED` | `EVIDENCE` | What this entity was paid to do by a government. |
@@ -131,7 +131,6 @@ cannot yet *answer*, with the reason.
 |---|---|---|
 | `NETWORK` | `PARTIAL` | no denominator until `connect expand` has run against the same registrants |
 | `TIMELINE` | `PARTIAL` | no timeline builder. `connect brief` lists dated captures; the ordering is still yours |
-| `MONEYFLOW` | `PARTIAL` | no path tracer. The graph shows adjacency, and adjacency is not flow |
 | `PUBLICBENEFIT` | `UNBACKED` | development agreements are local contracts. No API. Records request only. |
 | `FOLLOWLAND` | `UNBACKED` | county auditor and recorder records are not connected. The dispatcher says so on its own help screen. |
 | `PROPERTY` | `UNBACKED` | no auditor connector |
@@ -179,7 +178,7 @@ are the lines that stop a capture count from being read as a finding.
 
 **`FOLLOWMONEY`** — ZERO IS A RESULT AND IT IS NOT NOTHING. Early Warning Services returned zero USAspending contracts while spending six figures a quarter on lobbying. That contrast is the finding. Do not discard an empty result — record it.
 
-**`MONEYFLOW`** — The graph draws only what you captured. An absent edge means nobody searched it.
+**`MONEYFLOW`** — It reads only what you captured. An absent figure means nobody searched it. Kinds are never summed: a contract ceiling is not a lobbying fee is not an ad buy.
 
 **`SUBSIDY`** — One ACFR is one government for one year. New Albany, Licking County and the school district are three separate books, and the same abatement appears differently in each.
 

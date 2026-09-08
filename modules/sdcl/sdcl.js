@@ -155,6 +155,7 @@ const VERBS = {
       { run: `sentinel connect fecspend ${q(t)}`, why: 'what campaign committees spent, and with whom' },
       { run: `sentinel connect fec ${q(t)}`, why: 'contributions received' },
       { run: `sentinel connect senatelda --registrant ${q(t)}`, why: 'lobbying dollars, quarter by quarter' },
+      { run: `sentinel moneyflow ${q(t)}`, why: 'then READ all four back as one flow, without summing across kinds' },
     ],
     denominator: 'ZERO IS A RESULT AND IT IS NOT NOTHING. Early Warning Services returned zero '
       + 'USAspending contracts while spending six figures a quarter on lobbying. That contrast '
@@ -165,13 +166,22 @@ const VERBS = {
   MONEYFLOW: {
     family: 'MONEY',
     asks: 'Which direction the money ran, and through how many hands.',
-    status: 'PARTIAL',
-    ceiling: 'LEAD',
-    commands: () => [
+    // Was PARTIAL/LEAD and pointed only at the graph dashboard. `sentinel
+    // moneyflow` now reads the dollar figures out of the captures directly,
+    // and those rows are filed disclosures rather than co-occurrence -- the
+    // same evidentiary weight FOLLOWMONEY already claims.
+    status: 'BACKED',
+    ceiling: 'EVIDENCE',
+    commands: (t) => [
+      { run: `sentinel moneyflow ${q(t)}`,
+        why: 'every dollar figure on disk touching this name, in and out, by kind' },
+      { run: `sentinel moneyflow ${q(t)} --exact`,
+        why: 'same, refusing any partial name match -- use when siblings share a prefix' },
       { run: 'sentinel connect graph --dashboard --side-a "ENERGY|POWER|GAS" --side-b "AWS|META|MICROSOFT"',
         why: 'two named sides of your captures, and what sits between them' },
     ],
-    denominator: 'The graph draws only what you captured. An absent edge means nobody searched it.',
+    denominator: 'It reads only what you captured. An absent figure means nobody searched it. '
+      + 'Kinds are never summed: a contract ceiling is not a lobbying fee is not an ad buy.',
     notThis: 'Tracing a payment through an intermediary. FARA layering is visible; bank flow is not.',
     gap: 'no path tracer. The graph shows adjacency, and adjacency is not flow',
   },
