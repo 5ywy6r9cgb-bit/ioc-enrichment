@@ -13,6 +13,7 @@ const H = require('./_harness.js');
 const SUITES = [
   ['db_policy',                 require('./db_policy.test.js')],
   ['schema_metadata_only',      require('./schema_metadata_only.test.js')],
+  ['schema_version',            require('./schema_version.test.js')],
   ['seed_integrity',            require('./seed_integrity.test.js')],
   ['load_seeds',                require('./load_seeds.test.js')],
   ['deadline_engine',           require('./deadline_engine.test.js')],
