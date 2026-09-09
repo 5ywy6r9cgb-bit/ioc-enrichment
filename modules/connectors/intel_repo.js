@@ -57,6 +57,25 @@ const CONFIDENCE_MAP = {
   disputed: 'disputed',
 };
 
+// Migration 0008 added entity_links.assertion_type — what KIND of claim an
+// edge is, as opposed to how sure of it we are. It has NO column default on
+// purpose, so this adapter has to state a value on every insert or the write
+// fails. That is the design working, not a gap to paper over: stating it here,
+// once, in a table you can read is the explicit act the missing default was
+// asking for.
+//
+// The glassmark grades were never precise about this distinction, so the map
+// is deliberately pessimistic — anything short of an actual document is a
+// lead. 'disputed' maps to documented because a dispute is about whether the
+// document is RIGHT, which is the confidence axis; the document still exists.
+const ASSERTION_MAP = {
+  needs_source: 'hypothesis',
+  unconfirmed: 'hypothesis',
+  documented: 'documented',
+  confirmed: 'documented',
+  disputed: 'documented',
+};
+
 // sources.source_type has a CHECK; map connector notions onto it.
 const SOURCE_TYPE_MAP = {
   courtlistener: 'court_filing',
@@ -260,14 +279,34 @@ class IntelRepo {
       // entity_links has a CHECK against self-links; fail with a clear message.
       throw new Error('intel_repo.insertRelationship: refused — an entity cannot link to itself');
     }
+    // A caller may state assertion_type outright; otherwise it is derived from
+    // the glassmark grade, and an unrecognised grade falls to the weakest
+    // category rather than the strongest.
+    const assertion = rel.assertion_type || ASSERTION_MAP[rel.glassmark] || 'hypothesis';
+    if (!['documented', 'derived', 'hypothesis'].includes(assertion)) {
+      throw new Error(
+        `intel_repo.insertRelationship: refused — assertion_type '${assertion}' is not one of documented, derived, hypothesis`);
+    }
+    const confidence = CONFIDENCE_MAP[rel.glassmark] || 'unverified';
+    if (assertion === 'hypothesis' && confidence === 'confirmed') {
+      // entity_links has a CHECK against this; fail with a clear message
+      // rather than a constraint name from the driver.
+      throw new Error(
+        'intel_repo.insertRelationship: refused — a lead cannot be confirmed. Document it first, then confirm it.');
+    }
+    // as_of_date is an INSTANT, so it belongs in occurred_on. Before migration
+    // 0008 it went to started_on because that was the only date column, which
+    // is why some older rows carry an instant in an interval field. See the
+    // note in migrations/0008_evidence_relationships.sql.
     const res = await this.db.query(
       `INSERT INTO entity_links
-         (from_entity_id, to_entity_id, relation, started_on, amount, source_id, confidence, notes)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+         (from_entity_id, to_entity_id, relation, occurred_on, amount, source_id,
+          confidence, assertion_type, notes)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
        RETURNING link_id`,
       [rel.from_institution, rel.to_institution, rel.relation_type || 'affiliated_with',
        rel.as_of_date || null, rel.amount_usd || null, rel.primary_source,
-       CONFIDENCE_MAP[rel.glassmark] || 'unverified',
+       confidence, assertion,
        rel.note || 'case metadata alone does not establish outcome or fault']
     );
     return res.rows[0].link_id;
@@ -296,4 +335,4 @@ class IntelRepo {
   }
 }
 
-module.exports = { IntelRepo, KIND_MAP, CONFIDENCE_MAP, SOURCE_TYPE_MAP, slug };
+module.exports = { IntelRepo, KIND_MAP, CONFIDENCE_MAP, ASSERTION_MAP, SOURCE_TYPE_MAP, slug };

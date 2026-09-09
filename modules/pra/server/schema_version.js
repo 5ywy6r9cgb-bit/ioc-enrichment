@@ -8,10 +8,22 @@
  * inside an unrelated operation. Better to say so at startup, in one sentence.
  */
 
-/** Migrations this code expects. Add a row here when you add a migration. */
+/** Migrations this code expects. Add a row here when you add a migration.
+ *
+ * This list had stopped at 0002 while migrations/ had reached 0007, so a
+ * correctly-migrated database reported five "migrations this code does not
+ * know about" and the check that exists to catch drift was itself the thing
+ * drifting. A stale checker is worse than no checker: it trains you to ignore
+ * the one message that matters. */
 const EXPECTED = [
   { version: '0.6.1', migration_id: '0001_v0_6_1_metadata_schema' },
   { version: '0.7.0', migration_id: '0002_v0_7_master_schema' },
+  { version: '0.7.1', migration_id: '0003_connector_runs' },
+  { version: '0.7.2', migration_id: '0004_lobbying' },
+  { version: '0.7.3', migration_id: '0005_federal_jurisdiction' },
+  { version: '0.7.4', migration_id: '0006_push_subscriptions' },
+  { version: '0.7.5', migration_id: '0007_mandamus_and_delivery' },
+  { version: '0.8.0', migration_id: '0008_evidence_relationships' },
 ];
 
 async function applied(exec) {

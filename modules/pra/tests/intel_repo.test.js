@@ -1,6 +1,6 @@
 'use strict';
 const H = require('./_harness.js');
-const { IntelRepo, KIND_MAP, CONFIDENCE_MAP } = require('../../connectors/intel_repo.js');
+const { IntelRepo, KIND_MAP, CONFIDENCE_MAP, ASSERTION_MAP } = require('../../connectors/intel_repo.js');
 const cl = require('../../connectors/courtlistener_connector.js');
 const pacer = require('../../connectors/pacer_connector_stub.js');
 
@@ -78,6 +78,53 @@ module.exports = async function run() {
   H.eq('company maps to business', KIND_MAP.company, 'business');
   H.eq("the connectors' needs_source maps to unverified", CONFIDENCE_MAP.needs_source, 'unverified');
   H.eq('unconfirmed maps to unverified', CONFIDENCE_MAP.unconfirmed, 'unverified');
+
+  // --- assertion_type (migration 0008). The column has NO default, so every
+  // insert this adapter issues must carry one or the write fails at the
+  // database. These checks are the reason the connectors survived 0008.
+  const relRepo = new IntelRepo(fakeDb());
+  await relRepo.insertRelationship({
+    from_institution: 'A', to_institution: 'B', primary_source: 'SRC-1',
+    glassmark: 'needs_source', as_of_date: '2026-01-01',
+  });
+  const edge = relRepo.db.calls.find((c) => /INSERT INTO entity_links/i.test(c.text));
+  H.check('an edge insert was issued', !!edge);
+  H.check('every edge states an assertion_type', edge && /assertion_type/.test(edge.text));
+  H.check('an ungraded lead is written as a hypothesis, not as documented',
+    edge && edge.params.includes('hypothesis'));
+  H.check('no edge is written as documented by default',
+    edge && !edge.params.includes('documented'));
+
+  // an instant goes in occurred_on, not into one end of an interval
+  H.check('an as-of date is written to occurred_on', edge && /occurred_on/.test(edge.text));
+  H.check('an as-of date no longer opens a started_on interval',
+    edge && !/started_on/.test(edge.text));
+
+  H.eq('needs_source is a lead, not a document', ASSERTION_MAP.needs_source, 'hypothesis');
+  H.eq('unconfirmed is a lead, not a document', ASSERTION_MAP.unconfirmed, 'hypothesis');
+  H.eq('a disputed document is still a document', ASSERTION_MAP.disputed, 'documented');
+  H.check('no glassmark grade maps an edge to derived — only a caller can claim that',
+    !Object.values(ASSERTION_MAP).includes('derived'));
+
+  // the two axes are independent, and exactly one pairing is incoherent
+  await H.throwsAsync('a lead cannot be written as confirmed',
+    () => relRepo.insertRelationship({
+      from_institution: 'A', to_institution: 'B', primary_source: 'SRC-1',
+      glassmark: 'confirmed', assertion_type: 'hypothesis',
+    }), 'a lead cannot be confirmed');
+  await H.throwsAsync('an invented assertion_type is refused before it reaches the CHECK',
+    () => relRepo.insertRelationship({
+      from_institution: 'A', to_institution: 'B', primary_source: 'SRC-1',
+      assertion_type: 'probably',
+    }), 'is not one of documented, derived, hypothesis');
+  const derived = new IntelRepo(fakeDb());
+  await derived.insertRelationship({
+    from_institution: 'A', to_institution: 'B', primary_source: 'SRC-1',
+    glassmark: 'confirmed', assertion_type: 'derived',
+  });
+  const dEdge = derived.db.calls.find((c) => /INSERT INTO entity_links/i.test(c.text));
+  H.check('a derived edge CAN be confirmed — sound arithmetic on documented inputs',
+    dEdge && dEdge.params.includes('derived') && dEdge.params.includes('confirmed'));
 
   // --- the org / person heuristic
   for (const n of ['Acme Water Services, LLC', 'Beta Utility Corp', 'Gamma Holdings Inc.', 'Delta Partners LLP'])
