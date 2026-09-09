@@ -71,7 +71,7 @@ wherever you happen to be:
 ```bash
 cd ~/sentinel/modules/openmontage/engine
 python3 openmontage.py --fonts       # every type role must say "ok"
-python3 openmontage.py --self-test   # 79 checks
+python3 openmontage.py --self-test   # 89 checks
 python3 om_audio.py --self-test      # 41 checks
 python3 ../visual_system/visual_manifest.py --self-test   # 49 checks
 ```
@@ -468,6 +468,18 @@ needs its own manifest rather than borrowing this one.
 
 `0` fine · `2` spec error · `3` a scene breaks the safe zone · `4` a manifest
 no longer matches its files.
+
+---
+
+## 9b. Cutting your own footage in
+
+```bash
+python3 ../../engine/openmontage.py --spec episode.json --takes
+```
+
+Put clips in `takes/`, name them with `take` (question scenes) and `vo_audio`
+(any scene), and `--out` produces the finished film with no editor involved.
+See [`RECORDING.md`](RECORDING.md).
 
 A safe-zone failure means content sits where the platform draws captions and
 buttons. Fix the spec, don't ignore it — it looks right in a contact sheet and

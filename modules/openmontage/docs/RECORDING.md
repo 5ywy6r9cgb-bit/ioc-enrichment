@@ -49,6 +49,63 @@ Recompute for any episode: `scene_start + (dur × 0.55)` is the cut point.
 
 ---
 
+## Or skip the editor entirely
+
+Put your recordings in `takes/` beside the spec, name them in the scenes, and
+the engine cuts the finished video itself.
+
+```bash
+mkdir -p takes
+# copy your clips in, then in episode.json:
+```
+
+```jsonc
+{ "type": "question", "dur": 6.0, "question": "What can a database prove?",
+  "take": "takes/scene02.mov" },
+
+{ "type": "title", "dur": 6.5, "title": "…",
+  "vo_audio": "takes/vo_scene01.wav" }
+```
+
+| field | where it goes | what it does |
+|---|---|---|
+| `take` | a `question` scene | your clip runs full-frame after the question types on |
+| `vo_audio` | any scene | your narration, mixed over the bed for that scene |
+
+Then one command produces the finished film — bed, narration, your face, your
+voice, captions, and a manifest hashing every file it used:
+
+```bash
+python3 ../../engine/openmontage.py --spec episode.json --out builds/ep01.mp4
+```
+
+**Where am I?**
+
+```bash
+python3 ../../engine/openmontage.py --spec episode.json --takes
+```
+
+Lists every scene, which takes have landed, which are missing, and what the
+finished runtime will be. Renders nothing.
+
+Notes that matter:
+
+- **A take extends its scene.** The clip runs for its own full length; it is
+  never trimmed to fit `dur`. The finished runtime grows, which `--takes`
+  reports before you render.
+- **Your clip is scaled and cropped to fill**, never letterboxed. Shoot a
+  little wide.
+- **A silent take is legal** — the mix just carries no voice from it.
+- **A missing take stops preflight**, not minute three of a render.
+- Levels do not shift as you record more. The mix uses `normalize=0`, so the
+  bed stays where `audio_gain` put it whether you have supplied one clip or
+  eight.
+
+Everything below is for when you want an editor anyway — colour, b-roll,
+anything the renderer does not do.
+
+---
+
 ## Track layout
 
 ```

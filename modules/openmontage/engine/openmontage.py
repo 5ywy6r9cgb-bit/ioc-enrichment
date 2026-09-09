@@ -76,6 +76,97 @@ class SpecError(Exception):
 PHOTO_ORIGINS = {"camera", "licensed", "generated"}
 
 
+# ------------------------------------------------------- your own footage
+# THE INDEPENDENCE FEATURE.
+#
+# Until now the engine produced a skeleton and a human assembled the finished
+# cut in a video editor. That made the last mile depend on a separate tool and
+# on remembering where each take went. Two fields close it:
+#
+#   "take":     a clip of you answering, cut in after the question types on
+#   "vo_audio": your narration for one scene, laid over the bed
+#
+# Both are paths relative to the spec, by convention under takes/. With them
+# set, `--out` produces the FINISHED video: bed, narration, your face, your
+# voice, captions, and a manifest hashing every one of those files. No editor,
+# no chat session, no network.
+TAKES_DIR = "takes"
+
+# Where a question scene hands over to you. The question types across the
+# first 55% of the scene (scene_question), so the take replaces what is left.
+TAKE_HANDOVER = 0.55
+
+
+def ffprobe_duration(path: Path) -> float:
+    """Seconds of media, from ffprobe. Raises SpecError with the reason."""
+    try:
+        out = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+             "-of", "default=noprint_wrappers=1:nokey=1", str(path)],
+            capture_output=True, text=True, check=True).stdout.strip()
+        d = float(out)
+    except FileNotFoundError:
+        raise SpecError("ffprobe not found on PATH. It ships with ffmpeg: "
+                        "brew install ffmpeg")
+    except (subprocess.CalledProcessError, ValueError):
+        raise SpecError(f"could not read a duration from {path}. Is it really "
+                        f"a media file?")
+    if d <= 0:
+        raise SpecError(f"{path} reports a duration of {d}s")
+    return d
+
+
+def has_audio_stream(path: Path) -> bool:
+    """Does this file carry audio? A silent take is legal and must not make
+    the audio graph reference a stream that is not there.
+
+    A missing ffprobe RAISES rather than returning False. The first version
+    caught every exception, so on a machine without ffprobe installed every
+    take reported "no audio" and rendered with your voice silently dropped —
+    a perfect-looking video missing the thing you recorded. Not answering is
+    not the same as answering no.
+    """
+    try:
+        out = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "a",
+             "-show_entries", "stream=index", "-of", "csv=p=0", str(path)],
+            capture_output=True, text=True, check=True).stdout.strip()
+        return bool(out)
+    except FileNotFoundError:
+        raise SpecError("ffprobe not found on PATH. It ships with ffmpeg: "
+                        "brew install ffmpeg")
+    except subprocess.CalledProcessError as e:
+        raise SpecError(f"ffprobe could not read {path.name}: "
+                        f"{(e.stderr or '').strip()[:300]}")
+
+
+def take_frames(path: Path, ctx: Ctx):
+    """Yield RGB frames from your clip, scaled and cropped to fill the frame.
+
+    Decoded by ffmpeg into the same raw RGB the renderer already writes, so a
+    take is piped into the output exactly like a drawn scene — one encode, no
+    intermediate files, no concat and no timestamp drift.
+
+    scale+crop rather than pad: a vertical episode should not letterbox your
+    face because the clip was shot slightly wider.
+    """
+    vf = (f"scale={ctx.W}:{ctx.H}:force_original_aspect_ratio=increase,"
+          f"crop={ctx.W}:{ctx.H},fps={ctx.FPS}")
+    cmd = ["ffmpeg", "-v", "error", "-i", str(path), "-vf", vf,
+           "-f", "rawvideo", "-pix_fmt", "rgb24", "-"]
+    n = ctx.W * ctx.H * 3
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    try:
+        while True:
+            buf = proc.stdout.read(n)
+            if len(buf) < n:
+                break
+            yield Image.frombytes("RGB", (ctx.W, ctx.H), buf)
+    finally:
+        proc.stdout.close()
+        proc.wait()
+
+
 # ----------------------------------------------------------------- helpers
 @lru_cache(maxsize=256)
 def font(key: str, size: int) -> ImageFont.FreeTypeFont:
@@ -681,6 +772,35 @@ def resolve_scene(scene: dict, base: Path, theme: dict, idx: int) -> dict:
         except brand.BrandError as e:
             raise SpecError(f"{where}: {e}")
 
+    # --- your own footage. Resolved here so a missing take fails in preflight
+    # rather than three minutes into a render.
+    if s.get("take"):
+        if st != "question":
+            raise SpecError(f"{where}: 'take' belongs on a question scene — that "
+                            "is the one that holds a gap for you to fill")
+        tp = (base / s["take"]).resolve()
+        if not tp.is_file():
+            raise SpecError(f"{where}: take not found: {tp}\n"
+                            f"    Recorded takes live in {TAKES_DIR}/ beside the spec.")
+        s["_take_path"] = tp
+        s["_take_dur"] = ffprobe_duration(tp)
+        s["_take_audio"] = has_audio_stream(tp)
+        # the question types on, then the take runs for its own full length
+        s["_hold"] = dur * TAKE_HANDOVER
+        s["_effective_dur"] = s["_hold"] + s["_take_dur"]
+    else:
+        s["_effective_dur"] = dur
+
+    if s.get("vo_audio"):
+        vp = (base / s["vo_audio"]).resolve()
+        if not vp.is_file():
+            raise SpecError(f"{where}: narration not found: {vp}\n"
+                            f"    Recorded narration lives in {TAKES_DIR}/ beside the spec.")
+        if not has_audio_stream(vp):
+            raise SpecError(f"{where}: {vp.name} carries no audio stream")
+        s["_vo_path"] = vp
+        s["_vo_dur"] = ffprobe_duration(vp)
+
     if "xfade" in s:                        # per-scene transition override
         try:
             s["xfade"] = max(0.0, float(s["xfade"]))
@@ -760,6 +880,13 @@ def resolve_scene(scene: dict, base: Path, theme: dict, idx: int) -> dict:
 def preflight(spec_path: Path, out: Path, spec: dict, force: bool) -> tuple[Ctx, list, dict]:
     if shutil.which("ffmpeg") is None:
         raise SpecError("ffmpeg not found on PATH")
+    # ffprobe reads the length of your own clips. It ships alongside ffmpeg
+    # everywhere ffmpeg is packaged, so its absence means a partial install —
+    # worth saying now rather than when the first take is resolved.
+    if shutil.which("ffprobe") is None and any(
+            s.get("take") or s.get("vo_audio") for s in spec.get("scenes", [])):
+        raise SpecError("ffprobe not found on PATH, and this episode cuts in "
+                        "your own recordings.\n    It ships with ffmpeg: brew install ffmpeg")
     for role, path in brand.font_report():
         if not path:
             raise SpecError(f"no font for type role '{role}' on this machine — run "
@@ -857,7 +984,17 @@ def frames_for(scenes, fps):
 
 
 def render_frame(s, i, nf, ctx, prev_last, xf_frames):
-    img = RENDERERS[s["type"]](i / nf, s, ctx)
+    return render_frame_at(s, i / nf, i, ctx, prev_last, xf_frames)
+
+
+def render_frame_at(s, t: float, i: int, ctx, prev_last, xf_frames):
+    """Draw one frame at an EXPLICIT progress value.
+
+    A take scene runs its question animation across a portion of the scene
+    rather than all of it, so progress and frame index stop being the same
+    number. Everything else calls render_frame, which is this with t = i/nf.
+    """
+    img = RENDERERS[s["type"]](t, s, ctx)
     if prev_last is not None and i < xf_frames:
         img = Image.blend(prev_last, img, ease(i / xf_frames))
     return img
@@ -898,93 +1035,73 @@ def build_manifest(spec_path, spec, scenes, out: Path, ctx, elapsed,
 
 
 def render(spec_path: Path, out: Path, force: bool, verbose: bool) -> dict:
+    """Render the episode, cutting in any recorded takes and narration.
+
+    TWO PASSES, and the reason matters. Video is written first, alone, and the
+    START FRAME of every scene is recorded as it is written. Audio is muxed
+    afterwards against those real frame numbers.
+
+    Predicting the offsets instead would mean trusting `int(dur * fps)` for a
+    clip ffmpeg is resampling with the fps filter, and a one-frame error there
+    puts your voice permanently 33ms out — audible, and impossible to find
+    later. The video is stream-copied into the mux, so the second pass costs
+    seconds and re-encodes nothing.
+    """
     spec = load_spec(spec_path)
     ctx, scenes, _ = preflight(spec_path, out, spec, force)
-    total = sum(s["dur"] for s in scenes)
-    nframes = frames_for(scenes, ctx.FPS)
+    has_own = any(s.get("_take_path") or s.get("_vo_path") for s in scenes)
+    total = sum(s["_effective_dur"] for s in scenes)
+    nframes = sum(int(s["_effective_dur"] * ctx.FPS) for s in scenes)
     print(f"openmontage {VERSION} · {len(scenes)} scenes · {total:.1f}s · "
           f"{ctx.W}x{ctx.H} @ {ctx.FPS}fps · {nframes} frames")
+    if has_own:
+        nt = sum(1 for s in scenes if s.get("_take_path"))
+        nv = sum(1 for s in scenes if s.get("_vo_path"))
+        print(f"  yours     {nt} take(s) on camera · {nv} narration clip(s)")
 
-    # ffmpeg requires every input to be declared BEFORE any output option, so
-    # the command is assembled in three parts rather than patched at the tail.
+    silent = out.with_suffix(".video.mp4")
     video_in = ["ffmpeg", "-y", "-f", "rawvideo", "-pix_fmt", "rgb24",
                 "-s", f"{ctx.W}x{ctx.H}", "-r", str(ctx.FPS), "-i", "-"]
     encode = ["-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "20",
               "-movflags", "+faststart"]
-
-    # Audio: either a file you supply, or a bed synthesised from the scene list.
-    # The synthesised bed is generated here, from om_audio.py — nothing is
-    # sampled or licensed, and the wav is hashed into the manifest like every
-    # other input.
-    audio_path, audio_note, audio_vol = None, None, None
-    if spec.get("audio"):
-        ap = (spec_path.parent / spec["audio"]).resolve()
-        if not ap.is_file():
-            raise SpecError(f"audio file not found: {ap}")
-        audio_path = ap
-        audio_vol = float(spec.get("audio_volume", 0.2))
-        audio_note = f"supplied file: {ap.name}"
-    elif spec.get("audio_bed", True) and om_audio is not None:
-        try:
-            style = str(spec.get("audio_style", "drone")).lower()
-            if style == "groove":
-                track = om_audio.groove_for(total,
-                                            float(spec.get("audio_gain", 1.0)),
-                                            int(spec.get("audio_seed", 7)),
-                                            float(spec.get("audio_notch_db", -9.0)))
-            elif style == "cipher":
-                track = om_audio.cipher_for(total,
-                                            float(spec.get("audio_gain", 1.0)),
-                                            int(spec.get("audio_seed", 3)),
-                                            float(spec.get("audio_notch_db", -14.0)))
-            elif style == "drone":
-                track = om_audio.build_track(scenes, total,
-                                             float(spec.get("audio_gain", 1.0)),
-                                             bool(spec.get("audio_drone", True)))
-            else:
-                raise SpecError(f"unknown audio_style '{style}'. "
-                                "Known: drone, groove, cipher")
-            wav = out.with_suffix(".bed.wav")
-            om_audio.write_wav(wav, track)
-            st = om_audio.analyze(track)
-            audio_path = wav
-            audio_note = (f"generated {style} bed · peak {st['peak_dbfs']} dBFS · "
-                          f"{st['speech_band_energy_pct']}% of energy in the "
-                          f"speech band")
-            print(f"  audio     {audio_note}")
-        except Exception as ex:
-            raise SpecError(f"audio generation failed: {ex}")
-    elif spec.get("audio_bed", True) and om_audio is None:
-        print("  audio     om_audio unavailable (numpy missing) — rendering silent")
-
-    if audio_path:
-        cmd = video_in + ["-i", str(audio_path)] + encode + \
-              ["-c:a", "aac", "-b:a", "192k", "-shortest"]
-        if audio_vol is not None:
-            cmd += ["-filter:a", f"volume={audio_vol}"]
-        cmd += [str(out)]
-    else:
-        cmd = video_in + encode + [str(out)]
     err = None if verbose else subprocess.PIPE
-    proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=err)
+    proc = subprocess.Popen(video_in + encode + [str(silent)],
+                            stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=err)
 
     t0 = time.time()
     default_xf = float(spec.get("crossfade", 0.45))
     prev_last, done = None, 0
+    starts = []                       # (scene, first frame index) as WRITTEN
     try:
         for si, s in enumerate(scenes):
-            nf = int(s["dur"] * ctx.FPS)
-            # a scene may set its own transition; "xfade": 0 is a hard cut
+            starts.append(done)
             xf = int(float(s.get("xfade", default_xf)) * ctx.FPS)
-            for i in range(nf):
-                img = render_frame(s, i, nf, ctx, prev_last, xf)
-                proc.stdin.write(img.tobytes())
-                done += 1
+            if s.get("_take_path"):
+                # the question types on, mapped so it COMPLETES at handover
+                hold = int(s["_hold"] * ctx.FPS)
+                for i in range(hold):
+                    img = render_frame_at(s, (i / max(1, hold)) * TAKE_HANDOVER,
+                                          i, ctx, prev_last, xf)
+                    proc.stdin.write(img.tobytes())
+                    done += 1
+                cut_at = done
+                for img in take_frames(s["_take_path"], ctx):
+                    proc.stdin.write(img.tobytes())
+                    done += 1
+                s["_take_start_frame"] = cut_at
+                nf = done - starts[-1]
+            else:
+                nf = int(s["dur"] * ctx.FPS)
+                for i in range(nf):
+                    img = render_frame(s, i, nf, ctx, prev_last, xf)
+                    proc.stdin.write(img.tobytes())
+                    done += 1
             prev_last = img
             el = time.time() - t0
-            eta = el / done * (nframes - done)
+            eta = el / max(1, done) * max(0, nframes - done)
+            tag = "  <- your take" if s.get("_take_path") else ""
             print(f"  [{si+1}/{len(scenes)}] {s['type']:<7} {nf:4d} frames · "
-                  f"{el:5.1f}s elapsed · ~{eta:4.1f}s left")
+                  f"{el:5.1f}s elapsed · ~{eta:4.1f}s left{tag}")
         proc.stdin.close()
     except BrokenPipeError:
         stderr = proc.stderr.read().decode(errors="replace") if proc.stderr else ""
@@ -994,13 +1111,211 @@ def render(spec_path: Path, out: Path, force: bool, verbose: bool) -> dict:
         stderr = proc.stderr.read().decode(errors="replace") if proc.stderr else ""
         raise SpecError(f"ffmpeg exited {proc.returncode}.\n" + (stderr[-1500:] or "(run --verbose)"))
 
+    # real duration, from frames actually written
+    real_total = done / ctx.FPS
+    for s, f0 in zip(scenes, starts):
+        s["_start_s"] = f0 / ctx.FPS
+
+    audio_note = mux_audio(spec, spec_path, scenes, ctx, silent, out,
+                           real_total, verbose)
+    try:
+        silent.unlink()
+    except OSError:
+        pass
+
     man = build_manifest(spec_path, spec, scenes, out, ctx, time.time() - t0,
                          audio_note)
+    man["video"]["duration_s"] = round(real_total, 3)
+    man["video"]["frames"] = done
     mp = out.with_suffix(".manifest.json")
     mp.write_text(json.dumps(man, indent=2) + "\n", encoding="utf-8")
     print(f"-> {out}\n-> {mp}")
     print(f"   output sha256 {man['output']['sha256']}")
     return man
+
+
+def build_bed(spec, scenes, total: float, out: Path):
+    """Synthesise the music bed for a known total duration. Returns (path, note)."""
+    if spec.get("audio"):
+        return None, None
+    if not (spec.get("audio_bed", True) and om_audio is not None):
+        if spec.get("audio_bed", True):
+            print("  audio     om_audio unavailable (numpy missing) — rendering silent")
+        return None, None
+    style = str(spec.get("audio_style", "drone")).lower()
+    gain = float(spec.get("audio_gain", 1.0))
+    if style == "groove":
+        track = om_audio.groove_for(total, gain, int(spec.get("audio_seed", 7)),
+                                    float(spec.get("audio_notch_db", -9.0)))
+    elif style == "cipher":
+        track = om_audio.cipher_for(total, gain, int(spec.get("audio_seed", 3)),
+                                    float(spec.get("audio_notch_db", -14.0)))
+    elif style == "drone":
+        track = om_audio.build_track(scenes, total, gain,
+                                     bool(spec.get("audio_drone", True)))
+    else:
+        raise SpecError(f"unknown audio_style '{style}'. Known: drone, groove, cipher")
+    wav = out.with_suffix(".bed.wav")
+    om_audio.write_wav(wav, track)
+    st = om_audio.analyze(track)
+    note = (f"generated {style} bed · peak {st['peak_dbfs']} dBFS · "
+            f"{st['speech_band_energy_pct']}% of energy in the speech band")
+    print(f"  audio     {note}")
+    return wav, note
+
+
+def mux_audio(spec, spec_path: Path, scenes, ctx: Ctx, silent: Path,
+              out: Path, total: float, verbose: bool) -> str:
+    """Lay the bed, your narration and your takes' sound under the video.
+
+    Every voice is placed by adelay at the scene's REAL start, measured from
+    frames written rather than from the durations in the spec.
+
+    amix normalises by default, which would quietly drop the bed by 6dB the
+    moment a second input appeared and by more with each one after — the mix
+    changing because of how many clips you happened to record. normalize=0
+    keeps every level the one that was set.
+    """
+    try:
+        bed, note = build_bed(spec, scenes, total, out)
+    except SpecError:
+        raise
+    except Exception as ex:
+        raise SpecError(f"audio generation failed: {ex}")
+
+    inputs, parts, labels = ["-i", str(silent)], [], []
+    supplied_vol = None
+    if spec.get("audio"):
+        ap = (spec_path.parent / spec["audio"]).resolve()
+        if not ap.is_file():
+            raise SpecError(f"audio file not found: {ap}")
+        bed, note = ap, f"supplied file: {ap.name}"
+        supplied_vol = float(spec.get("audio_volume", 0.2))
+
+    idx = 1
+    if bed:
+        inputs += ["-i", str(bed)]
+        vol = supplied_vol if supplied_vol is not None else 1.0
+        parts.append(f"[{idx}:a]volume={vol},atrim=0:{total:.3f}[bed]")
+        labels.append("[bed]")
+        idx += 1
+
+    voice_gain = float(spec.get("voice_gain", 1.0))
+    for n, s in enumerate(scenes, 1):
+        if s.get("_vo_path"):
+            inputs += ["-i", str(s["_vo_path"])]
+            ms = int(round(s["_start_s"] * 1000))
+            parts.append(f"[{idx}:a]volume={voice_gain},adelay={ms}:all=1[v{n}]")
+            labels.append(f"[v{n}]")
+            idx += 1
+        if s.get("_take_path") and s.get("_take_audio"):
+            inputs += ["-i", str(s["_take_path"])]
+            ms = int(round((s["_take_start_frame"] / ctx.FPS) * 1000))
+            parts.append(f"[{idx}:a]volume={voice_gain},adelay={ms}:all=1[t{n}]")
+            labels.append(f"[t{n}]")
+            idx += 1
+
+    if not labels:
+        shutil.move(str(silent), str(out))
+        return note or "silent"
+
+    if len(labels) == 1:
+        graph = ";".join(parts) + f";{labels[0]}anull[aout]"
+    else:
+        graph = ";".join(parts) + ";" + "".join(labels) + \
+                f"amix=inputs={len(labels)}:normalize=0:duration=first[aout]"
+
+    cmd = ["ffmpeg", "-y"] + inputs + [
+        "-filter_complex", graph, "-map", "0:v", "-map", "[aout]",
+        "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
+        "-movflags", "+faststart", str(out)]
+    r = subprocess.run(cmd, capture_output=not verbose, text=True)
+    if r.returncode != 0:
+        raise SpecError("ffmpeg could not mix the audio.\n"
+                        + ((r.stderr or "")[-1500:] or "(run --verbose)"))
+
+    voices = len(labels) - (1 if bed else 0)
+    if voices:
+        note = f"{note or 'no bed'} · {voices} of your own recording(s) mixed in"
+    return note or "silent"
+
+
+def takes_status(spec_path: Path) -> int:
+    """What have you recorded, what is still missing, and how long is the cut.
+
+    The whole point of the takes/ convention is that the answer to "where am I"
+    is a command rather than a memory. Reads the spec and the folder; renders
+    nothing, writes nothing.
+    """
+    spec = load_spec(spec_path)
+    base = spec_path.parent
+    scenes = spec.get("scenes", [])
+    tdir = base / TAKES_DIR
+
+    print(f"TAKES · {spec_path}")
+    print(f"  folder    {tdir}" + ("" if tdir.is_dir() else "   (does not exist yet)"))
+    print()
+
+    spec_total = have_total = 0.0
+    on_cam = recorded = narrated = 0
+    rows = []
+    for i, s in enumerate(scenes, 1):
+        dur = float(s.get("dur", 0))
+        spec_total += dur
+        eff = dur
+        st = s.get("type", "?")
+        marks = []
+
+        if st == "question":
+            on_cam += 1
+            tk = s.get("take")
+            p_ = (base / tk).resolve() if tk else None
+            if p_ and p_.is_file():
+                recorded += 1
+                try:
+                    d = ffprobe_duration(p_)
+                    eff = dur * TAKE_HANDOVER + d
+                    marks.append(f"take {d:.1f}s  {tk}")
+                except SpecError as e:
+                    marks.append(f"TAKE UNREADABLE  {e}")
+            elif tk:
+                marks.append(f"TAKE MISSING  {tk}")
+            else:
+                marks.append(f"not recorded — you are on camera here")
+
+        vo = s.get("vo_audio")
+        if vo:
+            vp = (base / vo).resolve()
+            if vp.is_file():
+                narrated += 1
+                marks.append(f"narration  {vo}")
+            else:
+                marks.append(f"NARRATION MISSING  {vo}")
+        elif s.get("vo"):
+            marks.append("narration not recorded — read it live over the render")
+
+        have_total += eff
+        rows.append((i, st, dur, eff, marks))
+
+    for i, st, dur, eff, marks in rows:
+        grew = f" -> {eff:.1f}s" if abs(eff - dur) > 0.05 else ""
+        print(f"  [{i:>2}] {st:<9} {dur:>5.1f}s{grew}")
+        for m in marks:
+            flag = "  !  " if m.split()[0].isupper() and " " in m else "     "
+            print(f"      {flag}{m}")
+
+    print()
+    print(f"  on camera        {recorded} of {on_cam} recorded")
+    print(f"  narration        {narrated} clip(s) supplied")
+    print(f"  rendered length  {spec_total:.1f}s")
+    print(f"  finished length  {have_total:.1f}s"
+          + ("  (grows as takes land)" if recorded < on_cam else ""))
+    if recorded < on_cam:
+        print()
+        print(f"  Drop clips in {TAKES_DIR}/ and name them in the spec:")
+        print('      "take": "takes/scene06.mov"')
+        print('      "vo_audio": "takes/vo_scene01.wav"')
+    return 0
 
 
 def dry_run(spec_path: Path, out: Path):
@@ -1518,6 +1833,79 @@ def self_test() -> int:
         check("an unreadable manifest is refused with a reason",
               verify_manifest(b7 / "nope.json", quiet=True) == 2)
 
+    # --- your own footage. The probes shell out to ffprobe, so they are
+    # stubbed here; what is under test is the spec contract and the arithmetic
+    # that decides where your voice lands, not ffprobe.
+    with tempfile.TemporaryDirectory() as td8:
+        b8 = Path(td8)
+        (b8 / TAKES_DIR).mkdir()
+        clip = b8 / TAKES_DIR / "scene02.mov"
+        clip.write_bytes(b"pretend this is a movie")
+        vo = b8 / TAKES_DIR / "vo01.wav"
+        vo.write_bytes(b"pretend this is a wav")
+        real_dur, real_aud = ffprobe_duration, has_audio_stream
+        globals()["ffprobe_duration"] = lambda p: 8.0
+        globals()["has_audio_stream"] = lambda p: True
+        try:
+            q = resolve_scene({"type": "question", "dur": 6.0, "question": "Q?",
+                               "take": f"{TAKES_DIR}/scene02.mov"}, b8, theme, 0)
+            check("a take is resolved against the spec directory",
+                  q["_take_path"] == clip.resolve())
+            check("the question keeps its typing time before handing over",
+                  abs(q["_hold"] - 6.0 * TAKE_HANDOVER) < 1e-9)
+            check("a take EXTENDS the scene rather than being squeezed into it",
+                  abs(q["_effective_dur"] - (6.0 * TAKE_HANDOVER + 8.0)) < 1e-9)
+            check("a scene with no take keeps its spec duration",
+                  resolve_scene({"type": "title", "dur": 4.0, "title": "x"},
+                                b8, theme, 0)["_effective_dur"] == 4.0)
+            try:
+                resolve_scene({"type": "title", "dur": 3, "title": "x",
+                               "take": f"{TAKES_DIR}/scene02.mov"}, b8, theme, 0)
+                ok_t = False
+            except SpecError as e:
+                ok_t = "question scene" in str(e)
+            check("a take on a scene that has no gap for it is refused", ok_t)
+            try:
+                resolve_scene({"type": "question", "dur": 6, "question": "Q?",
+                               "take": f"{TAKES_DIR}/nope.mov"}, b8, theme, 0)
+                ok_m = False
+            except SpecError as e:
+                ok_m = "take not found" in str(e)
+            check("a missing take fails in preflight, not mid-render", ok_m)
+            v = resolve_scene({"type": "title", "dur": 5, "title": "x",
+                               "vo_audio": f"{TAKES_DIR}/vo01.wav"}, b8, theme, 0)
+            check("narration is resolved and measured", v["_vo_dur"] == 8.0)
+            try:
+                resolve_scene({"type": "title", "dur": 5, "title": "x",
+                               "vo_audio": f"{TAKES_DIR}/gone.wav"}, b8, theme, 0)
+                ok_v = False
+            except SpecError as e:
+                ok_v = "narration not found" in str(e)
+            check("missing narration fails in preflight too", ok_v)
+
+            # a silent take must not put a stream in the graph that is not there
+            globals()["has_audio_stream"] = lambda p: False
+            qs = resolve_scene({"type": "question", "dur": 6.0, "question": "Q?",
+                                "take": f"{TAKES_DIR}/scene02.mov"}, b8, theme, 0)
+            check("a silent take is legal and marked as silent",
+                  qs["_take_audio"] is False)
+
+            # not answering is not the same as answering no
+            globals()["has_audio_stream"] = real_aud
+            import shutil as _sh
+            real_which = _sh.which
+            _sh.which = lambda n: None if n == "ffprobe" else real_which(n)
+            try:
+                has_audio_stream(clip)
+                ok_p = False
+            except SpecError as e:
+                ok_p = "ffprobe not found" in str(e)
+            check("a missing ffprobe raises rather than reporting 'no audio'", ok_p)
+            _sh.which = real_which
+        finally:
+            globals()["ffprobe_duration"] = real_dur
+            globals()["has_audio_stream"] = real_aud
+
     print(f"\nSelf-test: {ran - fails}/{ran} behaved correctly.")
     return 1 if fails else 0
 
@@ -1613,6 +2001,8 @@ def main():
                     help="validate, then exit 3 if any scene breaks the safe zone")
     ap.add_argument("--fonts", action="store_true",
                     help="show which font file each type role resolves to here")
+    ap.add_argument("--takes", action="store_true",
+                    help="what you have recorded, what is missing, and the finished length")
     ap.add_argument("--verify", metavar="MANIFEST",
                     help="re-hash everything a build manifest claims; exit 4 on any mismatch")
     ap.add_argument("--self-test", action="store_true")
@@ -1630,6 +2020,8 @@ def main():
     spec_path = Path(a.spec).expanduser().resolve()
     out = Path(a.out).expanduser()
     try:
+        if a.takes:
+            sys.exit(takes_status(spec_path))
         if a.dry_run or a.check_safe:
             findings = dry_run(spec_path, out)
             if a.check_safe and findings:
