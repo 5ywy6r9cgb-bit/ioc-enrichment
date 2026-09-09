@@ -874,14 +874,24 @@ def render(spec_path: Path, out: Path, force: bool, verbose: bool) -> dict:
         audio_note = f"supplied file: {ap.name}"
     elif spec.get("audio_bed", True) and om_audio is not None:
         try:
-            track = om_audio.build_track(scenes, total,
-                                         float(spec.get("audio_gain", 1.0)),
-                                         bool(spec.get("audio_drone", True)))
+            style = str(spec.get("audio_style", "drone")).lower()
+            if style == "groove":
+                track = om_audio.groove_for(total,
+                                            float(spec.get("audio_gain", 1.0)),
+                                            int(spec.get("audio_seed", 7)),
+                                            float(spec.get("audio_notch_db", -9.0)))
+            elif style == "drone":
+                track = om_audio.build_track(scenes, total,
+                                             float(spec.get("audio_gain", 1.0)),
+                                             bool(spec.get("audio_drone", True)))
+            else:
+                raise SpecError(f"unknown audio_style '{style}'. "
+                                "Known: drone, groove")
             wav = out.with_suffix(".bed.wav")
             om_audio.write_wav(wav, track)
             st = om_audio.analyze(track)
             audio_path = wav
-            audio_note = (f"generated bed · peak {st['peak_dbfs']} dBFS · "
+            audio_note = (f"generated {style} bed · peak {st['peak_dbfs']} dBFS · "
                           f"{st['speech_band_energy_pct']}% of energy in the "
                           f"speech band")
             print(f"  audio     {audio_note}")

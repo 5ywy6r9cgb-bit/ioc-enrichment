@@ -129,5 +129,9 @@
       "delivery": "Close it out. Land on the last line and let the hash finish typing.",
       "source_note": "GREEN — the hash is verified against a real file at build time. A mismatch refuses the render."
     }
-  ]
+  ],
+  "audio_style": "groove",
+  "audio_gain": 0.85,
+  "audio_seed": 7,
+  "_audio_note": "124 BPM generated bed. audio_style: drone | groove · audio_seed changes the variation without changing the palette · audio_notch_db is how much room is carved for narration (-9 default) · audio_bed:false for silence."
 }
