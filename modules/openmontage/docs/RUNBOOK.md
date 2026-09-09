@@ -351,9 +351,40 @@ re-render landscape from the same spec by changing one word.
 
 ---
 
+## 8b. Checking a build after the fact
+
+The manifest is the answer to "how do you know?". Checking it by eye means
+comparing 64-character hex strings, which is a check people skip. Don't:
+
+```bash
+python3 ../../engine/openmontage.py --verify builds/ep01.manifest.json
+```
+
+It re-hashes the video and every input the build read, and says whether the
+manifest still describes what is on disk:
+
+```
+VERIFY · builds/ep01.manifest.json
+  built     2026-09-09T18:12:04Z · openmontage 0.3.0
+  ok      output                 builds/ep01.mp4
+  ok      hash_verified_source   data/graph_counts.json
+  ok      spec                   episode.json
+
+  every file matches. This manifest describes what is on disk.
+```
+
+Exit `0` clean, `4` if anything changed or went missing. Run it before you
+publish and again before you hand the file to anyone. A `CHANGED` line on the
+output means the mp4 was re-encoded or edited after the build — which is
+exactly what happens when you export from a phone editor, so the published cut
+needs its own manifest rather than borrowing this one.
+
+---
+
 ## 9. Exit codes
 
-`0` fine · `2` spec error · `3` a scene breaks the safe zone.
+`0` fine · `2` spec error · `3` a scene breaks the safe zone · `4` a manifest
+no longer matches its files.
 
 A safe-zone failure means content sits where the platform draws captions and
 buttons. Fix the spec, don't ignore it — it looks right in a contact sheet and

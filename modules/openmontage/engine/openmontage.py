@@ -1178,6 +1178,7 @@ def export_script(spec_path: Path, out_md: Path, out_srt: Path | None = None) ->
 
 # ----------------------------------------------------------------- self-test
 def self_test() -> int:
+    import os
     import tempfile
     print("=== SELF-TEST: openmontage engine ===")
     fails = ran = 0
@@ -1476,11 +1477,125 @@ def self_test() -> int:
         check("srt carries only narrated scenes, not the question",
               "Q?" not in (b6 / "out.srt").read_text())
 
+    # --- the manifest has to be checkable, or it is decoration.
+    # No render here: build a manifest by hand around real files, so the
+    # verifier is tested and not ffmpeg.
+    with tempfile.TemporaryDirectory() as td7:
+        b7 = Path(td7)
+        (b7 / "builds").mkdir()
+        (b7 / "episode.json").write_text('{"scenes": []}')
+        vid = b7 / "builds" / "e.mp4"
+        vid.write_bytes(b"not really an mp4, but it hashes the same way")
+        man = b7 / "builds" / "e.manifest.json"
+
+        def write_manifest():
+            man.write_text(json.dumps({
+                "renderer": "openmontage test", "built_utc": "2026-01-01T00:00:00Z",
+                "output": {"path": "builds/e.mp4", "sha256": sha256_file(vid)},
+                "inputs": [{"role": "spec", "path": "episode.json",
+                            "sha256": sha256_file(b7 / "episode.json")}]}))
+
+        write_manifest()
+        check("a manifest matching its files verifies", verify_manifest(man, quiet=True) == 0)
+        # read it from somewhere else entirely: paths resolve, not guess
+        cwd = os.getcwd()
+        try:
+            os.chdir(tempfile.gettempdir())
+            check("verification does not depend on the current directory",
+                  verify_manifest(man, quiet=True) == 0)
+        finally:
+            os.chdir(cwd)
+
+        vid.write_bytes(b"not really an mp4, but it hashes the same way!")
+        check("one changed byte in the video is caught", verify_manifest(man, quiet=True) == 4)
+        write_manifest()
+        (b7 / "episode.json").write_text('{"scenes": [] }')
+        check("an input edited after the build is caught", verify_manifest(man, quiet=True) == 4)
+        write_manifest()
+        vid.unlink()
+        check("a missing file is reported, not silently passed",
+              verify_manifest(man, quiet=True) == 4)
+        check("an unreadable manifest is refused with a reason",
+              verify_manifest(b7 / "nope.json", quiet=True) == 2)
+
     print(f"\nSelf-test: {ran - fails}/{ran} behaved correctly.")
     return 1 if fails else 0
 
 
 # ----------------------------------------------------------------- cli
+def verify_manifest(mpath: Path, quiet: bool = False) -> int:
+    """Re-hash everything a manifest claims, and say whether it still holds.
+
+    The manifest is the answer to "how do you know?", and until now checking
+    it meant eyeballing two 64-character hex strings in a terminal. That is a
+    check people skip, and a check people skip is not a check.
+
+    Returns 0 if every file matches, 4 if any differ or are missing.
+    """
+    try:
+        m = json.loads(mpath.read_text())
+    except Exception as e:
+        if not quiet:
+            print(f"ERROR: cannot read manifest: {e}", file=sys.stderr)
+        return 2
+    # A manifest records the paths it was given, which are relative to the
+    # directory the render was run from — normally the episode directory,
+    # one above builds/. The manifest itself can be read from anywhere, so
+    # resolve against the plausible roots rather than assuming a CWD.
+    roots = [mpath.parent.parent, mpath.parent, Path.cwd()]
+    rows, bad, gone = [], 0, 0
+
+    def resolve(path: str) -> Path | None:
+        p = Path(path)
+        if p.is_absolute():
+            return p if p.exists() else None
+        for r in roots:
+            if (r / p).exists():
+                return r / p
+        return None
+
+    def look(role, path, want):
+        nonlocal bad, gone
+        p = resolve(path)
+        if p is None:
+            gone += 1
+            rows.append(("MISSING ", role, path, ""))
+            return
+        got = sha256_file(p)
+        if got == want:
+            rows.append(("ok      ", role, path, ""))
+        else:
+            bad += 1
+            rows.append(("CHANGED ", role, path, f"now {got[:16]}…"))
+
+    o = m.get("output", {})
+    if o:
+        look("output", o.get("path", ""), o.get("sha256", ""))
+    for i in m.get("inputs", []):
+        look(i.get("role", "input"), i.get("path", ""), i.get("sha256", ""))
+
+    if quiet:
+        return 4 if (bad or gone) else 0
+
+    print(f"VERIFY · {mpath}")
+    print(f"  built     {m.get('built_utc', '?')} · {m.get('renderer', '?')}")
+    for status, role, path, note in rows:
+        print(f"  {status}{role:<22} {path} {note}")
+
+    if bad:
+        print(f"\n  {bad} file(s) no longer match the manifest. Either the file "
+              f"changed after the build, or\n  the manifest belongs to a "
+              f"different render. Re-render before publishing.")
+        return 4
+    if gone:
+        print(f"\n  {gone} file(s) could not be found, so nothing about them is "
+              f"proven either way.\n  A manifest whose inputs have moved cannot "
+              f"answer 'how do you know?'.")
+        return 4
+    print(f"\n  every file matches. This manifest describes what is on disk.")
+    return 0
+
+
 def main():
     ap = argparse.ArgumentParser(description="OpenMontage — code-driven montage renderer")
     ap.add_argument("--spec", default="teaser.json")
@@ -1498,12 +1613,17 @@ def main():
                     help="validate, then exit 3 if any scene breaks the safe zone")
     ap.add_argument("--fonts", action="store_true",
                     help="show which font file each type role resolves to here")
+    ap.add_argument("--verify", metavar="MANIFEST",
+                    help="re-hash everything a build manifest claims; exit 4 on any mismatch")
     ap.add_argument("--self-test", action="store_true")
     a = ap.parse_args()
 
     if a.fonts:
         print(brand.summary())
         sys.exit(0 if brand.fonts_ok() else 2)
+
+    if a.verify:
+        sys.exit(verify_manifest(Path(a.verify).expanduser()))
 
     if a.self_test:
         sys.exit(self_test())
