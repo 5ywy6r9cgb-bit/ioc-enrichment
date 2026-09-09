@@ -202,7 +202,49 @@ def default_policy() -> dict:
                   "documentary use."),
         "own_devices": [],
         "_own_devices_example": ["Apple iPhone 15 Pro", "Apple iPhone SE"],
+
+        # --- authorship -------------------------------------------------
+        # Copyright in a photograph exists the moment it is taken; nothing
+        # here creates it. What this block does is record, once, the facts a
+        # registration application asks for and that nobody can reconstruct
+        # from a folder of JPEGs two years later: who made it, under what
+        # name the claim is held, and whether it has been published.
+        #
+        # NOT LEGAL ADVICE, and deliberately not a filing tool. It produces
+        # the schedule of works — `--registration` — and the filing is yours.
+        "copyright": {
+            "_note": ("Filled in once. Every image in this library inherits it "
+                      "unless its editorial record overrides it."),
+            "author": "",
+            "_author_example": "Mark W. Rosenburg",
+            "claimant": "",
+            "_claimant_note": ("Who holds the copyright — usually the same as "
+                               "author. Different if you have assigned it to a "
+                               "business entity."),
+            "work_type": "photograph",
+            "default_publication_status": "unpublished",
+            "_publication_note": (
+                "unpublished | published. This is the field people get wrong. "
+                "Posting a photograph publicly is generally publication; "
+                "keeping it in a private archive is not. It matters because "
+                "the Copyright Office groups published and unpublished works "
+                "under different procedures and a group cannot mix them."),
+            "notice_year": "",
+            "_notice_note": ("Year of first publication, for the © line. Blank "
+                             "until something is published."),
+        },
     }
+
+
+def notice_string(policy: dict) -> str:
+    """The © line for this library, from the policy. Empty if not declared."""
+    c = policy.get("copyright", {}) or {}
+    holder = str(c.get("claimant") or c.get("author") or "").strip()
+    year = str(c.get("notice_year") or "").strip()
+    if not holder:
+        return ""
+    return f"© {year} {holder}. All rights reserved." if year \
+        else f"© {holder}. All rights reserved."
 
 
 def load_policy(path: Path) -> dict:
@@ -587,6 +629,32 @@ def similarity_groups(records: list[dict], threshold: int) -> list[list[dict]]:
     return groups
 
 
+def resolve_library(spec: str) -> tuple[Path, object | None]:
+    """Accept a shelf name or a path, and refuse an absent drive by name.
+
+    A photo library on a flash drive introduces a failure with no local
+    equivalent: AN UNPLUGGED DRIVE SCANS AS AN EMPTY LIBRARY. Zero images
+    prints calmly and exits clean, and reads as "there are no photographs"
+    when the fact is "nobody looked." macOS makes it worse — eject a drive
+    uncleanly and /Volumes/NAME survives as an empty folder, so every path
+    under it still resolves.
+
+    modules/corpus/shelf.py already solved this for the document corpus, down
+    to the four distinct ways /Volumes lies. Rather than learn it twice, this
+    borrows it when it is importable and falls back to a plain path when it is
+    not.
+    """
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "corpus"))
+        import shelf
+        return shelf.resolve_root(spec)
+    except ImportError:
+        p = Path(spec).expanduser()
+        if not p.is_dir():
+            raise NotADirectoryError(f"visual library does not exist: {p}")
+        return p.resolve(), None
+
+
 def inventory(root: Path, threshold: int = DEFAULT_THRESHOLD,
               write: bool = True, manifest_dir: Path | None = None) -> dict:
     root = Path(root).expanduser().resolve()
@@ -694,6 +762,12 @@ def inventory(root: Path, threshold: int = DEFAULT_THRESHOLD,
         "manifest_version": MANIFEST_VERSION,
         "generated_at": utc_now(),
         "root": str(root),
+        # Authorship travels with the inventory, so a registration schedule
+        # can be produced from the manifest alone — including from a copy of
+        # it on another machine, months later.
+        "copyright_policy": policy.get("copyright", {}),
+        "notice": notice_string(policy),
+        "editorial": overrides["visuals"],
         "similarity_engine": {"algorithm": "phash", "hash_bits": 64,
                               "distance_metric": "hamming", "threshold": threshold},
         "records_dir": str(side),
@@ -825,6 +899,128 @@ def print_approved(m: dict) -> None:
         r = by_id[vid]
         print(f"{vid}  {r['orientation']:<9} {r['width']}x{r['height']:<6} "
               f"{r['relative_path']}")
+
+
+def write_registration(m: dict, out_dir: Path) -> dict:
+    """Write the schedule of works a group registration application asks for.
+
+    WHAT THIS IS. The Copyright Office wants, for each photograph in a group,
+    a title and a date — and for published groups, the date of publication.
+    That is a spreadsheet, and building it by hand from 800 files is how
+    people give up on registering at all. Everything needed is already in the
+    manifest: content hash, EXIF capture date, declared author.
+
+    WHAT THIS IS NOT. Not legal advice, not a filing, and not a judgement
+    about whether a work qualifies or which procedure applies. It produces the
+    list. Published and unpublished works are separated because they are filed
+    differently and a group cannot mix them — putting them in one file would
+    invite exactly that mistake.
+
+    Works with no declared author are listed separately and NOT included.
+    A registration naming an author the library cannot evidence is worse than
+    a smaller registration.
+    """
+    import csv
+    pol = m.get("copyright_policy", {}) or {}
+    author = str(pol.get("author") or "").strip()
+    claimant = str(pol.get("claimant") or author).strip()
+    default_pub = str(pol.get("default_publication_status") or "unpublished")
+
+    by_id = {v["visual_id"]: v for v in m["visuals"]}
+    ed = m.get("editorial", {}) or {}
+
+    rows_pub, rows_unpub, excluded = [], [], []
+    for vid, rec in sorted(by_id.items()):
+        e = ed.get(vid, {}) or {}
+        a = str(e.get("author") or author).strip()
+        if not a:
+            excluded.append((vid, rec, "no author declared"))
+            continue
+        if rec.get("origin") == "generated":
+            # A model made it. Whatever the law settles on, this library will
+            # not put one into a registration claiming human authorship.
+            excluded.append((vid, rec, "generated — not claimed as authored"))
+            continue
+        created = (rec.get("exif", {}) or {}).get("datetime_original") or ""
+        year = created[:4] if created[:4].isdigit() else ""
+        title = str(e.get("description") or "").strip() or rec["filename"]
+        row = {
+            "title": title,
+            "visual_id": vid,
+            "author": a,
+            "claimant": claimant,
+            "date_created": created,
+            "year_created": year,
+            "date_published": str(e.get("date_published") or "").strip(),
+            "sha256": rec["sha256"],
+            "file": rec["relative_path"],
+            "width": rec["width"],
+            "height": rec["height"],
+        }
+        status = str(e.get("publication_status") or default_pub).lower()
+        (rows_pub if status == "published" else rows_unpub).append(row)
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    written = []
+    for name, rows in (("registration_unpublished.csv", rows_unpub),
+                       ("registration_published.csv", rows_pub)):
+        if not rows:
+            continue
+        fp = out_dir / name
+        with fp.open("w", newline="", encoding="utf-8") as f:
+            w = csv.DictWriter(f, fieldnames=list(rows[0]))
+            w.writeheader()
+            w.writerows(rows)
+        written.append((fp, len(rows)))
+
+    summary = {
+        "generated_utc": utc_now(),
+        "library": m["root"],
+        "author": author,
+        "claimant": claimant,
+        "notice": m.get("notice", ""),
+        "counts": {"published": len(rows_pub), "unpublished": len(rows_unpub),
+                   "excluded": len(excluded)},
+        "excluded": [{"visual_id": v, "file": r["relative_path"], "reason": why}
+                     for v, r, why in excluded],
+        "_disclaimer": ("A schedule of works generated from recorded metadata. "
+                        "Not legal advice and not a filing."),
+    }
+    atomic_write_json(out_dir / "registration_summary.json", summary)
+    return {"written": written, "summary": summary}
+
+
+def print_registration(res: dict) -> None:
+    s = res["summary"]
+    c = s["counts"]
+    print()
+    print(f"  SCHEDULE OF WORKS · {s['library']}")
+    if not s["author"]:
+        print()
+        print("  NO AUTHOR DECLARED — nothing can be listed.")
+        print("  Put your name in visual_policy.json under copyright.author,")
+        print("  then run this again.")
+        return
+    print(f"  author     {s['author']}")
+    print(f"  claimant   {s['claimant']}")
+    if s.get("notice"):
+        print(f"  notice     {s['notice']}")
+    print()
+    print(f"  unpublished  {c['unpublished']:>5}")
+    print(f"  published    {c['published']:>5}")
+    if c["excluded"]:
+        print(f"  EXCLUDED     {c['excluded']:>5}  (listed in the summary, with reasons)")
+    print()
+    for fp, n in res["written"]:
+        print(f"  -> {fp}  ({n} work(s))")
+    print()
+    print("  Published and unpublished are separate files because they are")
+    print("  filed under different procedures and a group cannot mix them.")
+    print()
+    print("  This is a schedule of works built from recorded metadata. It is")
+    print("  not legal advice and not a filing. Registration procedure, group")
+    print("  limits and fees are the Copyright Office's to state — check")
+    print("  copyright.gov, or ask a lawyer, before you file.")
 
 
 def print_backgrounds(m: dict) -> None:
@@ -1273,6 +1469,82 @@ def self_test() -> int:
         check("a rescan against an external records dir still finds the image",
               m_again["counts"]["images"] == 1)
 
+    # --- authorship and the schedule of works
+    with tf.TemporaryDirectory() as tdc:
+        root = Path(tdc)
+        from PIL import ImageDraw as _ID2
+        import random as _r2
+        _r2.seed(11)
+        for nm in ("a.jpg", "b.jpg"):
+            im = Image.new("RGB", (1600, 2400), (60, 70, 90))
+            _d2 = _ID2.Draw(im)
+            for _ in range(30):
+                _x, _y = _r2.randint(0, 1500), _r2.randint(0, 2300)
+                _d2.rectangle([_x, _y, _x + _r2.randint(40, 200),
+                               _y + _r2.randint(40, 200)],
+                              fill=(_r2.randint(40, 220),) * 3)
+            im.save(root / nm, quality=92)
+
+        m0 = inventory(root)
+        check("a fresh policy carries an empty copyright block",
+              "copyright" in json.loads((root / POLICY_NAME).read_text()))
+        r0 = write_registration(m0, root / "reg0")
+        check("no author means nothing is listed, rather than a blank claim",
+              r0["summary"]["counts"]["unpublished"] == 0
+              and r0["summary"]["counts"]["excluded"] == 2)
+        check("the reason for exclusion is recorded, not just the count",
+              all("no author" in e["reason"] for e in r0["summary"]["excluded"]))
+
+        pol = json.loads((root / POLICY_NAME).read_text())
+        pol["copyright"].update({"author": "A. Photographer",
+                                 "claimant": "A. Photographer",
+                                 "notice_year": "2026"})
+        (root / POLICY_NAME).write_text(json.dumps(pol))
+        m1 = inventory(root)
+        check("the notice line is built from the policy",
+              m1["notice"] == "\u00a9 2026 A. Photographer. All rights reserved.")
+        r1 = write_registration(m1, root / "reg1")
+        check("with an author declared, works are listed",
+              r1["summary"]["counts"]["unpublished"] == 2)
+        check("unpublished is the default, so nothing is claimed as published",
+              r1["summary"]["counts"]["published"] == 0)
+        check("a schedule file is written",
+              (root / "reg1" / "registration_unpublished.csv").is_file())
+        check("published works get no file when there are none",
+              not (root / "reg1" / "registration_published.csv").exists())
+
+        # published and unpublished must never share a file
+        ov = json.loads((root / OVERRIDES_NAME).read_text())
+        first = sorted(ov["visuals"])[0]
+        ov["visuals"][first]["publication_status"] = "published"
+        ov["visuals"][first]["date_published"] = "2026-07-01"
+        (root / OVERRIDES_NAME).write_text(json.dumps(ov))
+        m2 = inventory(root)
+        r2 = write_registration(m2, root / "reg2")
+        check("a published work moves to its own schedule",
+              r2["summary"]["counts"]["published"] == 1
+              and r2["summary"]["counts"]["unpublished"] == 1)
+
+        # a generated image is never claimed as an authored work
+        ov = json.loads((root / OVERRIDES_NAME).read_text())
+        ov["visuals"][first]["origin"] = "generated"
+        (root / OVERRIDES_NAME).write_text(json.dumps(ov))
+        m3 = inventory(root)
+        r3 = write_registration(m3, root / "reg3")
+        check("a generated image is excluded from the schedule",
+              r3["summary"]["counts"]["excluded"] == 1
+              and "generated" in r3["summary"]["excluded"][0]["reason"])
+
+        # the schedule lists WORKS, not files: a byte-identical copy is one work
+        (root / "a_copy.jpg").write_bytes((root / "a.jpg").read_bytes())
+        m4 = inventory(root)
+        r4 = write_registration(m4, root / "reg4")
+        check("a duplicate file does not become a second work",
+              m4["counts"]["images"] == 3
+              and (r4["summary"]["counts"]["published"]
+                   + r4["summary"]["counts"]["unpublished"]
+                   + r4["summary"]["counts"]["excluded"]) == 2)
+
     print(f"\nSelf-test: {ran - fails}/{ran} behaved correctly.")
     return 1 if fails else 0
 
@@ -1305,6 +1577,9 @@ def main() -> int:
     ap.add_argument("--manifest-dir", metavar="DIR",
                     help="write the manifest, overrides and policy HERE instead "
                          "of beside the photographs, leaving the source untouched")
+    ap.add_argument("--registration", nargs="?", const=True, metavar="DIR",
+                    help="write the schedule of works for a copyright "
+                         "registration (default: beside the manifest)")
     ap.add_argument("--backgrounds", action="store_true",
                     help="rank images by measured suitability as a background "
                          "behind type, best first")
@@ -1324,8 +1599,12 @@ def main() -> int:
         return 2
 
     try:
-        m = inventory(Path(a.library), threshold=a.threshold,
-                      write=not (a.check_only or a.approved or a.backgrounds),
+        lib, vol = resolve_library(a.library)
+        if vol is not None:
+            print(f"\n  shelf {vol.label}  ({vol.id})")
+        m = inventory(lib, threshold=a.threshold,
+                      write=not (a.check_only or a.approved or a.backgrounds
+                                 or a.registration),
                       manifest_dir=Path(a.manifest_dir) if a.manifest_dir else None)
     except (NotADirectoryError, ValueError) as e:
         print(f"\nERROR: {e}", file=sys.stderr)
@@ -1336,6 +1615,10 @@ def main() -> int:
 
     if a.approved:
         print_approved(m)
+    elif a.registration:
+        out = Path(a.registration) if isinstance(a.registration, str) else \
+            Path(m.get("records_dir") or m["root"])
+        print_registration(write_registration(m, out))
     elif a.backgrounds:
         print_backgrounds(m)
     else:

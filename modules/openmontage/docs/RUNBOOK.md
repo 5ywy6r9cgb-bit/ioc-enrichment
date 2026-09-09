@@ -73,7 +73,7 @@ cd ~/sentinel/modules/openmontage/engine
 python3 openmontage.py --fonts       # every type role must say "ok"
 python3 openmontage.py --self-test   # 89 checks
 python3 om_audio.py --self-test      # 41 checks
-python3 ../visual_system/visual_manifest.py --self-test   # 49 checks
+python3 ../visual_system/visual_manifest.py --self-test   # 60 checks
 ```
 
 If `--fonts` shows MISSING, install the face it names or add a path you do
@@ -358,6 +358,14 @@ python3 modules/openmontage/visual_system/visual_manifest.py ~/Pictures/TSR --ap
 
 lists what has cleared. Copy those into `episodes/epNN/assets/` and use the
 `credit` string as the photo scene's `source`.
+
+### The library on a drive, and who owns it
+
+If the photographs live on a flash drive — which keeps them off the laptop and
+lets a second machine carry the package — register it as a shelf first, so an
+unplugged drive refuses by name instead of scanning as an empty library. Same
+place you declare authorship and export the schedule of works for a copyright
+registration. See [`LIBRARY_ON_A_DRIVE.md`](LIBRARY_ON_A_DRIVE.md).
 
 ### Which photographs can hold type
 
