@@ -1,0 +1,93 @@
+{
+  "spec_version": "OPENMONTAGE-SPEC/1",
+  "project": "The Sentinel Report",
+  "title": "How this engine is built",
+  "preset": "vertical",
+  "fps": 24,
+  "theme": "sentinel_light",
+  "footer": "OPENMONTAGE · EVERY BUILD CARRIES A MANIFEST",
+  "crossfade": 0.45,
+  "_note": [
+    "A working spec that exercises every scene type. Run it to confirm the",
+    "engine renders on your machine before you point it at real work:",
+    "",
+    "  python3 ../engine/openmontage.py --spec demo.json --check-safe",
+    "  python3 ../engine/openmontage.py --spec demo.json --contact-sheet sheet.png",
+    "  python3 ../engine/openmontage.py --spec demo.json --out builds/demo.mp4",
+    "",
+    "Every claim below is a fact about this repository, checkable by reading it.",
+    "That is the standard the engine exists to hold: documents and dates, no",
+    "characterization."
+  ],
+  "scenes": [
+    {
+      "type": "title",
+      "dur": 5.0,
+      "kick": "OPENMONTAGE",
+      "title": "The engine knows how. The spec knows what.",
+      "sub": "Scene text, durations and data live in JSON. No Python is edited per episode.",
+      "source_note": "Framing only."
+    },
+    {
+      "type": "bignum",
+      "dur": 5.0,
+      "kick": "VALIDATED BEFORE FFMPEG STARTS",
+      "value": 31,
+      "fmt": "{:,.0f}",
+      "size": 240,
+      "caption": "self-test checks.",
+      "sub": "Run: openmontage.py --self-test",
+      "source_note": "Count printed by the engine's own self-test."
+    },
+    {
+      "type": "vchart",
+      "dur": 6.0,
+      "kick": "COVERAGE OVER TIME",
+      "caption": "Checks grew with the engine.",
+      "data": "data/checks.json",
+      "y_key": "checks_pct",
+      "ymax": 40,
+      "x_first": "APR|2026",
+      "x_last": "",
+      "marker": {
+        "month": "2026-09",
+        "label": [
+          "v0.3",
+          "BRAND"
+        ]
+      },
+      "annotations": [
+        {
+          "text": "safe zones enforced",
+          "at_value": 31,
+          "dy": 70,
+          "color": "green",
+          "size": 30,
+          "after_points": 6
+        }
+      ],
+      "source_note": "Derived from the self-test count at each version.",
+      "_x_last_note": "blank on purpose — the marker labels this point"
+    },
+    {
+      "type": "title",
+      "dur": 5.0,
+      "xfade": 0.0,
+      "kick": "WHY THE CUT IS HARD HERE",
+      "title": "A scene can set its own transition.",
+      "sub": "\"xfade\": 0 — this frame arrives without a dissolve.",
+      "source_note": "Demonstrates the per-scene xfade added in v0.3."
+    },
+    {
+      "type": "hash",
+      "dur": 7.0,
+      "kick": "AUDIT US",
+      "title": "Documents and dates. No characterization.",
+      "hash": "b6f05b11cfda99c7e11bee4bf114b403bde7893719d371f070d00d9600212f4c",
+      "verify_file": "data/checks.json",
+      "sub": "Every input is hashed into the build manifest.",
+      "cta": "If the video claims it, the build enforces it.",
+      "source_note": "This is the real SHA-256 of data/checks.json. Change one byte of that file and the build REFUSES to render rather than display a hash the file does not have. That refusal is the point."
+    }
+  ]
+}

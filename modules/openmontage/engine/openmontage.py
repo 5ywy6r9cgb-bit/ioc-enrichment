@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-openmontage.py v0.2 — The Sentinel Report montage engine.
+openmontage.py v0.3 — The Sentinel Report montage engine.
 
 A general video renderer. It knows HOW to draw scenes; it does not know the
 story. The story lives in an external spec (teaser.json). Scenes in, MP4 out,
@@ -17,6 +17,16 @@ Design rules:
   * Assets and fonts load once, not per frame.
   * Every render emits a manifest: input hashes, output hash, versions.
     If the video claims "hash-verified," the build process enforces it.
+
+WHAT v0.3 CHANGED
+  * Colour, type, presets and safe zones come from brand.py. Font paths are
+    RESOLVED per machine instead of hardcoded to Linux — before this, the
+    engine could not render on macOS at all, which is the platform the
+    installer targets. It failed in preflight with "font missing".
+  * Safe zones are ENFORCED, not merely drawable. `--check-safe` fails a build
+    whose content sits where the platform's own UI will cover it.
+  * Per-scene crossfade: a scene may set "xfade" to override the global value,
+    including 0 for a hard cut.
 """
 from __future__ import annotations
 
@@ -33,36 +43,10 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
-VERSION = "0.2.0"
+import brand
+
+VERSION = "0.3.0"
 SPEC_VERSION = "OPENMONTAGE-SPEC/1"
-
-# ----------------------------------------------------------------- presets
-PRESETS = {
-    "vertical": {"w": 1080, "h": 1920, "fps": 24,
-                 "safe": {"top": 300, "bottom": 1560, "left": 60, "right": 1020}},
-    "square":   {"w": 1080, "h": 1080, "fps": 24,
-                 "safe": {"top": 120, "bottom": 960, "left": 60, "right": 1020}},
-    "landscape": {"w": 1920, "h": 1080, "fps": 24,
-                  "safe": {"top": 80, "bottom": 1000, "left": 100, "right": 1820}},
-}
-
-THEMES = {
-    "sentinel_light": {"paper": (233, 235, 238), "ink": (18, 22, 28),
-                       "red": (163, 34, 34), "green": (27, 107, 74),
-                       "grey": (143, 152, 166), "footer_bg": (18, 22, 28),
-                       "footer_fg": (200, 206, 214), "rule": (198, 203, 210)},
-    "sentinel_dark":  {"paper": (18, 22, 28), "ink": (233, 235, 238),
-                       "red": (196, 60, 60), "green": (63, 156, 116),
-                       "grey": (120, 130, 145), "footer_bg": (8, 10, 14),
-                       "footer_fg": (150, 158, 170), "rule": (58, 66, 78)},
-}
-
-FONTS = {
-    "serif_b": "/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf",
-    "sans_b":  "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-    "mono":    "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
-    "mono_b":  "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf",
-}
 
 REQUIRED = {
     "title":  ["dur", "title"],
@@ -80,7 +64,9 @@ class SpecError(Exception):
 # ----------------------------------------------------------------- helpers
 @lru_cache(maxsize=256)
 def font(key: str, size: int) -> ImageFont.FreeTypeFont:
-    return ImageFont.truetype(FONTS[key], max(8, int(size)))
+    """Type roles resolve through brand.py, so a face missing on this machine
+    is a brand error carrying the fix — not a stack trace from inside Pillow."""
+    return ImageFont.truetype(brand.font_path(key), max(8, int(size)))
 
 
 def ease(t: float) -> float:
@@ -154,7 +140,7 @@ class Ctx:
     def base_frame(self) -> Image.Image:
         img = Image.new("RGB", (self.W, self.H), self.t["paper"])
         d = ImageDraw.Draw(img)
-        d.rectangle([0, 0, self.W, self.fs(10)], fill=self.t["red"])
+        d.rectangle([0, 0, self.W, self.fs(10)], fill=self.t["accent"])
         if self.footer:
             fh = self.fs(88)
             d.rectangle([0, self.H - fh, self.W, self.H], fill=self.t["footer_bg"])
@@ -170,16 +156,40 @@ class Ctx:
         return img
 
     def kicker(self, d, text: str, y: int, fill=None):
-        f = font("mono_b", self.fs(34))
-        spaced = "     ".join("  ".join(list(w)) for w in str(text).upper().split())
+        """Letter-spaced eyebrow, fitted to the frame.
+
+        The kicker is set at a fixed size with wide tracking, which looks right
+        for a short word and runs clean off both edges for anything longer —
+        "VALIDATED BEFORE FFMPEG STARTS" rendered as "TED BEFORE FFMPEG". Try
+        progressively tighter tracking, then smaller type, and stop at the
+        first combination that fits. Returns the drawn width so the caller (and
+        the self-test) can check it.
+        """
+        maxw = self.W - self.fs(80)
+        words = str(text).upper().split()
+        if not words:
+            return 0
+        for size in (34, 31, 28, 25, 22, 19):
+            for gap_in, gap_out in (("  ", "     "), (" ", "   "), ("", "  ")):
+                f = font("mono_b", self.fs(size))
+                spaced = gap_out.join(gap_in.join(list(w)) for w in words)
+                tw = d.textlength(spaced, font=f)
+                if tw <= maxw:
+                    d.text(((self.W - tw) / 2, y), spaced, font=f,
+                           fill=fill or self.t["accent"])
+                    return tw
+        # last resort: smallest type, no tracking at all
+        f = font("mono_b", self.fs(19))
+        spaced = " ".join(words)
         tw = d.textlength(spaced, font=f)
-        d.text(((self.W - tw) / 2, y), spaced, font=f, fill=fill or self.t["red"])
+        d.text(((self.W - tw) / 2, y), spaced, font=f, fill=fill or self.t["accent"])
+        return tw
 
     def scanline(self, img, t: float):
         d = ImageDraw.Draw(img)
         y = int(self.H * (0.08 + 0.84 * t))
-        d.line([(60, y), (self.W - 60, y)], fill=self.t["red"], width=2)
-        d.rectangle([56, y - 4, 68, y + 4], fill=self.t["red"])
+        d.line([(60, y), (self.W - 60, y)], fill=self.t["accent"], width=2)
+        d.rectangle([56, y - 4, 68, y + 4], fill=self.t["accent"])
 
 
 # ----------------------------------------------------------------- scenes
@@ -193,7 +203,7 @@ def scene_title(t, s, ctx):
     if s.get("sub"):
         f2 = font("mono", ctx.fs(40))
         draw_center(d, wrap(d, s["sub"], f2, ctx.W - ctx.fs(220)), f2,
-                    y + ctx.fs(60), ctx.t["grey"], ctx.W)
+                    y + ctx.fs(60), ctx.t["muted"], ctx.W)
     ctx.scanline(img, t)
     return img
 
@@ -218,7 +228,7 @@ def scene_bignum(t, s, ctx):
     if s.get("sub"):
         f3 = font("mono", ctx.fs(36))
         draw_center(d, wrap(d, s["sub"], f3, ctx.W - ctx.fs(220)), f3,
-                    y + ctx.fs(50), ctx.t["grey"], ctx.W)
+                    y + ctx.fs(50), ctx.t["muted"], ctx.W)
     ctx.scanline(img, t)
     return img
 
@@ -231,7 +241,10 @@ def scene_vchart(t, s, ctx):
     key = s.get("y_key", "case_real_pct")
     n = len(data)
     L, R = ctx.fs(110), ctx.W - ctx.fs(90)
-    TOP, BOT = ctx.fs(780), ctx.fs(1480)
+    # Axis labels hang below BOT on up to two lines. Pull the plot floor up so
+    # that block lands inside the safe box instead of under the caption bar.
+    TOP = ctx.fs(780)
+    BOT = min(ctx.fs(1480), ctx.safe["bottom"] - ctx.fs(105))
     ymax = s.get("ymax") or (max(r[key] for r in data) * 1.15) or 1.0
 
     ctx.kicker(d, s.get("kick", ""), ctx.fs(450))
@@ -244,7 +257,7 @@ def scene_vchart(t, s, ctx):
     while v <= ymax:
         y = BOT - (v / ymax) * (BOT - TOP)
         d.line([(L, y), (R, y)], fill=ctx.t["rule"], width=2)
-        d.text((L - ctx.fs(92), y - ctx.fs(18)), f"{v:g}%", font=fg, fill=ctx.t["grey"])
+        d.text((L - ctx.fs(92), y - ctx.fs(18)), f"{v:g}%", font=fg, fill=ctx.t["muted"])
         v += step
 
     def px(i): return L + (R - L) * (i / max(1, n - 1))
@@ -257,7 +270,7 @@ def scene_vchart(t, s, ctx):
         if mi is not None:
             x = px(mi)
             for yy in range(int(TOP), int(BOT), ctx.fs(22)):
-                d.line([(x, yy), (x, yy + ctx.fs(11))], fill=ctx.t["red"], width=3)
+                d.line([(x, yy), (x, yy + ctx.fs(11))], fill=ctx.t["accent"], width=3)
 
     shown = max(2, int(n * ease(min(1.0, t * 1.35))))
     pts = [(px(i), py(data[i][key])) for i in range(shown)]
@@ -272,13 +285,13 @@ def scene_vchart(t, s, ctx):
             if ln:
                 tw = d.textlength(ln, font=fx)
                 d.text((px(idx) - tw / 2, BOT + ctx.fs(26) + k * ctx.fs(34)),
-                       ln, font=fx, fill=ctx.t["grey"])
+                       ln, font=fx, fill=ctx.t["muted"])
     if mi is not None and marker.get("label"):
         fb = font("mono_b", ctx.fs(28))
         for k, ln in enumerate(marker["label"]):
             tw = d.textlength(ln, font=fb)
             d.text((px(mi) - tw / 2, BOT + ctx.fs(26) + k * ctx.fs(34)),
-                   ln, font=fb, fill=ctx.t["red"])
+                   ln, font=fb, fill=ctx.t["accent"])
 
     for a in s.get("annotations", []):
         if shown < int(a.get("after_points", 0)):
@@ -286,8 +299,8 @@ def scene_vchart(t, s, ctx):
         fa = font("mono_b", ctx.fs(a.get("size", 34)))
         txt = a["text"]
         yv = py(a.get("at_value", 0)) - ctx.fs(a.get("dy", 60))
-        col = {"ink": ctx.t["ink"], "green": ctx.t["green"], "red": ctx.t["red"],
-               "grey": ctx.t["grey"]}.get(a.get("color", "ink"), ctx.t["ink"])
+        col = {"ink": ctx.t["ink"], "green": ctx.t["green"], "red": ctx.t["accent"],
+               "grey": ctx.t["muted"]}.get(a.get("color", "ink"), ctx.t["ink"])
         if a.get("align") == "right":
             d.text((R - d.textlength(txt, font=fa), yv), txt, font=fa, fill=col)
         else:
@@ -316,7 +329,7 @@ def scene_chart(t, s, ctx):
 def scene_hash(t, s, ctx):
     img = Image.new("RGB", (ctx.W, ctx.H), ctx.t["ink"])
     d = ImageDraw.Draw(img)
-    d.rectangle([0, 0, ctx.W, ctx.fs(10)], fill=ctx.t["red"])
+    d.rectangle([0, 0, ctx.W, ctx.fs(10)], fill=ctx.t["accent"])
     ctx.kicker(d, s.get("kick", "AUDIT US"), ctx.fs(560))
     f, lines = fit(d, s["title"], "serif_b", ctx.fs(92), ctx.W - ctx.fs(160), ctx.fs(380))
     y = draw_center(d, lines, f, ctx.fs(680), ctx.t["paper"], ctx.W)
@@ -328,13 +341,24 @@ def scene_hash(t, s, ctx):
     for i, row in enumerate(chunk_hash(shown, 16)):
         d.text(((ctx.W - wide) / 2, y + ctx.fs(70) + i * ctx.fs(46)), row,
                font=fm, fill=ctx.t["green"])
-    if s.get("sub"):
-        f3 = font("mono", ctx.fs(38))
-        draw_center(d, wrap(d, s["sub"], f3, ctx.W - ctx.fs(200)), f3,
-                    y + ctx.fs(70) + len(rows) * ctx.fs(46) + ctx.fs(40),
-                    ctx.t["footer_fg"], ctx.W)
+    # The CTA is placed FIRST, bottom-anchored inside the safe zone, so the
+    # closing line can never be covered by platform UI. Only then is the sub
+    # fitted into the room that is actually left — otherwise a long sub line
+    # silently overprints the closing line.
     f4, lines4 = fit(d, s["cta"], "serif_b", ctx.fs(66), ctx.W - ctx.fs(160), ctx.fs(200))
-    draw_center(d, lines4, f4, ctx.H - ctx.fs(420), ctx.t["paper"], ctx.W)
+    bb4 = f4.getbbox("Ag")
+    block4 = len(lines4) * int((bb4[3] - bb4[1]) * 1.22)
+    cta_top = ctx.safe["bottom"] - block4 - ctx.fs(40)
+
+    if s.get("sub"):
+        sub_top = y + ctx.fs(70) + len(rows) * ctx.fs(46) + ctx.fs(40)
+        room = cta_top - sub_top - ctx.fs(40)
+        if room > ctx.fs(40):
+            f3, lines3 = fit(d, s["sub"], "mono", ctx.fs(38),
+                             ctx.W - ctx.fs(200), room, min_size=ctx.fs(22))
+            draw_center(d, lines3, f3, sub_top, ctx.t["footer_fg"], ctx.W)
+
+    draw_center(d, lines4, f4, cta_top, ctx.t["paper"], ctx.W)
     return img
 
 
@@ -392,10 +416,16 @@ def resolve_scene(scene: dict, base: Path, theme: dict, idx: int) -> dict:
     s["dur"] = dur
 
     if "color" in s:
-        if s["color"] not in theme:
-            raise SpecError(f"{where}: unknown color '{s['color']}'. "
-                            f"Known: {', '.join(sorted(theme))}")
-        s["_color"] = theme[s["color"]]
+        try:
+            s["_color"] = brand.color(theme, s["color"])
+        except brand.BrandError as e:
+            raise SpecError(f"{where}: {e}")
+
+    if "xfade" in s:                        # per-scene transition override
+        try:
+            s["xfade"] = max(0.0, float(s["xfade"]))
+        except (TypeError, ValueError):
+            raise SpecError(f"{where}: 'xfade' must be a number of seconds")
 
     if st == "vchart":
         d = s["data"]
@@ -438,25 +468,23 @@ def resolve_scene(scene: dict, base: Path, theme: dict, idx: int) -> dict:
 def preflight(spec_path: Path, out: Path, spec: dict, force: bool) -> tuple[Ctx, list, dict]:
     if shutil.which("ffmpeg") is None:
         raise SpecError("ffmpeg not found on PATH")
-    for k, p in FONTS.items():
-        if not Path(p).is_file():
-            raise SpecError(f"font missing: {k} -> {p}")
+    for role, path in brand.font_report():
+        if not path:
+            raise SpecError(f"no font for type role '{role}' on this machine — run "
+                            "`python3 brand.py` to see every path that was tried")
     if out.suffix.lower() != ".mp4":
         raise SpecError(f"output must end in .mp4 (got '{out.suffix}')")
     out.parent.mkdir(parents=True, exist_ok=True)
     if out.exists() and not force:
         print(f"  note: overwriting existing {out}")
 
-    pname = spec.get("preset", "vertical")
-    if pname not in PRESETS:
-        raise SpecError(f"unknown preset '{pname}'. Known: {', '.join(PRESETS)}")
-    preset = dict(PRESETS[pname])
+    try:
+        preset = brand.preset(spec.get("preset", "vertical"))
+        theme = brand.theme(spec.get("theme"))
+    except brand.BrandError as e:
+        raise SpecError(str(e))
     if spec.get("fps"):
         preset["fps"] = int(spec["fps"])
-    tname = spec.get("theme", "sentinel_light")
-    if tname not in THEMES:
-        raise SpecError(f"unknown theme '{tname}'. Known: {', '.join(THEMES)}")
-    theme = THEMES[tname]
 
     scenes = spec.get("scenes")
     if not isinstance(scenes, list) or not scenes:
@@ -465,6 +493,53 @@ def preflight(spec_path: Path, out: Path, spec: dict, force: bool) -> tuple[Ctx,
     resolved = [resolve_scene(s, base, theme, i) for i, s in enumerate(scenes)]
     ctx = Ctx(preset, theme, spec.get("footer", ""), guides=False)
     return ctx, resolved, preset
+
+
+# ------------------------------------------------------- safe-zone enforcement
+def safe_zone_report(ctx: Ctx, scenes: list) -> list[str]:
+    """Find content placed where the platform's own UI will cover it.
+
+    A vertical video loses its top ~300px to the platform header and its bottom
+    ~360px to captions, the handle and the like button. The engine could always
+    DRAW those guides but never checked against them, so a caption could sit
+    perfectly in a contact sheet and be covered in the feed.
+
+    Each scene is rendered at its final frame and its ink measured. Three
+    things are masked out first because they are full-bleed furniture that is
+    MEANT to run under the platform UI: the accent bar, the footer plate, and
+    the scanline, which sweeps the whole frame by design.
+    """
+    import numpy as np
+    findings = []
+    t = 0.999
+    for i, s in enumerate(scenes, 1):
+        frame = np.array(RENDERERS[s["type"]](t, s, ctx), dtype=np.int16)
+        # measure against the scene's OWN background, so a full-bleed scene
+        # such as `hash` is not read as entirely "content"
+        bg = frame[ctx.H // 2, 2].astype(np.int16)
+        ink = np.abs(frame - bg).sum(axis=2) > 24
+
+        ink[0:ctx.fs(14), :] = False                          # accent bar
+        if ctx.footer:
+            ink[ctx.H - ctx.fs(92):, :] = False               # footer plate
+        sy = int(ctx.H * (0.08 + 0.84 * t))                   # scanline, this frame
+        ink[max(0, sy - ctx.fs(10)):sy + ctx.fs(10), :] = False
+
+        rows = np.where(ink.any(axis=1))[0]
+        if not len(rows):
+            continue
+        top, bottom = int(rows.min()), int(rows.max())
+        if top < ctx.safe["top"]:
+            findings.append(
+                f"scene {i} ({s['type']}): content starts at y={top}, "
+                f"{ctx.safe['top'] - top}px above the safe top ({ctx.safe['top']}) "
+                f"— the platform header covers it")
+        if bottom > ctx.safe["bottom"]:
+            findings.append(
+                f"scene {i} ({s['type']}): content ends at y={bottom}, "
+                f"{bottom - ctx.safe['bottom']}px below the safe bottom "
+                f"({ctx.safe['bottom']}) — captions and buttons cover it")
+    return findings
 
 
 # ----------------------------------------------------------------- render
@@ -533,11 +608,13 @@ def render(spec_path: Path, out: Path, force: bool, verbose: bool) -> dict:
     proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=err)
 
     t0 = time.time()
-    xf = int(float(spec.get("crossfade", 0.45)) * ctx.FPS)
+    default_xf = float(spec.get("crossfade", 0.45))
     prev_last, done = None, 0
     try:
         for si, s in enumerate(scenes):
             nf = int(s["dur"] * ctx.FPS)
+            # a scene may set its own transition; "xfade": 0 is a hard cut
+            xf = int(float(s.get("xfade", default_xf)) * ctx.FPS)
             for i in range(nf):
                 img = render_frame(s, i, nf, ctx, prev_last, xf)
                 proc.stdin.write(img.tobytes())
@@ -580,7 +657,17 @@ def dry_run(spec_path: Path, out: Path):
             extra += " · hash VERIFIED against source"
         print(f"  [{i+1}] {s['type']:<7} {s['dur']:>4.1f}s{extra}")
     print("  all scenes valid · assets present · fonts present · ffmpeg present")
+
+    findings = safe_zone_report(ctx, scenes)
+    if findings:
+        print(f"\n  SAFE ZONE — {len(findings)} scene(s) place content where the "
+              "platform's own UI will sit on top of it:")
+        for f in findings:
+            print(f"    {f}")
+    else:
+        print("  safe zones  every scene keeps its content clear of platform UI")
     print("  nothing rendered (dry run)")
+    return findings
 
 
 def stills(spec_path: Path, out_png: Path, sheet: bool):
@@ -629,7 +716,7 @@ def self_test() -> int:
     check("font cache returns the same object", font("mono", 20) is font("mono", 20))
     check("hash chunks are fixed width", chunk_hash("a" * 64, 16) == ["a" * 16] * 4)
 
-    theme = THEMES["sentinel_light"]
+    theme = brand.theme("sentinel_light")
     with tempfile.TemporaryDirectory() as td:
         base = Path(td)
         data = [{"month": "2025-01", "case_real_pct": 0.0},
@@ -694,6 +781,54 @@ def self_test() -> int:
                       "cta": "go"}, "64 lowercase hex"))
 
     check("frame count math is exact", frames_for([{"dur": 2.0}, {"dur": 0.5}], 24) == 60)
+
+    # --- v0.3 ---------------------------------------------------------------
+    # The brand is one system, and specs written for v0.2 must keep building.
+    check("legacy theme name still resolves",
+          brand.theme("broadsheet") is brand.theme("sentinel_light"))
+    check("legacy colour 'red' resolves to brand accent",
+          brand.color(theme, "red") == theme["accent"])
+    with tempfile.TemporaryDirectory() as td3:
+        b3 = Path(td3)
+        r = resolve_scene({"type": "title", "dur": 2, "title": "x", "color": "red"},
+                          b3, theme, 0)
+        check("a v0.2 spec still resolves its colour", r["_color"] == theme["accent"])
+        r2 = resolve_scene({"type": "title", "dur": 2, "title": "x", "xfade": 0.2},
+                           b3, theme, 0)
+        check("per-scene crossfade is accepted", r2["xfade"] == 0.2)
+        try:
+            resolve_scene({"type": "title", "dur": 2, "title": "x", "xfade": "slow"},
+                          b3, theme, 0)
+            ok_x = False
+        except SpecError as e:
+            ok_x = "must be a number" in str(e)
+        check("non-numeric crossfade is caught", ok_x)
+
+    # Safe zones are CHECKED now, not merely drawable.
+    ctxs = Ctx(brand.preset("vertical"), theme, "", False)
+    placed = [resolve_scene({"type": "title", "dur": 2, "kick": "K",
+                             "title": "Short title", "sub": "one line"},
+                            Path("."), theme, 0)]
+    check("a well-placed scene reports no safe-zone violations",
+          safe_zone_report(ctxs, placed) == [])
+    narrow = brand.preset("vertical")
+    narrow["safe"] = {"top": 900, "bottom": 950, "left": 60, "right": 1020}
+    check("content outside the safe box IS reported",
+          len(safe_zone_report(Ctx(narrow, theme, "", False), placed)) > 0)
+    check("narrowing one preset copy does not mutate the brand",
+          brand.preset("vertical")["safe"]["top"] == 300)
+
+    # A kicker must never run off the frame, however long the text.
+    ctxk = Ctx(brand.preset("vertical"), theme, "", False)
+    for kt in ("SHORT",
+               "AVERAGE LENGTH KICKER",
+               "VALIDATED BEFORE FFMPEG STARTS",
+               "PUBLIC RECORDS INVESTIGATION · COLUMBUS OHIO EXTENDED"):
+        dk = ImageDraw.Draw(Image.new("RGB", (ctxk.W, 200), (255, 255, 255)))
+        drawn = ctxk.kicker(dk, kt, 20)
+        check(f"kicker fits the frame ({int(drawn)}px): '{kt[:28]}'", drawn <= ctxk.W)
+    check("an empty kicker draws nothing rather than crashing",
+          ctxk.kicker(ImageDraw.Draw(Image.new("RGB", (ctxk.W, 200))), "", 20) == 0)
     print(f"\nSelf-test: {ran - fails}/{ran} behaved correctly.")
     return 1 if fails else 0
 
@@ -708,16 +843,26 @@ def main():
     ap.add_argument("--contact-sheet", help="write all scenes to one PNG")
     ap.add_argument("--force", action="store_true", help="overwrite without notice")
     ap.add_argument("--verbose", action="store_true", help="show ffmpeg output live")
+    ap.add_argument("--check-safe", action="store_true",
+                    help="validate, then exit 3 if any scene breaks the safe zone")
+    ap.add_argument("--fonts", action="store_true",
+                    help="show which font file each type role resolves to here")
     ap.add_argument("--self-test", action="store_true")
     a = ap.parse_args()
+
+    if a.fonts:
+        print(brand.summary())
+        sys.exit(0 if brand.fonts_ok() else 2)
 
     if a.self_test:
         sys.exit(self_test())
     spec_path = Path(a.spec).expanduser().resolve()
     out = Path(a.out).expanduser()
     try:
-        if a.dry_run:
-            dry_run(spec_path, out)
+        if a.dry_run or a.check_safe:
+            findings = dry_run(spec_path, out)
+            if a.check_safe and findings:
+                sys.exit(3)
         elif a.contact_sheet:
             stills(spec_path, Path(a.contact_sheet), sheet=True)
         elif a.poster:
