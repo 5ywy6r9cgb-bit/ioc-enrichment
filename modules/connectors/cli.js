@@ -861,6 +861,39 @@ function cmdLobby(opts) {
  * Organisations often run several committees under similar names, with very
  * different rules. Picking one for you would be picking the story.
  */
+// ---------------------------------------------------------------- flag args
+// argv.filter(a => !a.startsWith('--')) removes the FLAG and leaves its VALUE
+// in the positional list, so the value lands in whatever subject those
+// positionals are joined into. This repo has been bitten by that twice:
+// `--into new-albany` searched for "X new-albany" and returned Mississippi
+// murder cases, and `--committee C00879080` searched the FEC for a committee
+// named "AIPAC C00879080". Both failed by returning a clean, confident,
+// wrong answer. Remove the pair together, always.
+function flagVal(argv, name) {
+  const i = argv.indexOf(name);
+  if (i < 0) return null;
+  const v = argv[i + 1];
+  return v && !v.startsWith('--') ? v : null;
+}
+
+function flagNum(argv, name) {
+  const v = flagVal(argv, name);
+  if (v === null) return undefined;
+  const n = parseInt(v, 10);
+  return Number.isFinite(n) ? n : undefined;
+}
+
+/** Positional words, minus the values belonging to the named flags. */
+function subjectFrom(positional, argv, flagNames) {
+  const taken = new Set();
+  for (const f of flagNames) {
+    const v = flagVal(argv, f);
+    if (v !== null) taken.add(v);
+  }
+  return positional.filter((w) => !taken.has(w)).join(' ').trim();
+}
+
+
 async function cmdFecPac(name, opts = {}) {
   const F = require('./fecpac.js');
   const env = R.loadEnv();
@@ -1589,16 +1622,20 @@ async function main() {
     });
   }
   if (action === 'fecpac') {
-    const ci = argv.indexOf('--cycle');
-    const cycle = ci >= 0 && argv[ci + 1] ? parseInt(argv[ci + 1], 10) : undefined;
-    const q = args.slice(1).join(' ');
+    // `args` is argv with --flags filtered out, which drops `--committee` and
+    // KEEPS the id after it. Joining args into the organisation name therefore
+    // searched the FEC for "AIPAC C00879080 2024" and reported, calmly, that no
+    // committee of that name exists. The flag and its VALUE come out together
+    // -- exactly the defect the comment forty lines below already describes for
+    // `--into`, reintroduced here because I read the fix and not the reason.
+    const cycle = flagNum(argv, '--cycle');
+    const committee = flagVal(argv, '--committee');
+    const q = subjectFrom(args.slice(1), argv, ['--cycle', '--committee']);
     if (!q) {
-      console.error('\n  usage: sentinel connect fecpac "ORGANISATION" [--cycle 2024]');
-      console.error('  Lists the committees matching that name; add --committee ID to pull money.\n');
+      console.error('\n  usage: sentinel connect fecpac "ORGANISATION" [--committee C00… --cycle 2024]');
+      console.error('  Without --committee it only resolves the name and stops.\n');
       process.exit(2);
     }
-    const cmi = argv.indexOf('--committee');
-    const committee = cmi >= 0 && argv[cmi + 1] ? argv[cmi + 1] : null;
     return cmdFecPac(q, { cycle, committee, dryRun: opts.dryRun });
   }
   if (argv.includes('--registrant')) {
@@ -1661,4 +1698,4 @@ if (require.main === module) {
   main().catch((e) => { console.error(e); process.exit(1); });
 }
 
-module.exports = { verdictFor, cmdTest, wrap, parseAllArgs, cmdLobby, cmdGraph, cmdRegistrant, cmdExpand, cmdSweep, cmdBrief };
+module.exports = { verdictFor, cmdTest, wrap, parseAllArgs, cmdLobby, cmdGraph, cmdRegistrant, cmdExpand, cmdSweep, cmdBrief, flagVal, flagNum, subjectFrom };

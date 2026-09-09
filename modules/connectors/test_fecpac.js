@@ -126,6 +126,44 @@ async function run() {
   eq('and no totals invented',
     F.totals([], []).contributions_usd, 0);
 
+  // --- the flag-value bug, held down by a test.
+  // `--committee C00879080` was filtered out of args as a FLAG and its VALUE
+  // left behind, so the id joined the organisation name and the FEC was asked
+  // for a committee called "AIPAC C00879080 2024". It answered, correctly,
+  // that no such committee exists — a clean, confident, wrong result.
+  const { flagVal, flagNum, subjectFrom } = require('./cli.js');
+  if (typeof subjectFrom === 'function') {
+    const argv = ['fecpac', 'AIPAC', '--committee', 'C00879080', '--cycle', '2024'];
+    const positional = argv.filter((a) => !a.startsWith('--'));
+    eq('a flag value does not survive into the subject',
+      subjectFrom(positional.slice(1), argv, ['--cycle', '--committee']), 'AIPAC');
+    eq('the committee id is read from its flag', flagVal(argv, '--committee'), 'C00879080');
+    eq('the cycle is read as a number', flagNum(argv, '--cycle'), 2024);
+    eq('a multi-word organisation still joins',
+      subjectFrom(['UNITED', 'DEMOCRACY', 'PROJECT'],
+        ['--cycle', '2024'], ['--cycle']), 'UNITED DEMOCRACY PROJECT');
+    eq('a flag with no value does not eat the next flag',
+      flagVal(['--committee', '--cycle', '2024'], '--committee'), null);
+    eq('an absent flag is absent, not empty', flagVal(['x'], '--cycle'), null);
+  } else {
+    check('cli exports its flag helpers so they can be tested', false);
+  }
+
+  // --- `connect fec "Ohio Senate"` returned zero, because q matches a NAME.
+  // An office and a state is a filter, not a person, and a name field asked
+  // for one answers honestly with nothing.
+  const R = require('./registry.js');
+  const fecUrl = (q) => R.CONNECTORS.fec.run(q, 'K').url;
+  check('a state/office query becomes structured filters',
+    /state=OH/.test(fecUrl('OH/S')) && /office=S/.test(fecUrl('OH/S')));
+  check('a district is zero-padded the way the FEC stores it',
+    /district=15/.test(fecUrl('OH/H/15')));
+  check('lower case and spaces still resolve', /state=OH/.test(fecUrl('oh / h')));
+  check('a person is still searched by name',
+    /q=Sherrod/.test(fecUrl('Sherrod Brown')) && !/state=/.test(fecUrl('Sherrod Brown')));
+  check('an office phrase is NOT silently treated as a filter',
+    /q=Ohio/.test(fecUrl('Ohio Senate')));
+
   console.log(`\n  ${fails ? 'FAIL' : 'PASS'} — ${ran - fails}/${ran} checks\n`);
   return fails ? 1 : 0;
 }

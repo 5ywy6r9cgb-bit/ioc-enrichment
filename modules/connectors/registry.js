@@ -525,13 +525,25 @@ const CONNECTORS = {
       url: `https://api.open.fec.gov/v1/candidates/search/?api_key=${encodeURIComponent(key || 'DEMO_KEY')}&per_page=1`,
       headers: {},
     }),
-    run: (q, key) => ({
-      method: 'GET',
-      url: 'https://api.open.fec.gov/v1/candidates/search/'
-         + `?api_key=${encodeURIComponent(key)}`
-         + `&q=${encodeURIComponent(q)}&sort=-first_file_date&per_page=25`,
-      headers: {},
-    }),
+    // `q` matches a candidate's NAME. A query like "Ohio Senate" is an office
+    // and a state, matches no person, and returns zero — which reads as "no
+    // such candidates" when the fact is "that is not what this field asks."
+    //
+    // So a query of the shape "OH/S" or "OH/H/15" is translated into the
+    // structured filters the endpoint actually has, and anything else is
+    // still a name search. A delegation is a filter, not a name.
+    run: (q, key) => {
+      const m = /^([A-Za-z]{2})\s*\/\s*([HSPhsp])(?:\s*\/\s*(\d{1,2}))?$/.exec(String(q).trim());
+      const base = 'https://api.open.fec.gov/v1/candidates/search/'
+                 + `?api_key=${encodeURIComponent(key)}`
+                 + '&sort=-first_file_date&per_page=100&is_active_candidate=true';
+      if (m) {
+        let u = base + `&state=${m[1].toUpperCase()}&office=${m[2].toUpperCase()}`;
+        if (m[3]) u += `&district=${m[3].padStart(2, '0')}`;
+        return { method: 'GET', url: u, headers: {} };
+      }
+      return { method: 'GET', url: base + `&q=${encodeURIComponent(q)}`, headers: {} };
+    },
     parse: (json) => (json.results || []).map((r) => ({
       external_id: r.candidate_id,
       name: r.name,
