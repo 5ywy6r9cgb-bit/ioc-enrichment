@@ -6,19 +6,65 @@ Paths assume you start at the repo root.
 
 ---
 
-## 0. Once per machine
+## 0. Get on the right branch — do this first
+
+All of this lives on a branch. `main` still has the old two-file engine, so if
+you are on `main` you will get `unrecognized arguments: --fonts` and there will
+be no `episodes/` directory at all.
 
 ```bash
-pip3 install pillow numpy
-
-# ffmpeg — macOS
-brew install ffmpeg
+cd ~/sentinel
+git fetch origin
+git checkout claude/video-automation-workflow-thkmim
+git pull
 ```
 
-Confirm the machine can build:
+Check you landed:
 
 ```bash
-cd modules/openmontage/engine
+git branch --show-current       # claude/video-automation-workflow-thkmim
+ls modules/openmontage/engine   # brand.py om_audio.py om_motifs.py openmontage.py
+```
+
+If `brand.py` is missing you are still on `main`.
+
+---
+
+## 1. Once per machine
+
+**Python packages.** Recent Homebrew Python refuses system-wide installs
+(PEP 668: `error: externally-managed-environment`). Use a virtual environment:
+
+```bash
+python3 -m venv modules/openmontage/venv
+source modules/openmontage/venv/bin/activate
+pip install pillow numpy imagehash piexif
+```
+
+That `source` line has to be run in **every new terminal** before rendering.
+`bin/sentinel` calls plain `python3`, so it picks up the venv automatically
+once activated — and silently falls back to system Python without it, which is
+how you get "no module named PIL". To make it permanent:
+
+```bash
+echo 'source ~/sentinel/modules/openmontage/venv/bin/activate' >> ~/.zshrc
+```
+
+The one-line alternative is `pip3 install --break-system-packages pillow
+numpy`. It works, and Homebrew warns it can break its own Python. The venv is
+the safer path.
+
+**ffmpeg:**
+
+```bash
+brew install ffmpeg       # already installed? then nothing to do
+```
+
+Confirm the machine can build — note the absolute path, so this works from
+wherever you happen to be:
+
+```bash
+cd ~/sentinel/modules/openmontage/engine
 python3 openmontage.py --fonts       # every type role must say "ok"
 python3 openmontage.py --self-test   # 56 checks
 python3 om_audio.py --self-test      # 41 checks
@@ -28,9 +74,40 @@ If `--fonts` shows MISSING, install the face it names or add a path you do
 have to `_FONT_CANDIDATES` in `brand.py`. Nothing else will work until this
 is clean.
 
+**`sentinel: command not found`** — the launcher is not on your PATH. Either
+call it as `bin/sentinel …` from the repo root, or add it once:
+
+```bash
+echo 'export PATH="$HOME/sentinel/bin:$PATH"' >> ~/.zshrc
+```
+
 ---
 
-## 1. Build Episode 00 (already written)
+## 2. Never paste code into the terminal
+
+If a file needs to change, it gets committed and you `git pull` it. Do not
+paste a Python file into zsh through a heredoc. Three things go wrong every
+time, and all three did:
+
+- **Smart quotes and non-breaking spaces.** Copying from a chat window or a
+  document turns `"` into a curly quote and spaces into U+00A0. Python rejects
+  the file with `invalid non-printable character U+00A0`, pointing at a line
+  that looks perfect on screen.
+- **`!` is history expansion in zsh.** `#!/usr/bin/env python3` becomes
+  `zsh: event not found: /usr/bin/env`.
+- **Indentation gets eaten**, giving `IndentationError` on a file that was
+  correctly indented when you copied it.
+
+A stray file named `#` in the repo root is the signature of a heredoc that went
+wrong — that is a shell redirect into a file literally called `#`. Delete it.
+
+```bash
+git pull        # this is the transport. Always.
+```
+
+---
+
+## 3. Build Episode 00 (already written)
 
 ```bash
 cd modules/openmontage/episodes/ep00
@@ -61,7 +138,7 @@ in the episode that goes stale on its own.
 
 ---
 
-## 2. Record and cut
+## 4. Record and cut
 
 1. Open `builds/ep00.script.md` on the phone.
 2. Record narration to the timecodes. One scene per take. Leave half a second
@@ -79,7 +156,7 @@ is not.
 
 ---
 
-## 3. Music
+## 5. Music
 
 Three styles. Set per episode in the spec:
 
@@ -112,7 +189,7 @@ needs to change.
 
 ---
 
-## 4. A new episode
+## 6. A new episode
 
 ```bash
 cd modules/openmontage/episodes
@@ -121,7 +198,7 @@ cp ep00/episode.json ep01/episode.json
 # edit ep01/episode.json: new title, new scenes, new footer
 ```
 
-Then the same three commands as step 1, with `ep01`.
+Then the same three commands as step 3, with `ep01`.
 
 Photographs go in `ep01/assets/`. Read `docs/SHOTLIST.md` before you shoot —
 it covers framing for the 9:16 crop, the standing kit worth capturing once,
@@ -144,7 +221,55 @@ A photo scene:
 
 ---
 
-## 5. Scene types
+## 7. The photo library
+
+Before photographs go anywhere near an episode, inventory them:
+
+```bash
+cd ~/sentinel
+python3 modules/openmontage/visual_system/visual_manifest.py ~/Pictures/TSR
+```
+
+It writes two files next to your photos:
+
+| file | who owns it |
+|---|---|
+| `visual_manifest.json` | the machine. Rewritten every run. Never hand-edit it. |
+| `visual_editorial_overrides.json` | **you.** Merged forward every run, never clobbered. |
+
+It reports exact duplicates (same SHA-256), near-duplicates (perceptual hash —
+burst shots, re-crops, re-exports), and hard links. Images too flat to compare
+are excluded and counted separately, because a blank wall and an overexposed
+sky hash alike and would otherwise group with everything.
+
+**Nothing is approved by default.** Every image lands `unreviewed` and
+`approved_for_documentary: false`. To clear a shot, edit the overrides file:
+
+```jsonc
+"vis_a1b2c3…": {
+  "review_status": "reviewed",
+  "approved_for_documentary": true,
+  "credit": "Photo: M. Rosenburg, 2026-09-08",
+  "description": "the counter at the clerk's office",
+  "location_label": "Franklin County Municipal Court"
+}
+```
+
+Then:
+
+```bash
+python3 modules/openmontage/visual_system/visual_manifest.py ~/Pictures/TSR --approved
+```
+
+lists what has cleared. Copy those into `episodes/epNN/assets/` and use the
+`credit` string as the photo scene's `source`.
+
+Note EXIF GPS: a phone photo usually carries the exact coordinates it was taken
+at. Those are recorded in the manifest and never rendered into a frame.
+
+---
+
+## 8. Scene types
 
 | type | required fields | what it does |
 |---|---|---|
@@ -165,7 +290,7 @@ Durations that work: `title` 5–8s · `question` 5–7s · `photo` 3.5–5s ·
 
 ---
 
-## 6. Exit codes
+## 9. Exit codes
 
 `0` fine · `2` spec error · `3` a scene breaks the safe zone.
 
@@ -175,7 +300,7 @@ wrong in the feed.
 
 ---
 
-## 7. If something breaks
+## 10. If something breaks
 
 | symptom | cause | fix |
 |---|---|---|
@@ -190,7 +315,7 @@ wrong in the feed.
 
 ---
 
-## 8. Before every publish
+## 11. Before every publish
 
 ```bash
 python3 ../../engine/openmontage.py --spec episode.json --check-safe
