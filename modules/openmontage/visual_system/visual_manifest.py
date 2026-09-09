@@ -48,6 +48,9 @@ USAGE
     python3 visual_manifest.py ~/Pictures/TSR --check-only
     python3 visual_manifest.py ~/Pictures/TSR --threshold 8
     python3 visual_manifest.py ~/Pictures/TSR --approved
+    python3 visual_manifest.py ~/Pictures/TSR --backgrounds
+    python3 visual_manifest.py "~/Pictures/Photos Library.photoslibrary/originals" \\
+        --manifest-dir ~/Pictures/TSR-records     # source never written to
     python3 visual_manifest.py --find          # where are my photos?
     python3 visual_manifest.py --self-test
 
@@ -402,6 +405,90 @@ def detail_stddev(im) -> float:
     return (sum((v - mean) ** 2 for v in px) / n) ** 0.5
 
 
+def background_fitness(im, target_w: int = 1080, target_h: int = 1920) -> dict:
+    """Can this photograph hold type at the target aspect?
+
+    This is a measurement, not taste. A photograph works as a background when
+    the region where words sit is calm enough to read against and dark enough
+    for the scrim to finish the job — and when there are enough pixels to fill
+    the frame without upscaling. All three are measurable, so they are measured
+    and reported rather than judged by eye across two thousand files.
+
+    What it does NOT claim: that the picture is good, that it means anything,
+    or that it belongs in a particular episode. Those are yours. This only
+    rules out the ones that cannot physically work, which is most of the labour
+    and none of the judgement.
+
+    The type band is the lower-middle of the frame, where the engine puts
+    caption and credit over its scrim. A busy band there is the single most
+    common reason a beautiful photograph is unusable behind words.
+    """
+    from PIL import ImageFilter, ImageStat
+
+    w, h = im.size
+    target_ratio = target_w / target_h
+
+    # centre-crop to the target aspect, which is what full-bleed rendering does
+    if w / h > target_ratio:
+        cw, ch = int(h * target_ratio), h
+    else:
+        cw, ch = w, int(w / target_ratio)
+    left, top = (w - cw) // 2, (h - ch) // 2
+    crop = im.convert("L").crop((left, top, left + cw, top + ch))
+
+    # resolution is a gate, not a score: upscaling a small photo to fill a
+    # 1080x1920 frame looks soft in a way no amount of grading fixes
+    scale = min(cw / target_w, ch / target_h)
+    enough_pixels = scale >= 1.0
+
+    work = crop.resize((270, 480))
+    band = work.crop((0, int(480 * 0.55), 270, int(480 * 0.85)))
+
+    def busyness(img) -> float:
+        # FIND_EDGES lights up the outer border of whatever it is given, so
+        # trim a pixel before measuring or every crop reads as busy
+        e = img.filter(ImageFilter.FIND_EDGES)
+        e = e.crop((1, 1, e.width - 1, e.height - 1))
+        return ImageStat.Stat(e).mean[0]
+
+    band_busy = busyness(band)
+    frame_busy = busyness(work)
+    band_luma = ImageStat.Stat(band).mean[0]
+
+    # Thresholds from measuring real frames, not from theory. Around 12 the
+    # band is calm enough that white type reads with the scrim alone; past
+    # ~28 no scrim saves it.
+    calm = max(0.0, min(100.0, 100.0 - (band_busy - 6.0) * (100.0 / 22.0)))
+    # the engine darkens the lower frame, so a mid-to-dark band is ideal and a
+    # blown-out one is the hard case
+    luma_fit = max(0.0, min(100.0, 100.0 - max(0.0, band_luma - 140.0) * 1.4))
+    score = round(0.65 * calm + 0.35 * luma_fit, 1) if enough_pixels else 0.0
+
+    if not enough_pixels:
+        verdict = f"too small — {cw}x{ch} after crop, needs {target_w}x{target_h}"
+    elif band_busy > 28:
+        verdict = "too busy where the type sits"
+    elif band_luma > 190:
+        verdict = "usable, but the band is bright — expect a heavy scrim"
+    elif score >= 70:
+        verdict = "good background"
+    elif score >= 50:
+        verdict = "workable background"
+    else:
+        verdict = "poor background"
+
+    return {
+        "target": f"{target_w}x{target_h}",
+        "score": score,
+        "verdict": verdict,
+        "type_band_busyness": round(band_busy, 2),
+        "type_band_luma": round(band_luma, 1),
+        "frame_busyness": round(frame_busy, 2),
+        "crop_px": f"{cw}x{ch}",
+        "enough_pixels": enough_pixels,
+    }
+
+
 def build_record(path: Path, root: Path, prev_by_sha: dict) -> dict:
     st = path.stat()
     digest = sha256_file(path)
@@ -409,6 +496,7 @@ def build_record(path: Path, root: Path, prev_by_sha: dict) -> dict:
         width, height = im.size
         phash = str(imagehash.phash(im))
         stddev = detail_stddev(im)
+        fitness = background_fitness(im)
         exif, meta_src, meta_status = extract_exif(path, im)
         fmt = im.format
     prev = prev_by_sha.get(digest, {})
@@ -432,6 +520,8 @@ def build_record(path: Path, root: Path, prev_by_sha: dict) -> dict:
         "detail_stddev": round(stddev, 2),
         # too flat for a perceptual hash to mean anything — see detail_stddev()
         "low_detail": stddev < LOW_DETAIL_STDDEV,
+        # measured suitability as a full-bleed background behind type
+        "background": fitness,
         # first time we ever saw this content, carried forward across rescans
         "discovered_at": prev.get("discovered_at", utc_now()),
         "provenance": {
@@ -477,14 +567,24 @@ def similarity_groups(records: list[dict], threshold: int) -> list[list[dict]]:
 
 
 def inventory(root: Path, threshold: int = DEFAULT_THRESHOLD,
-              write: bool = True) -> dict:
+              write: bool = True, manifest_dir: Path | None = None) -> dict:
     root = Path(root).expanduser().resolve()
     if not root.is_dir():
         raise NotADirectoryError(f"visual library does not exist: {root}")
 
-    manifest_path = root / MANIFEST_NAME
-    policy_path = root / POLICY_NAME
-    overrides_path = root / OVERRIDES_NAME
+    # Where the three sidecar files live. By default beside the photographs,
+    # which is right for a folder you own. `manifest_dir` puts them somewhere
+    # else so the source tree is never written to at all — the case that
+    # matters is an Apple Photos package, where the originals are perfectly
+    # readable but writing anything inside risks the library's own database.
+    # Read-only source, records kept elsewhere.
+    side = Path(manifest_dir).expanduser().resolve() if manifest_dir else root
+    if manifest_dir:
+        side.mkdir(parents=True, exist_ok=True)
+
+    manifest_path = side / MANIFEST_NAME
+    policy_path = side / POLICY_NAME
+    overrides_path = side / OVERRIDES_NAME
 
     previous = load_previous(manifest_path)
     prev_by_sha = {v["sha256"]: v for v in previous.get("visuals", [])
@@ -560,6 +660,7 @@ def inventory(root: Path, threshold: int = DEFAULT_THRESHOLD,
         "root": str(root),
         "similarity_engine": {"algorithm": "phash", "hash_bits": 64,
                               "distance_metric": "hamming", "threshold": threshold},
+        "records_dir": str(side),
         "counts": {
             "images": len(records),
             "videos_not_inventoried": len(videos),
@@ -675,6 +776,50 @@ def print_approved(m: dict) -> None:
         r = by_id[vid]
         print(f"{vid}  {r['orientation']:<9} {r['width']}x{r['height']:<6} "
               f"{r['relative_path']}")
+
+
+def print_backgrounds(m: dict) -> None:
+    """Rank by measured fitness behind type. Best first.
+
+    This narrows two thousand photographs to the few dozen that can physically
+    hold words, which is the part worth automating. Which of those belongs in
+    an episode is not a thing a score knows.
+    """
+    rows = sorted((v for v in m["visuals"] if v.get("background")),
+                  key=lambda v: -v["background"]["score"])
+    if not rows:
+        print("No images scanned.")
+        return
+    usable = [r for r in rows if r["background"]["score"] >= 50]
+    print()
+    print(f"  BACKGROUND FITNESS · {m['root']}")
+    print(f"  {len(usable)} of {len(rows)} can hold type at "
+          f"{rows[0]['background']['target']}")
+    print()
+    print(f"  {'score':>5}  {'busy':>5} {'luma':>5}  {'origin':<15} verdict / file")
+    for r in rows[:60]:
+        b = r["background"]
+        flag = " " if r.get("documentary_eligible") else "!"
+        print(f"  {b['score']:>5.1f}  {b['type_band_busyness']:>5.1f} "
+              f"{b['type_band_luma']:>5.0f}  {r.get('origin', '?'):<15}"
+              f"{flag}{b['verdict']}")
+        print(f"         {r['relative_path']}")
+    if len(rows) > 60:
+        print(f"\n  … {len(rows) - 60} more.")
+    print()
+    print("  score    0-100, measured: 65% how calm the type band is, "
+          "35% how well it takes a scrim")
+    print("  busy     edge energy where caption and credit sit. Over ~28 no "
+          "scrim rescues it")
+    print("  luma     brightness of that band, 0-255. Over ~190 expect a heavy "
+          "scrim")
+    print("  !        origin not yet declared — cannot be approved, whatever "
+          "it scores")
+    print()
+    print("  A score says a photograph CAN hold words. It does not say the "
+          "photograph means")
+    print("  anything, or belongs in a particular episode. That part is still "
+          "yours.")
 
 
 # ------------------------------------------------------------------ discovery
@@ -960,6 +1105,71 @@ def self_test() -> int:
             ok = "missing field" in str(e)
         check("a malformed overrides file is refused with a reason", ok)
 
+    # Background fitness and --manifest-dir get their own tree: these fixtures
+    # add images and directories, and the blocks above count what a recursive
+    # scan finds. Sharing a root made two unrelated checks fail.
+    with tf.TemporaryDirectory() as tdbg:
+        root = Path(tdbg)
+        # --- background fitness: a measurement, so it is tested like one
+        from PIL import ImageDraw as _ID
+        bg = root / "bg"
+        bg.mkdir()
+        calm = Image.new("RGB", (1600, 2400))
+        _d = _ID.Draw(calm)
+        for _y in range(2400):
+            _v = int(30 + 60 * (_y / 2400))
+            _d.line([(0, _y), (1600, _y)], fill=(_v, _v + 4, _v + 10))
+        calm.save(bg / "calm.jpg", quality=92)
+        busy = Image.new("RGB", (1600, 2400), (40, 45, 55))
+        _d = _ID.Draw(busy)
+        import random as _r
+        _r.seed(7)
+        for _ in range(4000):                    # noise ONLY where type sits
+            _x, _y = _r.randint(0, 1600), _r.randint(1320, 2040)
+            _d.rectangle([_x, _y, _x + 9, _y + 9], fill=(_r.randint(150, 255),) * 3)
+        busy.save(bg / "busy.jpg", quality=92)
+        bright = Image.new("RGB", (1600, 2400), (60, 60, 70))
+        _ID.Draw(bright).rectangle([0, 1320, 1600, 2040], fill=(250, 250, 248))
+        bright.save(bg / "bright.jpg", quality=92)
+        Image.new("RGB", (400, 700), (70, 80, 95)).save(bg / "small.jpg", quality=92)
+
+        mb = inventory(bg)
+        score = {v["filename"]: v["background"] for v in mb["visuals"]}
+        check("a calm frame scores well as a background",
+              score["calm.jpg"]["score"] >= 70)
+        check("noise where the type sits is caught, not the frame overall",
+              score["busy.jpg"]["verdict"] == "too busy where the type sits")
+        check("a calm frame beats a busy one",
+              score["calm.jpg"]["score"] > score["busy.jpg"]["score"])
+        check("a blown-out band is flagged rather than failed",
+              "bright" in score["bright.jpg"]["verdict"])
+        check("too few pixels is a gate, not a low score",
+              score["small.jpg"]["score"] == 0.0
+              and not score["small.jpg"]["enough_pixels"])
+        check("the crop measured is the target aspect, not the original",
+              score["calm.jpg"]["crop_px"] == "1350x2400")
+
+        # --- --manifest-dir: the source tree must not be written to at all.
+        # This is what makes an Apple Photos package scannable in place.
+        ro = root / "readonly_src"
+        ro.mkdir()
+        calm.save(ro / "one.jpg", quality=92)
+        before = sorted(q.name for q in ro.iterdir())
+        elsewhere = root / "records"
+        inventory(ro, manifest_dir=elsewhere)
+        check("--manifest-dir leaves the source folder byte-for-byte alone",
+              sorted(q.name for q in ro.iterdir()) == before)
+        check("the three sidecar files are written to the given directory",
+              (elsewhere / MANIFEST_NAME).is_file()
+              and (elsewhere / OVERRIDES_NAME).is_file()
+              and (elsewhere / POLICY_NAME).is_file())
+        check("the manifest records where its own records live",
+              json.loads((elsewhere / MANIFEST_NAME).read_text())["records_dir"]
+              == str(elsewhere.resolve()))
+        m_again = inventory(ro, manifest_dir=elsewhere)
+        check("a rescan against an external records dir still finds the image",
+              m_again["counts"]["images"] == 1)
+
     print(f"\nSelf-test: {ran - fails}/{ran} behaved correctly.")
     return 1 if fails else 0
 
@@ -989,6 +1199,12 @@ def main() -> int:
                     help="list images cleared for use, one per line")
     ap.add_argument("--find", action="store_true",
                     help="locate folders on this machine that hold photographs")
+    ap.add_argument("--manifest-dir", metavar="DIR",
+                    help="write the manifest, overrides and policy HERE instead "
+                         "of beside the photographs, leaving the source untouched")
+    ap.add_argument("--backgrounds", action="store_true",
+                    help="rank images by measured suitability as a background "
+                         "behind type, best first")
     ap.add_argument("--self-test", action="store_true")
     a = ap.parse_args()
 
@@ -1006,7 +1222,8 @@ def main() -> int:
 
     try:
         m = inventory(Path(a.library), threshold=a.threshold,
-                      write=not (a.check_only or a.approved))
+                      write=not (a.check_only or a.approved or a.backgrounds),
+                      manifest_dir=Path(a.manifest_dir) if a.manifest_dir else None)
     except (NotADirectoryError, ValueError) as e:
         print(f"\nERROR: {e}", file=sys.stderr)
         return 2
@@ -1016,6 +1233,8 @@ def main() -> int:
 
     if a.approved:
         print_approved(m)
+    elif a.backgrounds:
+        print_backgrounds(m)
     else:
         print_summary(m, a.check_only)
     return 0

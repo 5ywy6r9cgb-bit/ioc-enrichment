@@ -261,10 +261,33 @@ and `/Volumes` (plug an external drive in first if that is where they live) and
 lists every folder holding photographs, biggest first. It reads nothing and
 writes nothing.
 
-**An Apple Photos library is flagged, never scanned.** A `.photoslibrary` is a
-package holding a database and re-encoded derivatives — scanning inside it
-gives you thousands of thumbnails instead of your originals, which is exactly
-the DERIVATIVE problem the media intake tool warns about. Export first:
+**An Apple Photos library is flagged, never descended into automatically** —
+`--find` reports it and moves on. But you do not have to export 2GB to use it.
+
+A `.photoslibrary` has two halves, and only one is a trap:
+
+| inside the package | what it is |
+|---|---|
+| `originals/` | **your actual files**, EXIF intact, sharded into hex subfolders |
+| `resources/derivatives/` | re-encoded thumbnails and renders — the trap |
+| `database/` | Apple's SQLite. Never touch it |
+
+So scan `originals/` directly, and keep the records outside the package so
+nothing is ever written into it:
+
+```bash
+python3 modules/openmontage/visual_system/visual_manifest.py \
+  "$HOME/Pictures/Photos Library.photoslibrary/originals" \
+  --manifest-dir ~/Pictures/TSR-records
+```
+
+`--manifest-dir` is what makes this safe: the source tree is read and never
+written to. Filenames in there are UUIDs, which does not matter — `visual_id`
+is derived from file content, not from the name.
+
+Export instead when you want the files somewhere portable, or when your
+library is in iCloud with **Optimise Mac Storage** on (then `originals/` holds
+placeholders, not full images):
 
 > Photos → select → File → Export → **Export Unmodified Original**
 
@@ -327,6 +350,41 @@ python3 modules/openmontage/visual_system/visual_manifest.py ~/Pictures/TSR --ap
 
 lists what has cleared. Copy those into `episodes/epNN/assets/` and use the
 `credit` string as the photo scene's `source`.
+
+### Which photographs can hold type
+
+An archive of two thousand frames has maybe forty that work behind words, and
+finding them by eye is the whole evening. This measures it:
+
+```bash
+python3 modules/openmontage/visual_system/visual_manifest.py \
+  "/your/library" --manifest-dir ~/Pictures/TSR-records --backgrounds
+```
+
+```
+  BACKGROUND FITNESS · /your/library
+  38 of 1,974 can hold type at 1080x1920
+
+  score   busy  luma  origin          verdict / file
+  100.0    0.4    74  own_camera      good background
+         2026-06-12/IMG_4411.jpeg
+   35.0   65.1    91  own_camera      too busy where the type sits
+         2026-04-03/IMG_2087.jpeg
+```
+
+| column | what it measures |
+|---|---|
+| `score` | 0–100. 65% how calm the band is where type sits, 35% how well it takes a scrim |
+| `busy` | edge energy in that band. Over ~28, no scrim rescues it |
+| `luma` | brightness of that band, 0–255. Over ~190 expect a heavy scrim |
+| `!` | origin not declared — cannot be approved whatever it scores |
+
+It measures the **lower-middle band** specifically, because that is where the
+engine puts caption and credit. A gorgeous frame with a busy lower third is
+the most common unusable photograph, and it looks fine until the words go on.
+
+This narrows the pile. It does not pick. A score says a photograph *can* hold
+words — never that it means anything, or belongs in a particular episode.
 
 Note EXIF GPS: a phone photo usually carries the exact coordinates it was taken
 at. Those are recorded in the manifest and never rendered into a frame.
