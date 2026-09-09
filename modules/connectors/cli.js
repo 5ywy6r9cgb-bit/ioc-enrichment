@@ -894,6 +894,126 @@ function subjectFrom(positional, argv, flagNames) {
 }
 
 
+/**
+ * connect delegation — a whole state's federal delegation, and their money.
+ *
+ * One command, one table. The share of a member's contributions that came
+ * from political committees rather than from people is the number this
+ * exists for, and it only means anything with the whole delegation beside it.
+ */
+async function cmdDelegation(state, opts = {}) {
+  const D = require('./delegation.js');
+  const env = R.loadEnv();
+  const key = R.resolveKey(R.CONNECTORS.fec, env);
+  if (!key) {
+    console.error(`\n  ${C.r('FEC_API_KEY is not set.')}`);
+    console.error(C.dim('  Free from https://api.data.gov/signup/ — DATA_GOV_API_KEY works too.\n'));
+    process.exit(2);
+  }
+  const now = new Date().getFullYear();
+  const cycle = opts.cycle || (now % 2 === 0 ? now : now + 1);
+
+  if (opts.dryRun) {
+    console.log(`\n  ${C.dim('DRY RUN — would sweep')} ${state} ${opts.offices.join('+')} cycle ${cycle}`);
+    console.log(C.dim('    one call per office for the roster, one per committee for totals\n'));
+    return;
+  }
+
+  const fetchJson = async (url) => {
+    let wait = 1500;
+    for (let attempt = 1; attempt <= 4; attempt++) {
+      const res = await R.request('GET', url, {});
+      if (res.status === 200) return JSON.parse(res.body);
+      const retryable = [429, 503, 504].includes(res.status);
+      if (!retryable || attempt === 4) {
+        throw new Error(`FEC returned ${res.status} — ${String(res.body || '').slice(0, 160)}`);
+      }
+      await new Promise((r) => setTimeout(r, wait));
+      wait *= 2;
+    }
+  };
+
+  console.log(`\n  ${C.b(state)} federal delegation · cycle ${cycle} · `
+    + opts.offices.map((o) => D.OFFICES[o]).join(' + '));
+  const out = await D.sweep(fetchJson, {
+    state, offices: opts.offices, cycle, key, pace: 350,
+    onStep: (kind, a, b, c) => {
+      if (kind === 'candidates') process.stdout.write(`\r    roster ${D.OFFICES[a]} · ${b} candidate(s)      `);
+      else process.stdout.write(`\r    totals ${String(b).padStart(3)}/${c} · ${String(a).slice(0, 34).padEnd(34)}`);
+    },
+  });
+  process.stdout.write('\n\n');
+
+  const money = (n) => (n ? '$' + Math.round(n).toLocaleString('en-US') : '—');
+  const share = (n) => (n === null || n === undefined ? '  —  ' : `${String(n.toFixed(1)).padStart(5)}%`);
+
+  console.log(C.dim('   PAC%   from people      raised       spent   cash left   member'));
+  for (const r of out.rows) {
+    const c = r.candidate, a = r.audit;
+    if (!r.totals) {
+      console.log(`   ${C.dim('  —  ')}                                                  `
+        + `${C.dim(c.name)} ${C.dim('(no committee totals filed)')}`);
+      continue;
+    }
+    const inc = /incumbent/i.test(c.incumbent) ? C.g('*') : ' ';
+    const seat = c.office === 'S' ? 'SEN' : `${c.district || '??'}`.padStart(3, '0');
+    const hot = a.pac_share_of_contributed !== null && a.pac_share_of_contributed >= 50;
+    console.log(`  ${hot ? C.y(share(a.pac_share_of_contributed)) : share(a.pac_share_of_contributed)}`
+      + ` ${share(a.individual_share_of_contributed)}`
+      + ` ${money(r.totals.receipts).padStart(12)}`
+      + ` ${money(r.totals.disbursements).padStart(11)}`
+      + ` ${money(r.totals.cash_on_hand).padStart(11)}`
+      + `  ${inc}${seat} ${c.party || '  '} ${c.name}`);
+    for (const f of (a.flags || [])) {
+      console.log(C.dim(`         ${f.note}${f.amount ? ' — ' + money(f.amount) : ''}`));
+    }
+  }
+
+  const s = out.summary;
+  console.log('');
+  console.log(`  ${C.b('DELEGATION')}  ${s.with_totals} of ${s.members} with totals filed`
+    + (s.missing_totals ? C.dim(`  · ${s.missing_totals} without`) : ''));
+  console.log(`    raised        ${money(s.receipts)}`);
+  console.log(`    spent         ${money(s.disbursements)}`);
+  console.log(`    from PACs     ${money(s.pac_contributions)}`
+    + (s.pac_share_of_contributed !== null
+      ? `   (${s.pac_share_of_contributed}% of all contributions)` : ''));
+  console.log(`    cash on hand  ${money(s.cash_on_hand)}`);
+  console.log(C.dim(`    ${s._note}`));
+
+  console.log(`\n  ${C.dim('PAC% is committee money as a share of CONTRIBUTIONS — individuals plus')}`);
+  console.log(C.dim('  committees plus party. Not of receipts, which include loans and'));
+  console.log(C.dim('  transfers and would flatter anyone who lent their own campaign money.'));
+  console.log(C.dim('  Only the PRINCIPAL campaign committee is counted. A leadership PAC is'));
+  console.log(C.dim('  money raised to give to OTHER members and is a different question.'));
+  console.log(C.dim(`  ${C.g('*')} marks an incumbent.\n`));
+
+  if (opts.csv) {
+    const rowsOut = [['name', 'party', 'office', 'district', 'incumbent',
+      'committee_id', 'committee_name', 'receipts', 'disbursements',
+      'individual_contributions', 'pac_contributions', 'party_contributions',
+      'contributed', 'pac_share_of_contributed', 'cash_on_hand', 'loans',
+      'transfers_in', 'to_other_committees', 'coverage_end_date'].join(',')];
+    for (const r of out.rows) {
+      const c = r.candidate, t2 = r.totals, a = r.audit;
+      rowsOut.push([
+        JSON.stringify(c.name), c.party, c.office, c.district, JSON.stringify(c.incumbent),
+        c.committee_id, JSON.stringify(c.committee_name),
+        t2 ? t2.receipts : '', t2 ? t2.disbursements : '',
+        t2 ? t2.individual_contributions : '', t2 ? t2.pac_contributions : '',
+        t2 ? t2.party_contributions : '',
+        a ? a.contributed : '', a ? (a.pac_share_of_contributed ?? '') : '',
+        t2 ? t2.cash_on_hand : '', t2 ? t2.loans : '', t2 ? t2.transfers_in : '',
+        t2 ? t2.contributions_to_other_committees : '',
+        t2 ? t2.coverage_end_date : '',
+      ].join(','));
+    }
+    fs.writeFileSync(opts.csv, rowsOut.join('\n') + '\n');
+    console.log(`  ${C.g('csv')}  ${opts.csv}  (${out.rows.length} row(s))\n`);
+  }
+}
+
+
 async function cmdFecPac(name, opts = {}) {
   const F = require('./fecpac.js');
   const env = R.loadEnv();
@@ -1693,6 +1813,22 @@ async function main() {
     return cmdExpand({
       limit: li >= 0 && argv[li + 1] ? parseInt(argv[li + 1], 10) : undefined,
       dryRun: opts.dryRun,
+    });
+  }
+  if (action === 'delegation') {
+    const state = (args[1] || '').toUpperCase();
+    const cycle = flagNum(argv, '--cycle');
+    if (!/^[A-Z]{2}$/.test(state)) {
+      console.error('\n  usage: sentinel connect delegation OH [--cycle 2026] [--house] [--senate]');
+      console.error('  Sweeps every federal candidate for that state and audits their money.\n');
+      process.exit(2);
+    }
+    const offices = [];
+    if (argv.includes('--senate')) offices.push('S');
+    if (argv.includes('--house')) offices.push('H');
+    return cmdDelegation(state, {
+      cycle, offices: offices.length ? offices : ['S', 'H'],
+      csv: flagVal(argv, '--csv'), dryRun: opts.dryRun,
     });
   }
   if (action === 'fecpac') {

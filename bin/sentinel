@@ -41,6 +41,7 @@
 #   sentinel connect sweep SET      run a whole named subject list
 #   sentinel connect brief "NAME"   everything the library holds on one name
 #   sentinel connect fecpac "ORG"    a committee's money, by category
+#   sentinel connect delegation OH   a whole state's delegation, audited
 #
 #   sentinel doc get URL            fetch a primary source, hashed + text-extracted
 #   sentinel doc bills              which bills appear in more than one filing
@@ -295,7 +296,7 @@ PYSTATUS
     # works when the module is called directly is not yet a command that works.
     action="${1:-test}"; shift || true
     case "$action" in
-      test|list|all|crosslink|lobby|graph|expand|sweep|brief|fecpac)
+      test|list|all|crosslink|lobby|graph|expand|sweep|brief|fecpac|delegation)
         node "$ROOT/modules/connectors/cli.js" "$action" "$@"
         ;;
       *)
