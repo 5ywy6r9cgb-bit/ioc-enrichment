@@ -1227,7 +1227,7 @@ the second one is a person taking responsibility.
 
 ```bash
 bin/sentinel sdesk claim list --needs-disposition   # find the ids
-bin/sentinel sdesk claim dispose 12 --by "Mark Rosenburg" --note "read p.12 image"
+bin/sentinel sdesk claim dispose 12 --by "Mark Griswold" --note "read p.12 image"
 ```
 
 `claim list` exists because `dispose` and `cite` both take a claim id and
@@ -1429,7 +1429,7 @@ What did lobbying for AWS PUBLIC POLICY cover?
 
 HOW IT ENTERED
   origin     machine  (drafted by a machine from a search result)
-  disposed   Mark Rosenburg on 2026-08-27T02:47:21+00:00
+  disposed   Mark Griswold on 2026-08-27T02:47:21+00:00
 
 WHAT IT RESTS ON   1 citation(s)
   LDA filing: Alpine Group Partners for AWS Public Policy

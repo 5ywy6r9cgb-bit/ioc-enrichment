@@ -216,7 +216,7 @@ def default_policy() -> dict:
             "_note": ("Filled in once. Every image in this library inherits it "
                       "unless its editorial record overrides it."),
             "author": "",
-            "_author_example": "Mark W. Rosenburg",
+            "_author_example": "Mark W. Griswold",
             "claimant": "",
             "_claimant_note": ("Who holds the copyright — usually the same as "
                                "author. Different if you have assigned it to a "
@@ -1279,7 +1279,7 @@ def self_test() -> int:
         ov["visuals"][vid].update(review_status="reviewed",
                                   approved_for_documentary=True,
                                   origin="own_camera",
-                                  credit="Photo: M. Rosenburg, 2026-09-08",
+                                  credit="Photo: M. Griswold, 2026-09-08",
                                   description="the counter")
         atomic_write_json(root / OVERRIDES_NAME, ov)
 

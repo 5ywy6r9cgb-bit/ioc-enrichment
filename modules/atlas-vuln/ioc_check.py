@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 IOC Enrichment Tool
-Author: Mark Rosenburg - The Sentinel Report
+Author: Mark Griswold - The Sentinel Report
 Purpose: Check an IP address against threat intelligence sources
 Usage: python3 ioc_check.py <ip_address>
        python3 ioc_check.py <ip_address> <abuseipdb_api_key>

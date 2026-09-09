@@ -12,7 +12,7 @@ The engine takes a photograph through one scene type:
   "image": "assets/gahanna_clerk_counter.jpg",
   "kick": "GAHANNA",                                  // optional eyebrow
   "caption": "The counter where records requests are filed.",
-  "source": "Photo: M. Rosenburg, 2026-09-08",        // REQUIRED
+  "source": "Photo: M. Griswold, 2026-09-08",        // REQUIRED
   "scrim_from": 0.45,                                 // optional
   "motion": true                                      // optional slow push-in
 }

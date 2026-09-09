@@ -244,7 +244,7 @@ A photo scene:
   "origin": "camera",                 // camera | licensed | generated
   "kick": "FRANKLIN COUNTY",
   "caption": "Where the docket is filed.",
-  "source": "Photo: M. Rosenburg, 2026-09-08"
+  "source": "Photo: M. Griswold, 2026-09-08"
 }
 ```
 
@@ -344,7 +344,7 @@ sky hash alike and would otherwise group with everything.
 "vis_a1b2c3…": {
   "review_status": "reviewed",
   "approved_for_documentary": true,
-  "credit": "Photo: M. Rosenburg, 2026-09-08",
+  "credit": "Photo: M. Griswold, 2026-09-08",
   "description": "the counter at the clerk's office",
   "location_label": "Franklin County Municipal Court"
 }

@@ -59,8 +59,8 @@ First scan writes `visual_policy.json`. Fill in the copyright block:
 {
   "own_devices": ["Apple iPhone 15 Pro"],
   "copyright": {
-    "author": "Mark W. Rosenburg",
-    "claimant": "Mark W. Rosenburg",
+    "author": "Mark W. Griswold",
+    "claimant": "Mark W. Griswold",
     "work_type": "photograph",
     "default_publication_status": "unpublished",
     "notice_year": "2026"
@@ -69,12 +69,22 @@ First scan writes `visual_policy.json`. Fill in the copyright block:
 ```
 
 `claimant` differs from `author` only if you have assigned the copyright to a
-business entity. Everything else inherits from here; an individual image can
+business entity.
+
+**The name here is the legal one, and it need not match your byline.** A
+masthead of "The Sentinel Report" and a claimant of Mark W. Griswold is a
+normal arrangement — the byline is how the work is presented, the claimant is
+who holds the right. Worth knowing before you file: a Copyright Office record
+is **public and searchable**, so registering under your legal name links it to
+every work in the schedule. Registering pseudonymously keeps it off the record
+and makes enforcement harder, since you would have to prove you are the
+pseudonym — and changes the term to 95 years from publication rather than life
+plus 70. That trade is a lawyer's question, not a config setting. Everything else inherits from here; an individual image can
 override it in `visual_editorial_overrides.json`.
 
 The © line is then generated for you and stored in the manifest:
 
-> © 2026 Mark W. Rosenburg. All rights reserved.
+> © 2026 Mark W. Griswold. All rights reserved.
 
 **Copyright exists the moment the shutter closes.** None of this creates it.
 What it does is record — once, while you still remember — the facts nobody can
@@ -115,9 +125,9 @@ python3 modules/openmontage/visual_system/visual_manifest.py TSR1 \
 
 ```
   SCHEDULE OF WORKS · /Volumes/TSR1
-  author     Mark W. Rosenburg
-  claimant   Mark W. Rosenburg
-  notice     © 2026 Mark W. Rosenburg. All rights reserved.
+  author     Mark W. Griswold
+  claimant   Mark W. Griswold
+  notice     © 2026 Mark W. Griswold. All rights reserved.
 
   unpublished    612
   published       38

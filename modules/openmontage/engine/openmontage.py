@@ -644,7 +644,7 @@ def scene_photo(t, s, ctx):
     just enough to hold type, without the graphic-design look of a caption box.
 
     THE CREDIT IS REQUIRED. `source` is not optional on a photo any more than
-    on a document. Who took it and when — "Photo: M. Rosenburg, 2026-09-08" —
+    on a document. Who took it and when — "Photo: M. Griswold, 2026-09-08" —
     is rendered in the same cyan, in the same place, as every other citation in
     the system. A photograph is evidence, and evidence carries provenance.
     """
@@ -845,7 +845,7 @@ def resolve_scene(scene: dict, base: Path, theme: dict, idx: int) -> dict:
         s["_image"] = Image.open(ip).convert("RGB")     # loaded ONCE, not per frame
         if not str(s.get("source", "")).strip():
             raise SpecError(f"{where}: a photo carries its credit — set 'source' to "
-                            "who shot it and when, e.g. \"Photo: M. Rosenburg, "
+                            "who shot it and when, e.g. \"Photo: M. Griswold, "
                             "2026-09-08\"")
 
     if st == "quote":
@@ -1740,7 +1740,7 @@ def self_test() -> int:
         okp = resolve_scene({"type": "photo", "dur": 4, "image": "shot.jpg",
                              "origin": "camera",
                              "kick": "GAHANNA", "caption": "The counter at the clerk's office.",
-                             "source": "Photo: M. Rosenburg, 2026-09-08"}, b5, theme, 0)
+                             "source": "Photo: M. Griswold, 2026-09-08"}, b5, theme, 0)
         imgp = scene_photo(0.9, okp, ctxq)
         check("a 4:3 photo fills the 9:16 frame with no letterbox",
               imgp.size == (ctxq.W, ctxq.H))

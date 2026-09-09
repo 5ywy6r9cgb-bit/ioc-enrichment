@@ -3,7 +3,7 @@
 **The Sentinel Report — We Watch The Code**
 
 Investigative Research Methodology · Standard Operating Procedure
-Founded by Mark W. Rosenburg · The Sentinel Report · Columbus, Ohio · June 2026
+Founded by Mark W. Griswold · The Sentinel Report · Columbus, Ohio · June 2026
 
 > Transcribed from `TSR_GlassMark_Methodology.pages` so the methodology is
 > version-controlled and citable. `modules/sentinel-desk/sentinel/gates.py`

@@ -36,7 +36,7 @@ function fakeTransport(behaviour = {}) {
 }
 
 const CFG = {
-  address: 'records@example.org', fromName: 'Mark W. Rosenburg',
+  address: 'records@example.org', fromName: 'Mark W. Griswold',
   user: 'records@example.org', pass: 'app-specific',
   smtpHost: 'smtp.example.org', smtpPort: 587,
   imapHost: 'imap.example.org', imapPort: 993, mailbox: 'INBOX',
@@ -85,9 +85,9 @@ module.exports = async function run() {
       request_id: 'PRR-2026-391', to: 'records@gahanna.gov', subject: 'S', body: LETTER,
     }, CFG);
     H.eq('the from address is the FOIA mailbox',
-      built.from, '"Mark W. Rosenburg" <records@example.org>');
+      built.from, '"Mark W. Griswold" <records@example.org>');
     H.check('a request signed by a person, not a system',
-      /Mark W\. Rosenburg/.test(built.from));
+      /Mark W\. Griswold/.test(built.from));
     H.eq('the body goes as plain text, not HTML', built.text, LETTER);
     H.check('there is no html part at all', built.html === undefined);
     H.eq('the request id rides in a header so a mangled subject cannot lose it',

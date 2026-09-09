@@ -176,7 +176,7 @@ investigative case store is a subpoena target and a breach target at once.
 
 ## Credits and standard
 
-Built by Mark Rosenburg — The Sentinel Report.
+Built by Mark Griswold — The Sentinel Report.
 
 The governing documents are [`docs/SENTINEL_GROUP_ARCHITECTURE.md`](docs/SENTINEL_GROUP_ARCHITECTURE.md)
 and [`docs/RATIFICATION.md`](docs/RATIFICATION.md). Where this code and those

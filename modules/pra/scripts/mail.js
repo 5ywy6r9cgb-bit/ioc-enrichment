@@ -74,7 +74,7 @@ function cmdSetup() {
     console.log(`  ${C.y('Not configured yet.')} Add these to ${C.b('modules/pra/.env')}:\n`);
     console.log(C.dim('    PRA_MAIL_ADDRESS=records@yourdomain.com'));
     console.log(C.dim('    PRA_MAIL_PASSWORD=your-app-specific-password'));
-    console.log(C.dim('    PRA_MAIL_FROM_NAME=Mark W. Rosenburg'));
+    console.log(C.dim('    PRA_MAIL_FROM_NAME=Mark W. Griswold'));
     console.log(C.dim('    # hosts are filled in automatically for icloud, gmail,'));
     console.log(C.dim('    # fastmail, and outlook. Otherwise set them:'));
     console.log(C.dim('    # PRA_SMTP_HOST=  PRA_SMTP_PORT=  PRA_IMAP_HOST=  PRA_IMAP_PORT='));
