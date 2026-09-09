@@ -908,6 +908,109 @@ function subjectFrom(positional, argv, flagNames) {
  * person, reported separately everywhere else and never reconciled. The facts
  * live in the relationships between them.
  */
+/**
+ * connect asymmetry — concentration, with its denominator attached.
+ *
+ * The measure is trivial. The discipline is the floor underneath it: a
+ * committee with one expenditure is 100% concentrated, and reporting that
+ * beside a committee with forty-four manufactures findings out of small
+ * numbers.
+ */
+async function cmdAsymmetry(opts = {}) {
+  const A = require('./asymmetry.js');
+  const F = require('./fecpac.js');
+  const M = require('./member.js');
+  const env = R.loadEnv();
+  const key = R.resolveKey(R.CONNECTORS.fec, env);
+  if (!key) { console.error(`\n  ${C.r('FEC_API_KEY is not set.')}\n`); process.exit(2); }
+  const now = new Date().getFullYear();
+  const cycle = opts.cycle || (now % 2 === 0 ? now : now - 1);
+  const dim = A.DIMENSIONS[opts.dimension];
+  if (!dim) {
+    console.error(`\n  unknown dimension '${opts.dimension}'. `
+      + `Known: ${Object.keys(A.DIMENSIONS).join(', ')}\n`);
+    process.exit(2);
+  }
+
+  const fetchJson = async (url) => {
+    let wait = 1500;
+    for (let attempt = 1; attempt <= 4; attempt++) {
+      const res = await R.request('GET', url, {});
+      if (res.status === 200) return JSON.parse(res.body);
+      if (![429, 503, 504].includes(res.status) || attempt === 4) {
+        throw new Error(`FEC returned ${res.status} — ${String(res.body || '').slice(0, 160)}`);
+      }
+      await new Promise((r) => setTimeout(r, wait)); wait *= 2;
+    }
+  };
+
+  const cmts = F.parseCommittees(await fetchJson(
+    `${F.API}/committees/?api_key=${encodeURIComponent(key)}`
+    + `&committee_id=${encodeURIComponent(opts.committee)}&per_page=1`));
+  const name = cmts.length ? cmts[0].name : opts.committee;
+  console.log(`\n  ${C.b(name)}  ${C.dim(opts.committee)}  cycle ${cycle}`);
+  console.log(C.dim(`  measuring: ${dim.label}`));
+  if (opts.dryRun) { console.log(C.dim('\n  DRY RUN — nothing requested.\n')); return; }
+
+  const page = (pg, got, total, cap) => process.stdout.write(
+    `\r    page ${String(pg).padStart(2)}/${cap} · ${String(total).padStart(5)} rows`);
+
+  let rows;
+  if (opts.dimension === 'vendor') {
+    const b = await F.collect(fetchJson,
+      (li, ld) => F.disbursementsUrl(opts.committee, cycle, key, li, ld),
+      F.parseDisbursements, 25, 400, page);
+    process.stdout.write('\n');
+    // A conduit's forwarded rows are not its own spending and would swamp
+    // any vendor concentration with pass-through noise.
+    rows = b.rows.filter((r) => !F.isEarmarked(r))
+      .map((r) => ({ ...r, committee: name, committee_id: opts.committee }));
+  } else {
+    const e = await F.collect(fetchJson,
+      (li, ld) => F.independentUrl(opts.committee, cycle, key, li, ld),
+      F.parseIndependent, 25, 400, page);
+    process.stdout.write('\n');
+    rows = F.clampToCycle(e.rows, cycle).kept
+      .map((r) => ({ ...r, by: name, by_committee_id: opts.committee }));
+  }
+
+  const c = A.concentrate(rows, dim.target,
+    opts.minRows ? { minRows: opts.minRows } : undefined);
+  if (!c) {
+    console.log(`\n  ${C.y('Nothing filed on this dimension for that cycle.')}`);
+    console.log(C.dim('  An empty result is one source saying nothing.\n'));
+    return;
+  }
+
+  const usd = (n) => '$' + Math.round(n).toLocaleString('en-US');
+  console.log('');
+  const colour = { single_target: C.r, concentrated: C.r, narrow: C.y,
+    spread: C.g, too_small: C.dim, no_money: C.dim }[c.verdict] || C.dim;
+  console.log(`  ${colour(c.verdict.toUpperCase().replace('_', ' '))}  `
+    + C.dim(A.VERDICTS[c.verdict]));
+  console.log('');
+  console.log(`    rows              ${c.rows}`);
+  console.log(`    total             ${usd(c.total)}`);
+  console.log(`    distinct targets  ${c.targets}`);
+  if (c.top) {
+    console.log(`    largest           ${c.top_share}%  ${usd(c.top.amount)}  ${c.top.name}`);
+    console.log(`    HHI               ${c.hhi}   `
+      + C.dim(`≈ ${c.effective_targets} effective target(s)`));
+  }
+  console.log('');
+  for (const line of wrap(c._caution, 70)) console.log(C.dim(`    ${line}`));
+
+  if (c.breakdown && c.breakdown.length > 1) {
+    console.log(`\n  ${C.b('Where it went')}`);
+    for (const b of c.breakdown) {
+      const share = ((b.amount / c.total) * 100).toFixed(1);
+      console.log(`    ${String(share).padStart(5)}%  ${usd(b.amount).padStart(13)}  ${b.name}`);
+    }
+  }
+  console.log(`\n  ${C.dim('Verify:')} https://www.fec.gov/data/committee/${opts.committee}/\n`);
+}
+
+
 async function cmdMember(name, opts = {}) {
   const M = require('./member.js');
   const env = R.loadEnv();
@@ -2007,6 +2110,19 @@ async function main() {
       limit: li >= 0 && argv[li + 1] ? parseInt(argv[li + 1], 10) : undefined,
       dryRun: opts.dryRun,
     });
+  }
+  if (action === 'asymmetry') {
+    const cycle = flagNum(argv, '--cycle');
+    const committee = flagVal(argv, '--committee');
+    const dim = flagVal(argv, '--dimension') || 'candidate';
+    if (!committee) {
+      console.error('\n  usage: sentinel connect asymmetry --committee C00… [--cycle 2024]');
+      console.error('                                      [--dimension candidate|vendor]');
+      console.error('\n  How concentrated is this committee\'s spending, and on what.\n');
+      process.exit(2);
+    }
+    return cmdAsymmetry({ committee, cycle, dimension: dim,
+      minRows: flagNum(argv, '--min-rows'), dryRun: opts.dryRun });
   }
   if (action === 'member') {
     const cycle = flagNum(argv, '--cycle');

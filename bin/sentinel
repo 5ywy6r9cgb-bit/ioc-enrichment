@@ -297,7 +297,7 @@ PYSTATUS
     # works when the module is called directly is not yet a command that works.
     action="${1:-test}"; shift || true
     case "$action" in
-      test|list|all|crosslink|lobby|graph|expand|sweep|brief|fecpac|delegation|member)
+      test|list|all|crosslink|lobby|graph|expand|sweep|brief|fecpac|delegation|member|asymmetry)
         node "$ROOT/modules/connectors/cli.js" "$action" "$@"
         ;;
       *)
