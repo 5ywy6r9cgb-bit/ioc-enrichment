@@ -256,6 +256,22 @@ async function run() {
   eq('a row with no date is kept rather than guessed at',
     F.clampToCycle([{ date: '' }], 2024).kept.length, 1);
 
+  // --- a long pull must say where it is. Twenty-five paced pages against a
+  // slow API is over a minute of nothing, and nothing looks like a hang.
+  let seen = [];
+  let n = 0;
+  const paged = async () => ({
+    results: [{ recipient_name: 'R', disbursement_amount: 1, disbursement_type: '24K' }],
+    pagination: { last_indexes: { last_index: `i${++n}` } },
+  });
+  await F.collect(paged, () => 'u', F.parseDisbursements, 3, 0,
+    (pg, got, total, cap) => seen.push([pg, got, total, cap]));
+  eq('every page reports itself', seen.length, 3);
+  eq('with a running row count', seen[2][2], 3);
+  eq('and the cap, so the end is in sight', seen[0][3], 3);
+  check('progress reporting is optional, not required',
+    (await F.collect(paged, () => 'u', F.parseDisbursements, 1)).rows.length === 1);
+
   console.log(`\n  ${fails ? 'FAIL' : 'PASS'} — ${ran - fails}/${ran} checks\n`);
   return fails ? 1 : 0;
 }

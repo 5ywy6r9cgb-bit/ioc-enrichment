@@ -972,13 +972,19 @@ async function cmdFecPac(name, opts = {}) {
   console.log(C.dim('  reading Schedule B (money out) …'));
   const b = await F.collect(fetchJson,
     (li, ld) => F.disbursementsUrl(picked.committee_id, cycle, key, li, ld),
-    F.parseDisbursements, 25, 400);
+    F.parseDisbursements, 25, 400,
+    (pg, got, total, cap) => process.stdout.write(
+      `\r    page ${String(pg).padStart(2)}/${cap} · ${String(total).padStart(5)} rows` + (got ? '' : ' (empty)')));
+  process.stdout.write('\n');
   const contribs = b.rows.filter(F.isContribution);
 
   console.log(C.dim('  reading Schedule E (independent expenditures) …'));
   const e = await F.collect(fetchJson,
     (li, ld) => F.independentUrl(picked.committee_id, cycle, key, li, ld),
-    F.parseIndependent, 25, 400);
+    F.parseIndependent, 25, 400,
+    (pg, got, total, cap) => process.stdout.write(
+      `\r    page ${String(pg).padStart(2)}/${cap} · ${String(total).padStart(5)} rows` + (got ? '' : ' (empty)')));
+  process.stdout.write('\n');
 
   // Enforce the cycle here regardless of what the API did with the filter.
   const bClamp = F.clampToCycle(contribs, cycle);

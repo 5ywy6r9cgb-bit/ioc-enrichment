@@ -376,13 +376,16 @@ function totals(contribs, independents) {
  * number of requests: an unbounded loop against a keyset API that stops
  * returning a cursor is an infinite loop against somebody else's server.
  */
-async function collect(fetchJson, buildUrl, parse, cap = 25, pace = 0) {
+async function collect(fetchJson, buildUrl, parse, cap = 25, pace = 0, onPage = null) {
   const rows = [];
   let lastIndex = null, lastDate = null, pages = 0, truncated = false;
   for (; pages < cap; pages++) {
     const json = await fetchJson(buildUrl(lastIndex, lastDate));
     const batch = parse(json);
     rows.push(...batch);
+    // Twenty-five paced pages against a slow API is over a minute of silence,
+    // and silence is indistinguishable from a hang. Say where it is.
+    if (onPage) onPage(pages + 1, batch.length, rows.length, cap);
     const pg = json.pagination || {};
     const li = pg.last_indexes || {};
     const nextIndex = li.last_index || null;
