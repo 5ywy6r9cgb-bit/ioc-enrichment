@@ -74,11 +74,19 @@ function candidatesUrl(state, office, cycle, key, page = 1) {
        + `&per_page=100&page=${page}&sort=district`;
 }
 
-/** Fallback when the roster carries no committee: ask for the candidate's own. */
+/**
+ * Fallback when the roster carries no committee.
+ *
+ * /candidate/{id}/committees/ does not exist and answers 404 — the link is
+ * expressed the other way round, as a FILTER on /committees/. Worth stating
+ * because the 404 arrives mid-sweep, after the roster has already succeeded,
+ * so it reads as the candidate being unknown rather than the path being wrong.
+ */
 function candidateCommitteesUrl(candidateId, cycle, key) {
-  return `${API}/candidate/${encodeURIComponent(candidateId)}/committees/`
-       + `?api_key=${encodeURIComponent(key)}&cycle=${encodeURIComponent(cycle)}`
-       + '&designation=P&per_page=10';
+  return `${API}/committees/?api_key=${encodeURIComponent(key)}`
+       + `&candidate_id=${encodeURIComponent(candidateId)}`
+       + `&cycle=${encodeURIComponent(cycle)}`
+       + '&designation=P&per_page=10&sort=-last_file_date';
 }
 
 function parseCandidateCommittees(json) {

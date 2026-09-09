@@ -201,8 +201,12 @@ async function run() {
     D.candidatesUrl('OH', 'H', 2026, 'K').includes('/candidates/search/'));
 
   // --- and when the roster still names no committee, ask
-  check('the fallback asks for the candidate\'s own committees',
-    D.candidateCommitteesUrl('H0OH01', 2026, 'K').includes('/candidate/H0OH01/committees/'));
+  // /candidate/{id}/committees/ does not exist — 404, mid-sweep, after the
+  // roster already succeeded, so it reads as an unknown candidate.
+  check('the fallback filters /committees/ rather than nesting under /candidate/',
+    D.candidateCommitteesUrl('H0OH01', 2026, 'K').includes('/committees/?')
+    && D.candidateCommitteesUrl('H0OH01', 2026, 'K').includes('candidate_id=H0OH01')
+    && !/\/candidate\/H0OH01\//.test(D.candidateCommitteesUrl('H0OH01', 2026, 'K')));
   check('and asks only for principal ones',
     D.candidateCommitteesUrl('H0OH01', 2026, 'K').includes('designation=P'));
   const fb = D.parseCandidateCommittees({ results: [
