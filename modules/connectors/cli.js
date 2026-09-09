@@ -848,6 +848,135 @@ function cmdLobby(opts) {
  *   merged into one file, because then the bytes on disk would be something
  *   no server ever sent.
  */
+
+/**
+ * connect fecpac — what a committee gave, kept in its categories.
+ *
+ * TWO STEPS ON PURPOSE. Without --committee this only RESOLVES the name and
+ * stops. A committee id typed from memory that happens to be wrong returns a
+ * complete, confident, entirely false answer -- another committee's filings,
+ * correctly formatted, with no sign anything went wrong. So the id is always
+ * looked up, printed, and chosen by a person before any money is counted.
+ *
+ * Organisations often run several committees under similar names, with very
+ * different rules. Picking one for you would be picking the story.
+ */
+async function cmdFecPac(name, opts = {}) {
+  const F = require('./fecpac.js');
+  const env = R.loadEnv();
+  const key = R.resolveKey(R.CONNECTORS.fec, env);
+  if (!key) {
+    console.error(`\n  ${C.r('FEC_API_KEY is not set.')}`);
+    console.error(C.dim('  Free from https://api.data.gov/signup/ — DATA_GOV_API_KEY works too.'));
+    console.error(C.dim('  Put it in modules/pra/.env\n'));
+    process.exit(2);
+  }
+  const cycle = opts.cycle || (new Date().getFullYear() % 2 === 0
+    ? new Date().getFullYear() : new Date().getFullYear() - 1);
+
+  const fetchJson = async (url) => {
+    const res = await R.request('GET', url, {});
+    if (res.status !== 200) {
+      throw new Error(`FEC returned ${res.status} — ${String(res.body || '').slice(0, 200)}`);
+    }
+    return JSON.parse(res.body);
+  };
+
+  // ---- step one: which committee, exactly
+  console.log(`\n  ${C.b('Committees matching')} "${name}"`);
+  const cmts = F.parseCommittees(await fetchJson(F.committeeSearchUrl(name, key)));
+  if (!cmts.length) {
+    console.log(`\n  ${C.y('No committee of that name is registered with the FEC.')}`);
+    console.log(C.dim('  That is a fact about the register, not a failed search: an'));
+    console.log(C.dim('  organisation can lobby for decades without ever running a'));
+    console.log(C.dim('  political committee. Check the LDA instead:'));
+    console.log(C.dim(`    sentinel connect senatelda --registrant "${name}"\n`));
+    return;
+  }
+  console.log('');
+  for (const c of cmts) {
+    console.log(`  ${C.g(c.committee_id)}  ${c.name}`);
+    console.log(C.dim(`  ${' '.repeat(12)}${c.type}${c.designation ? ' · ' + c.designation : ''}`
+      + `${c.first_file_date ? ' · first filed ' + c.first_file_date.slice(0, 10) : ''}`));
+  }
+
+  if (!opts.committee) {
+    console.log(`\n  ${C.b('Nothing was counted.')} ${C.dim('Pick one and run it:')}`);
+    console.log(C.dim(`    sentinel connect fecpac "${name}" --committee ${cmts[0].committee_id} --cycle ${cycle}`));
+    console.log(C.dim('\n  Several committees under one name usually means a connected PAC'));
+    console.log(C.dim('  AND a super PAC. They are governed by different rules and their'));
+    console.log(C.dim('  money means different things. Choosing for you would be'));
+    console.log(C.dim('  choosing the story.\n'));
+    return;
+  }
+
+  const picked = cmts.find((c) => c.committee_id === opts.committee);
+  if (!picked) {
+    console.log(`\n  ${C.y(opts.committee + ' is not among the committees matching that name.')}`);
+    console.log(C.dim('  Pulling it anyway would answer a question you did not ask.\n'));
+    process.exit(2);
+  }
+
+  if (opts.dryRun) {
+    console.log(`\n  ${C.dim('DRY RUN — would request:')}`);
+    console.log(C.dim(`    Schedule B (money out)          cycle ${cycle}`));
+    console.log(C.dim(`    Schedule E (independent spend)  cycle ${cycle}\n`));
+    return;
+  }
+
+  // ---- step two: the money, by category
+  console.log(`\n  ${C.b(picked.name)}  ${C.dim(picked.committee_id)}  cycle ${cycle}`);
+  console.log(C.dim('  reading Schedule B (money out) …'));
+  const b = await F.collect(fetchJson,
+    (li, ld) => F.disbursementsUrl(picked.committee_id, cycle, key, li, ld),
+    F.parseDisbursements, 25, 400);
+  const contribs = b.rows.filter(F.isContribution);
+
+  console.log(C.dim('  reading Schedule E (independent expenditures) …'));
+  const e = await F.collect(fetchJson,
+    (li, ld) => F.independentUrl(picked.committee_id, cycle, key, li, ld),
+    F.parseIndependent, 25, 400);
+
+  const t = F.totals(contribs, e.rows);
+  console.log('');
+  console.log(`  ${C.g(t.contributions_usd.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }))}`
+    + `  in ${t.contributions_rows} DIRECT CONTRIBUTION(S) to other committees`);
+  console.log(C.dim('        capped, itemised, attributable — the strong material'));
+  console.log('');
+  console.log(`  ${C.y(t.ie_support_usd.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }))}`
+    + `  spent FOR candidates, in ${t.ie_support_rows} independent expenditure(s)`);
+  console.log(`  ${C.y(t.ie_oppose_usd.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }))}`
+    + `  spent AGAINST candidates, in ${t.ie_oppose_rows} independent expenditure(s)`);
+  console.log(C.dim('        NOT donations. Uncapped, may not legally be coordinated,'));
+  console.log(C.dim('        and money spent against someone is not a gift to anyone.'));
+  console.log('');
+  console.log(C.dim('  These are NOT added together. A contribution and an independent'));
+  console.log(C.dim('  expenditure are different events; one total describing both'));
+  console.log(C.dim('  describes neither.'));
+
+  const rows = F.byRecipient(contribs, e.rows).slice(0, 25);
+  if (rows.length) {
+    console.log(`\n  ${C.b('By recipient')} ${C.dim('(top 25)')}`);
+    console.log(C.dim('    contributed       for      against   recipient'));
+    for (const r of rows) {
+      const f = (n) => (n ? n.toLocaleString('en-US', { maximumFractionDigits: 0 }) : '—');
+      console.log(`    ${String(f(r.contributed)).padStart(11)}`
+        + `${String(f(r.ie_support)).padStart(10)}`
+        + `${String(f(r.ie_oppose)).padStart(13)}   ${r.name}`);
+    }
+  }
+
+  if (b.truncated || e.truncated) {
+    console.log(`\n  ${C.y('TRUNCATED')} — the page cap was reached, so these are FLOORS.`);
+  }
+  console.log(`\n  ${C.dim('What this does NOT include:')}`);
+  console.log(C.dim('    Individual contributions from people affiliated with the'));
+  console.log(C.dim('    organisation. The FEC records the individual, not the'));
+  console.log(C.dim('    affiliation, so attributing those is an inference about who'));
+  console.log(C.dim('    someone is — not a filing. It is not computed here.'));
+  console.log(`\n  ${C.dim('Verify any row:')} https://www.fec.gov/data/committee/${picked.committee_id}/\n`);
+}
+
 async function cmdRegistrant(query, opts) {
   const name = 'senatelda';
   const c = R.CONNECTORS[name];
@@ -1458,6 +1587,19 @@ async function main() {
       limit: li >= 0 && argv[li + 1] ? parseInt(argv[li + 1], 10) : undefined,
       dryRun: opts.dryRun,
     });
+  }
+  if (action === 'fecpac') {
+    const ci = argv.indexOf('--cycle');
+    const cycle = ci >= 0 && argv[ci + 1] ? parseInt(argv[ci + 1], 10) : undefined;
+    const q = args.slice(1).join(' ');
+    if (!q) {
+      console.error('\n  usage: sentinel connect fecpac "ORGANISATION" [--cycle 2024]');
+      console.error('  Lists the committees matching that name; add --committee ID to pull money.\n');
+      process.exit(2);
+    }
+    const cmi = argv.indexOf('--committee');
+    const committee = cmi >= 0 && argv[cmi + 1] ? argv[cmi + 1] : null;
+    return cmdFecPac(q, { cycle, committee, dryRun: opts.dryRun });
   }
   if (argv.includes('--registrant')) {
     const i = argv.indexOf('--registrant');
