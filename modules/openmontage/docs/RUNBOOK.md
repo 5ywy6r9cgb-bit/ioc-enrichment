@@ -38,8 +38,13 @@ If `brand.py` is missing you are still on `main`.
 ```bash
 python3 -m venv modules/openmontage/venv
 source modules/openmontage/venv/bin/activate
-pip install pillow numpy imagehash piexif
+pip install pillow numpy imagehash piexif pillow-heif
 ```
+
+`pillow-heif` is the one people skip. **HEIC is the default iPhone photo
+format and Pillow cannot open one without it** — every `.heic` comes back
+`UnidentifiedImageError: cannot identify image file`, which reads like
+corruption and is not. The files are fine; the decoder is missing.
 
 That `source` line has to be run in **every new terminal** before rendering.
 `bin/sentinel` calls plain `python3`, so it picks up the venv automatically
@@ -66,9 +71,9 @@ wherever you happen to be:
 ```bash
 cd ~/sentinel/modules/openmontage/engine
 python3 openmontage.py --fonts       # every type role must say "ok"
-python3 openmontage.py --self-test   # 61 checks
+python3 openmontage.py --self-test   # 79 checks
 python3 om_audio.py --self-test      # 41 checks
-python3 ../visual_system/visual_manifest.py --self-test   # 34 checks
+python3 ../visual_system/visual_manifest.py --self-test   # 49 checks
 ```
 
 If `--fonts` shows MISSING, install the face it names or add a path you do

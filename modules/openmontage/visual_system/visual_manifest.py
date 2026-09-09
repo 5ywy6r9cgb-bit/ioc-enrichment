@@ -54,8 +54,15 @@ USAGE
     python3 visual_manifest.py --find          # where are my photos?
     python3 visual_manifest.py --self-test
 
-Requires: pillow, imagehash, piexif  (piexif is optional — GPS is skipped
-without it rather than failing).
+Requires: pillow, imagehash, piexif, pillow-heif
+
+    pip install pillow numpy imagehash piexif pillow-heif
+
+piexif is optional — GPS is skipped without it rather than failing.
+pillow-heif is NOT optional if your photographs came off an iPhone: HEIC is
+the default capture format and Pillow cannot open one without it. Every .heic
+is reported unreadable until it is installed, which looks like file corruption
+and is not.
 """
 from __future__ import annotations
 
@@ -84,6 +91,20 @@ try:
     import piexif
 except ImportError:                                    # GPS is a bonus, not a
     piexif = None                                      # requirement
+
+# HEIC is the DEFAULT iPhone photo format, and Pillow cannot open one on its
+# own — it needs pillow-heif to register a decoder. Without it every .heic in
+# a library fails with `UnidentifiedImageError: cannot identify image file`,
+# which reads like a corrupt file and is not: the file is fine, the reader is
+# missing. Listing .heic as supported while being unable to open one is the
+# tool lying about its own coverage, so the gap is now named at the point it
+# bites.
+try:
+    import pillow_heif
+    pillow_heif.register_heif_opener()
+    HEIF_OK = True
+except ImportError:
+    HEIF_OK = False
 
 MANIFEST_VERSION = 1
 OVERRIDES_VERSION = 1
@@ -597,8 +618,12 @@ def inventory(root: Path, threshold: int = DEFAULT_THRESHOLD,
             records.append(build_record(p, root, prev_by_sha))
         except Exception as exc:
             # one unreadable file must not abandon the scan
+            msg = f"{type(exc).__name__}: {exc}"
+            if not HEIF_OK and p.suffix.lower() in {".heic", ".heif"}:
+                msg = ("HEIC decoder not installed — the file is fine, the "
+                       "reader is missing. Run: pip install pillow-heif")
             errors.append({"relative_path": str(p.relative_to(root)),
-                           "error": f"{type(exc).__name__}: {exc}"})
+                           "error": msg})
 
     # --- merge editorial judgement forward. Existing records are never touched.
     overrides = load_overrides(overrides_path)
@@ -617,7 +642,18 @@ def inventory(root: Path, threshold: int = DEFAULT_THRESHOLD,
         by_inode.setdefault(f"{r['device']}:{r['inode']}", []).append(r["relative_path"])
     exact_dupes = sorted([v for v in by_sha.values() if len(v) > 1])
     hard_links = sorted([v for v in by_inode.values() if len(v) > 1])
-    similar = similarity_groups(records, threshold)
+    # A near-duplicate group that is ALSO an exact-duplicate group tells you
+    # nothing new — the same pair was already reported, byte-identical, one
+    # section above. On a real library that was 150 of 169 groups: the useful
+    # signal (a re-crop, a burst, a re-export) buried under restatement of
+    # something already known. One representative per SHA-256 goes into the
+    # perceptual pass, so what survives is genuinely "similar but not the same".
+    one_per_sha, seen_sha = [], set()
+    for r in records:
+        if r["sha256"] not in seen_sha:
+            seen_sha.add(r["sha256"])
+            one_per_sha.append(r)
+    similar = similarity_groups(one_per_sha, threshold)
     low_detail = sorted(r["relative_path"] for r in records if r["low_detail"])
 
     # --- origin. Stamp each record, then enforce what its origin permits.
@@ -711,6 +747,19 @@ def print_summary(m: dict, check_only: bool) -> None:
     print(f"  VISUAL LIBRARY · {m['root']}")
     print(f"  {c['images']} image(s)"
           + (f" · {c['unreadable']} unreadable" if c["unreadable"] else ""))
+    unread = m["integrity"].get("unreadable", [])
+    heic_blocked = [e for e in unread if "HEIC decoder" in e.get("error", "")]
+    if heic_blocked:
+        print()
+        print(f"  {len(heic_blocked)} HEIC file(s) COULD NOT BE READ — and HEIC "
+              f"is the default")
+        print( "  iPhone photo format, so these are probably your camera "
+               "originals.")
+        print( "  Pillow cannot open one without a decoder:")
+        print()
+        print( "      pip install pillow-heif")
+        print()
+        print( "  then rescan. Nothing is wrong with the files.")
     if c.get("videos_not_inventoried"):
         print(f"  {c['videos_not_inventoried']} video file(s) SEEN BUT NOT "
               f"INVENTORIED — this tool handles stills only.")
@@ -785,16 +834,49 @@ def print_backgrounds(m: dict) -> None:
     hold words, which is the part worth automating. Which of those belongs in
     an episode is not a thing a score knows.
     """
+    def _area(v):
+        w, h = v["background"]["crop_px"].split("x")
+        return int(w) * int(h)
+
+    # Sort by score, then by how close a rejected image is to being usable.
+    # When the resolution gate rejects everything, sixty rows of 0.0 in
+    # arbitrary order say nothing; the biggest near-misses are the useful end.
     rows = sorted((v for v in m["visuals"] if v.get("background")),
-                  key=lambda v: -v["background"]["score"])
+                  key=lambda v: (-v["background"]["score"], -_area(v)))
     if not rows:
         print("No images scanned.")
         return
     usable = [r for r in rows if r["background"]["score"] >= 50]
+    too_small = [r for r in rows if not r["background"]["enough_pixels"]]
     print()
     print(f"  BACKGROUND FITNESS · {m['root']}")
     print(f"  {len(usable)} of {len(rows)} can hold type at "
           f"{rows[0]['background']['target']}")
+
+    # If resolution is the blocker for nearly everything, that is one finding
+    # about the LIBRARY, not hundreds of findings about photographs.
+    if len(too_small) >= len(rows) * 0.9:
+        widest = max(int(r["background"]["crop_px"].split("x")[0]) for r in rows)
+        print()
+        print(f"  RESOLUTION IS THE BLOCKER, not composition — {len(too_small)} "
+              f"of {len(rows)} are too small.")
+        print(f"  The widest image here is {widest}px after crop; the frame "
+              f"needs 1080px.")
+        print()
+        print("  A whole library under half the needed width is a source "
+              "problem, not a")
+        print("  photography problem. The usual cause is iCloud 'Optimise Mac "
+              "Storage',")
+        print("  which replaces originals/ with downscaled proxies. Check:")
+        print()
+        print("    System Settings > [your name] > iCloud > Photos")
+        print()
+        print("  If it is on, these ARE proxies and the real files are in "
+              "iCloud. Turn on")
+        print("  'Download Originals to this Mac', wait for the sync, and "
+              "rescan — or export")
+        print("  the ones you want: Photos > File > Export > Export Unmodified "
+              "Original.")
     print()
     print(f"  {'score':>5}  {'busy':>5} {'luma':>5}  {'origin':<15} verdict / file")
     for r in rows[:60]:
@@ -922,15 +1004,26 @@ def self_test() -> int:
         # Structured on purpose. A perceptual hash describes STRUCTURE, so the
         # test image needs edges and shapes — per-pixel noise averages back to
         # flat when downscaled and would exercise the low-detail path instead.
+        # NOT a regular pattern. The first version of this fixture drew evenly
+        # spaced windows on a facade, and a perceptual hash treats a periodic
+        # pattern as a pathological case: a 2% re-crop of it lands 28 bits
+        # away, while the same crop of an organic image lands 4. The re-crop
+        # check passed anyway, on the byte-identical copy rather than on the
+        # crop — a test green for the wrong reason, which is worse than red.
         from PIL import ImageDraw
-        a = Image.new("RGB", (1200, 900), (80, 100, 130))
+        import random as _rr
+        _rr.seed(3)
+        a = Image.new("RGB", (1200, 900), (70, 85, 110))
         d = ImageDraw.Draw(a)
-        for x in range(0, 1200, 90):                       # windows on a facade
-            d.rectangle([x + 10, 120, x + 55, 780], fill=(225, 225, 215))
-        d.rectangle([0, 780, 1200, 900], fill=(30, 34, 40))
+        for _ in range(40):
+            _x, _y = _rr.randint(0, 1100), _rr.randint(0, 800)
+            _w, _h = _rr.randint(40, 220), _rr.randint(40, 200)
+            _v = _rr.randint(30, 230)
+            d.rectangle([_x, _y, _x + _w, _y + _h], fill=(_v, _v - 6, _v - 14))
+        d.ellipse([300, 200, 760, 640], fill=(210, 200, 180))
         a.save(root / "shot_a.jpg", quality=92)
         (root / "shot_a_copy.jpg").write_bytes((root / "shot_a.jpg").read_bytes())
-        a.crop((0, 0, 1180, 890)).resize((1200, 900)).save(root / "shot_a_recrop.jpg",
+        a.crop((0, 0, 1176, 882)).resize((1200, 900)).save(root / "shot_a_recrop.jpg",
                                                            quality=92)
         Image.new("RGB", (800, 1200), (240, 240, 235)).save(root / "different.png")
         (root / "notes.txt").write_text("not an image")
@@ -952,6 +1045,16 @@ def self_test() -> int:
               m["counts"]["exact_duplicate_groups"] == 1)
         check("a re-crop is caught as a near-duplicate",
               m["counts"]["similarity_groups"] >= 1)
+        # the group that survives must be the CROP pair, not the byte-identical
+        # pair restated — that restatement was 150 of 169 groups on a real
+        # library, burying the signal under something already reported above
+        _near = [{r["relative_path"] for r in g}
+                 for g in m["integrity"]["similarity_groups"]]
+        check("a near-duplicate group is not an exact-duplicate group restated",
+              all(set(g) not in _near
+                  for g in m["integrity"]["exact_duplicate_groups"]))
+        check("the near-duplicate group found is the re-crop",
+              any("shot_a_recrop.jpg" in g for g in _near))
         check("a textured photo is not treated as flat",
               not next(v for v in m["visuals"]
                        if v["filename"] == "shot_a.jpg")["low_detail"])
