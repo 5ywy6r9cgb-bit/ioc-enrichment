@@ -575,6 +575,34 @@ module.exports = async function run() {
     check('the real dedupe returns an OBJECT with filings, not a bare array',
       d && !Array.isArray(d) && Array.isArray(d.filings) && 'superseded' in d,
       JSON.stringify(d));
+    check('and separates re-reads from real restatements',
+      'duplicates' in d, JSON.stringify(d));
+
+    // THE SAME FILING IN TWO CAPTURES IS NOT AN AMENDMENT. Counted together
+    // and printed as "amendments collapsed", the live library read 18,008 of
+    // 34,872 -- implying 52% of federal lobbying filings are amended. They
+    // are not; nearly all of it was one search run many times.
+    const same = { uuid: 'U1', registrant: 'R', client: 'C', year: 2025,
+      period: 'Q1', amended: false, posted: '2025-04-01' };
+    const twice = REAL.dedupe([same, { ...same }]);
+    check('the same filing_uuid twice counts as a RE-READ, not an amendment',
+      twice.duplicates === 1 && twice.superseded === 0,
+      JSON.stringify({ d: twice.duplicates, s: twice.superseded }));
+    check('and collapses to one row', twice.filings.length === 1);
+
+    const amended = REAL.dedupe([same,
+      { ...same, uuid: 'U2', amended: true, posted: '2025-06-01' }]);
+    check('a DIFFERENT uuid for the same quarter counts as a restatement',
+      amended.superseded === 1 && amended.duplicates === 0,
+      JSON.stringify({ d: amended.duplicates, s: amended.superseded }));
+    check('and the amendment is the row that survives',
+      amended.filings.length === 1 && amended.filings[0].uuid === 'U2');
+
+    // A row with no uuid cannot be told apart, and must land on the side
+    // that overstates amendments rather than the side that hides them.
+    const nouuid = REAL.dedupe([{ ...same, uuid: '' }, { ...same, uuid: '' }]);
+    check('a filing with no uuid is counted as a restatement, not a re-read',
+      nouuid.superseded === 1 && nouuid.duplicates === 0);
     const stub = fakeLobby([]).dedupe([]);
     check('and the stub returns the same shape',
       stub && !Array.isArray(stub) && Array.isArray(stub.filings) && 'superseded' in stub);

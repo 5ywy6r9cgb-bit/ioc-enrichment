@@ -832,9 +832,17 @@ async function cmdGraph(opts) {
     console.log(`    ${String(lobby.issues.length).padStart(5)}  issues`);
     console.log(`    ${String(lobby.lobbied_for.length).padStart(5)}  LOBBIED_FOR   ${C.dim('person → client')}`);
     console.log(`    ${String(lobby.contacted.length).padStart(5)}  LOBBIED       ${C.dim('client → agency')}`);
-    console.log(C.dim(`\n  ${lobby.filings_read} filing(s) read · `
-      + `${lobby.amendments_superseded} amendment(s) collapsed · `
-      + `${lobby.filings_after_dedupe} counted`));
+    // THE SAME FILING READ TWICE IS NOT AN AMENDMENT. These were one number
+    // labelled "amendment(s) collapsed", which on the live library read
+    // 18,008 of 34,872 -- 52% of federal lobbying filings amended, which is
+    // false. Nearly all of it was the same filing arriving from a second
+    // capture of the same search.
+    console.log(C.dim(`\n  ${lobby.filings_read} filing row(s) read`));
+    console.log(C.dim(`  ${lobby.duplicate_rereads} the SAME filing seen again `
+      + `${C.dim('(re-run searches — says nothing about lobbying)')}`));
+    console.log(C.dim(`  ${lobby.amendments_superseded} a DIFFERENT filing for a quarter already held `
+      + `${C.dim('(restatement or amendment)')}`));
+    console.log(C.dim(`  ${lobby.filings_after_dedupe} distinct relationship-quarters counted`));
     if (lobby.truncated_subjects) {
       console.log(C.dim(`  ${lobby.truncated_subjects} subject(s) truncated — these counts are floors.`));
     }
@@ -1077,13 +1085,16 @@ function cmdLobby(opts) {
     return;
   }
 
-  const { filings, superseded } = L.dedupe(raw);
+  const { filings, superseded, duplicates } = L.dedupe(raw);
   const analysis = L.analyse(filings);
   const shared = L.sharedRegistrants(analysis);
 
   console.log(`\n  ${C.b('LOBBYING FILINGS')}`);
-  console.log(C.dim(`  ${subjects.length} capture(s) · ${raw.length} filing(s) read · `
-    + `${filings.length} after collapsing ${superseded} amendment(s) · no network call\n`));
+  // Same correction as cmdGraph: a re-read is not an amendment.
+  console.log(C.dim(`  ${subjects.length} capture(s) · ${raw.length} filing row(s) read · `
+    + `${filings.length} distinct relationship-quarter(s) · no network call`));
+  console.log(C.dim(`  collapsed: ${duplicates} the same filing seen again · `
+    + `${superseded} a different filing for a quarter already held\n`));
 
   // ---- coverage, before any number that depends on it -------------------
   const truncated = subjects.filter((s) => s.truncated);

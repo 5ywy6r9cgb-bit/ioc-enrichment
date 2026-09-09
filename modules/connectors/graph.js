@@ -250,7 +250,7 @@ function buildLobbyLayer(captureDir, L) {
   // dedupe returned the array. Nineteen checks all passed against a contract
   // the real module does not implement. A stub that does not match its
   // subject tests the stub.
-  const { filings, superseded } = L.dedupe(read.filings);
+  const { filings, superseded, duplicates } = L.dedupe(read.filings);
 
   // THE ORG KEY MUST BE THE SAME ONE build() USED. Org nodes are keyed on the
   // normalised name, so an edge carrying the raw display name matches nothing
@@ -403,6 +403,7 @@ function buildLobbyLayer(captureDir, L) {
     // Coverage, beside the counts rather than under them.
     filings_read: read.filings.length,
     amendments_superseded: superseded,
+    duplicate_rereads: duplicates || 0,
     filings_after_dedupe: filings.length,
     truncated_subjects: read.subjects.filter((s) => s.truncated).length,
     unparsed: read.unparsed.length,

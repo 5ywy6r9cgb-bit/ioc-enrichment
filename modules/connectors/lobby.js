@@ -156,7 +156,27 @@ function readFilings(captureDir) {
  */
 function dedupe(filings) {
   const best = new Map();
-  let superseded = 0;
+  // TWO COUNTS, BECAUSE THEY ARE TWO DIFFERENT FACTS AND ONE OF THEM WAS
+  // BEING REPORTED AS THE OTHER.
+  //
+  // A collision on (registrant, client, year, period) has two causes:
+  //
+  //   THE SAME FILING, SEEN AGAIN. Identical filing_uuid, read out of a
+  //   second capture file. The library holds ~500 captures of some
+  //   registrants, so one filing can collide nineteen times. This says
+  //   nothing about lobbying; it says the search was re-run.
+  //
+  //   A DIFFERENT FILING FOR THE SAME QUARTER. Different uuid — a genuine
+  //   amendment or restatement, and a real signal: a quarter amended after
+  //   the fact is a late disclosure.
+  //
+  // These were added together and the total printed as "amendment(s)
+  // collapsed". On the live library that read 18,008 of 34,872 — implying
+  // 52% of federal lobbying filings are amended, which is nonsense. The
+  // number was almost entirely re-reads.
+  let superseded = 0;   // different uuid, same quarter — a real restatement
+  let duplicates = 0;   // same uuid — the same filing, read twice
+  const seenUuid = new Set();
   for (const f of filings) {
     // JSON-encoded rather than joined on a separator: registrant "ALPINE
     // GROUP" + client "PARTNERS LLC" and registrant "ALPINE" + client "GROUP
@@ -166,14 +186,20 @@ function dedupe(filings) {
     // no safe separator — encode the fields instead of delimiting them.
     const k = JSON.stringify([f.registrant, f.client, f.year, f.period]);
     const prev = best.get(k);
-    if (!prev) { best.set(k, f); continue; }
-    superseded++;
+    if (!prev) { best.set(k, f); if (f.uuid) seenUuid.add(f.uuid); continue; }
+    // A uuid already seen is the same document arriving again, not a new
+    // assertion about the quarter. A filing with NO uuid cannot be told
+    // apart this way and is counted as a restatement — the safer side,
+    // since it overstates amendments rather than hiding them.
+    if (f.uuid && seenUuid.has(f.uuid)) duplicates++;
+    else superseded++;
+    if (f.uuid) seenUuid.add(f.uuid);
     // Prefer the amendment; failing that, the later posting.
     const better = (f.amended && !prev.amended)
       || (f.amended === prev.amended && String(f.posted) > String(prev.posted));
     if (better) best.set(k, f);
   }
-  return { filings: [...best.values()], superseded };
+  return { filings: [...best.values()], superseded, duplicates };
 }
 
 /** Sum that stays null until there is something real to add. */
