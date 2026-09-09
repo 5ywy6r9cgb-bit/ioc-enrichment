@@ -239,14 +239,46 @@ function isContribution(row) {
 }
 
 /** Schedule E — independent expenditures. Not donations. */
+function cycleWindow(cycle) {
+  return [`${Number(cycle) - 1}-01-01`, `${Number(cycle)}-12-31`];
+}
+
+/**
+ * Schedule E — independent expenditures. Not donations.
+ *
+ * two_year_transaction_period is a Schedule A/B field. Schedule E ignores it,
+ * and an ignored filter is not an error: the request succeeds and returns
+ * EVERY cycle. Asking for 2024 returned rows from 2022-04-22 to 2026-08-11 —
+ * three cycles of spending under a heading that named one. min_date/max_date
+ * are the fields this endpoint actually has.
+ */
 function independentUrl(committeeId, cycle, key, lastIndex, lastDate) {
+  const [lo, hi] = cycleWindow(cycle);
   let u = `${API}/schedules/schedule_e/?api_key=${encodeURIComponent(key)}`
         + `&committee_id=${encodeURIComponent(committeeId)}`
-        + `&two_year_transaction_period=${encodeURIComponent(cycle)}`
+        + `&min_date=${lo}&max_date=${hi}`
         + '&per_page=100&sort=-expenditure_date';
   if (lastIndex) u += `&last_index=${encodeURIComponent(lastIndex)}`;
   if (lastDate) u += `&last_expenditure_date=${encodeURIComponent(lastDate)}`;
   return u;
+}
+
+/**
+ * Keep only rows inside the cycle, whatever the API did.
+ *
+ * A filter sent is not a filter applied, and the caller cannot tell the
+ * difference from a successful response. So the window is enforced here too,
+ * and what it removed is returned rather than quietly dropped — a total that
+ * silently shrank is its own kind of wrong.
+ */
+function clampToCycle(rows, cycle) {
+  const [lo, hi] = cycleWindow(cycle);
+  const kept = [], dropped = [];
+  for (const r of rows) {
+    if (r.date && (r.date < lo || r.date > hi)) dropped.push(r);
+    else kept.push(r);
+  }
+  return { kept, dropped };
 }
 
 function parseIndependent(json) {
@@ -299,6 +331,27 @@ function byRecipient(contribs, independents) {
 }
 
 /** Totals, kept apart on purpose. There is no grand total and there should not be. */
+/**
+ * The committee's OWN giving, separated from what it merely forwarded.
+ *
+ * This is the number the earlier version could not produce. AIPAC PAC's 2022
+ * Schedule B is 2,418 memo rows out of 2,482 — 97% of the money is
+ * individuals' earmarked giving passing through, and a headline built on the
+ * column total would have been describing other people's donations.
+ */
+function splitConduit(contribs) {
+  const own = contribs.filter((c) => !isEarmarked(c));
+  const forwarded = contribs.filter(isEarmarked);
+  const sum = (rows) => rows.reduce((a, r) => a + r.amount, 0);
+  return {
+    own, forwarded,
+    own_usd: sum(own), own_rows: own.length,
+    forwarded_usd: sum(forwarded), forwarded_rows: forwarded.length,
+    forwarded_share: contribs.length
+      ? Math.round((forwarded.length / contribs.length) * 1000) / 10 : 0,
+  };
+}
+
 function totals(contribs, independents) {
   const sum = (rows, f = (r) => r.amount) => rows.reduce((a, r) => a + f(r), 0);
   const support = independents.filter((e) => e.stance !== 'O');
@@ -346,6 +399,7 @@ async function collect(fetchJson, buildUrl, parse, cap = 25, pace = 0) {
 module.exports = {
   API, committeeSearchUrl, parseCommittees,
   isEarmarked, auditContributions, auditCycle,
+  splitConduit, clampToCycle, cycleWindow,
   PAC_PER_ELECTION_CAP_USD, IMPLAUSIBLE_PER_RECIPIENT_USD,
   disbursementsUrl, parseDisbursements, isContribution, CONTRIBUTION_TYPES,
   independentUrl, parseIndependent,

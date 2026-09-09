@@ -222,6 +222,40 @@ async function run() {
   eq('rows with no date do not raise a false alarm',
     F.auditCycle([{ date: '' }], 2024), null);
 
+  // --- the number the flag alone could not give.
+  // 2,418 of AIPAC PAC's 2,482 rows carried a memo code. Flagging that told
+  // you the total was wrong without telling you what was right.
+  const mixed = [
+    { recipient: 'A', amount: 5000, memo_code: '', date: '2022-05-01' },
+    { recipient: 'B', amount: 800, memo_code: 'X', date: '2022-05-01' },
+    { recipient: 'B', amount: 900, memo_text: 'EARMARKED', date: '2022-05-01' },
+  ];
+  const sp = F.splitConduit(mixed);
+  eq('own funds are counted alone', sp.own_usd, 5000);
+  eq('forwarded money is counted alone', sp.forwarded_usd, 1700);
+  eq('and the share forwarded is reported', sp.forwarded_share, 66.7);
+  check('the two never add up to one headline',
+    sp.own_usd + sp.forwarded_usd === 6700 && !('total_usd' in sp));
+  const clean = F.splitConduit([{ recipient: 'A', amount: 5000, date: '2022-01-01' }]);
+  eq('a committee with no conduit rows forwards nothing', clean.forwarded_rows, 0);
+
+  // --- schedule E ignored two_year_transaction_period entirely
+  const eu = F.independentUrl('C1', 2024, 'K');
+  check('schedule E filters by date, which it supports',
+    /min_date=2023-01-01/.test(eu) && /max_date=2024-12-31/.test(eu));
+  check('and no longer sends the field it ignores',
+    !/two_year_transaction_period/.test(eu));
+  check('schedule B still uses the cycle field, which it does support',
+    /two_year_transaction_period=2024/.test(F.disbursementsUrl('C1', 2024, 'K')));
+
+  // --- and the window is enforced locally regardless
+  const cl = F.clampToCycle(
+    [{ date: '2026-08-11' }, { date: '2024-02-01' }, { date: '2023-06-01' }], 2024);
+  eq('rows outside the cycle are removed', cl.kept.length, 2);
+  eq('and handed back rather than silently dropped', cl.dropped.length, 1);
+  eq('a row with no date is kept rather than guessed at',
+    F.clampToCycle([{ date: '' }], 2024).kept.length, 1);
+
   console.log(`\n  ${fails ? 'FAIL' : 'PASS'} — ${ran - fails}/${ran} checks\n`);
   return fails ? 1 : 0;
 }

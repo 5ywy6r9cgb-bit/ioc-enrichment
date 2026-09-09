@@ -980,6 +980,14 @@ async function cmdFecPac(name, opts = {}) {
     (li, ld) => F.independentUrl(picked.committee_id, cycle, key, li, ld),
     F.parseIndependent, 25, 400);
 
+  // Enforce the cycle here regardless of what the API did with the filter.
+  const bClamp = F.clampToCycle(contribs, cycle);
+  const eClamp = F.clampToCycle(e.rows, cycle);
+  const droppedTotal = bClamp.dropped.length + eClamp.dropped.length;
+  contribs = bClamp.kept;
+  e.rows = eClamp.kept;
+
+  const split = F.splitConduit(contribs);
   const t = F.totals(contribs, e.rows);
   const usd = (n) => n.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
 
@@ -1009,11 +1017,30 @@ async function cmdFecPac(name, opts = {}) {
     console.log('');
   }
 
-  console.log(`  ${conduit ? C.y(usd(t.contributions_usd)) : C.g(usd(t.contributions_usd))}`
-    + `  moved to other committees, in ${t.contributions_rows} row(s)`);
-  console.log(C.dim(conduit
-    ? '        NOT established as this committee\'s own giving — see above'
-    : '        capped, itemised, attributable — the strong material'));
+  if (droppedTotal) {
+    console.log(`  ${C.dim(`${droppedTotal} row(s) outside cycle ${cycle} were removed here — `
+      + `the API returned them despite the filter.`)}`);
+    console.log('');
+  }
+
+  // The two halves, never one number. This is the answer the flag alone
+  // could not give: what the committee gave, and what it forwarded.
+  if (split.forwarded_rows) {
+    console.log(`  ${C.g(usd(split.own_usd))}`
+      + `  the committee's OWN contributions, in ${split.own_rows} row(s)`);
+    console.log(C.dim('        no memo code — money from its own funds. This is the'));
+    console.log(C.dim('        figure that belongs in a sentence beginning with its name.'));
+    console.log('');
+    console.log(`  ${C.y(usd(split.forwarded_usd))}`
+      + `  FORWARDED for individuals, in ${split.forwarded_rows} row(s)`
+      + `  (${split.forwarded_share}% of rows)`);
+    console.log(C.dim('        earmarked by named individuals and passed through. Their'));
+    console.log(C.dim('        giving, disclosed under their names — not the committee\'s.'));
+  } else {
+    console.log(`  ${C.g(usd(t.contributions_usd))}`
+      + `  in ${t.contributions_rows} DIRECT CONTRIBUTION(S) to other committees`);
+    console.log(C.dim('        capped, itemised, attributable — the strong material'));
+  }
   console.log('');
   console.log(`  ${C.y(usd(t.ie_support_usd))}`
     + `  spent FOR candidates, in ${t.ie_support_rows} independent expenditure(s)`);
@@ -1029,7 +1056,9 @@ async function cmdFecPac(name, opts = {}) {
   const rows = F.byRecipient(contribs, e.rows).slice(0, 25);
   if (rows.length) {
     console.log(`\n  ${C.b('By recipient')} ${C.dim('(top 25)')}`);
-    console.log(C.dim('    contributed       for      against   recipient'));
+    console.log(C.dim(split.forwarded_rows
+      ? '     own+fwd*         for      against   recipient   (*mixed — see above)'
+      : '    contributed       for      against   recipient'));
     for (const r of rows) {
       const f = (n) => (n ? n.toLocaleString('en-US', { maximumFractionDigits: 0 }) : '—');
       console.log(`    ${String(f(r.contributed)).padStart(11)}`
