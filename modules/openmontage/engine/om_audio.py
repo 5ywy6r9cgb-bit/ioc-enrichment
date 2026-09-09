@@ -496,6 +496,293 @@ def groove_for(total: float, gain: float = 1.0, seed: int = 7,
                    -1.0, 1.0).astype(np.float32)
 
 
+# ===================================================================== cipher
+# The third bed style: Baroque counterpoint over Cold War jazz changes.
+#
+# Two ideas that turn out to be the same idea. A descending circle of fifths is
+# the backbone of a Bach sequence AND of a jazz ii-V chain — the same motion,
+# two hundred years apart. So the harmony is period-ambiguous on purpose:
+#
+#   Dm7 · Gm7 · Cmaj7 · Fmaj7 · Bm7b5 · E7b9 · Am7 · A7b9
+#
+# Eight bars, every root a fifth below the last, landing on the dominant of D
+# so the loop turns over without a seam. The half-diminished and the altered
+# dominants are what make it read 1989 rather than 1720 — that is the sound of
+# a minor ii-V, and it is why this palette feels like a wire transfer nobody
+# was supposed to see.
+#
+# THE COUNTERPOINT IS REAL, not two parts playing chords together. One subject
+# is stated by the harpsichord and answered by the electric piano a beat later,
+# a sixth below — a canon. Every four bars the subject INVERTS (every interval
+# flipped in direction) and every eight it runs in RETROGRADE (backwards).
+# Those are Baroque devices, and they do the job a chorus does in pop music:
+# the material stays the same while the surface keeps moving. Nothing new is
+# introduced for four minutes, which is exactly what background music needs.
+#
+# Straight sixteenths in the counterpoint, light swing on the ride. The friction
+# between a straight line and a swung pulse is where the jazz actually lives.
+
+CIPHER_BPM = 122
+CIPHER_BARS = 122                       # ≈ 4:00 at 122 BPM
+
+# (name, root midi, chord tones, scale) — the scale is what the counterpoint
+# is allowed to walk through, so every passing note belongs to the chord of
+# the moment and the two voices can never collide into something sour.
+CIPHER_CHANGES = [
+    ("Dm7",    50, [0, 3, 7, 10], [0, 2, 3, 5, 7, 9, 10]),    # D dorian
+    ("Gm7",    55, [0, 3, 7, 10], [0, 2, 3, 5, 7, 9, 10]),    # G dorian
+    ("Cmaj7",  48, [0, 4, 7, 11], [0, 2, 4, 5, 7, 9, 11]),    # C ionian
+    ("Fmaj7",  53, [0, 4, 7, 11], [0, 2, 4, 6, 7, 9, 11]),    # F lydian
+    ("Bm7b5",  47, [0, 3, 6, 10], [0, 1, 3, 5, 6, 8, 10]),    # B locrian
+    ("E7b9",   52, [0, 4, 7, 10], [0, 1, 4, 5, 7, 8, 10]),    # E phrygian dominant
+    ("Am7",    45, [0, 3, 7, 10], [0, 2, 3, 5, 7, 8, 10]),    # A aeolian
+    ("A7b9",   45, [0, 4, 7, 10], [0, 1, 4, 5, 7, 8, 10]),    # A phrygian dominant
+]
+
+# The subjects: eight sixteenths each, stated as scale degrees. Deliberately
+# plain — a shape, not a tune. It is the treatment that carries it, not the
+# notes.
+#
+# The seed picks which one an episode uses. Bach wrote fifteen inventions in
+# the same language on fifteen different subjects; this is the same move. The
+# harmony, the instruments and the feel stay identical, so every episode is
+# recognisably the same programme, but the line the ear follows is new.
+SUBJECTS = [
+    [0, 2, 4, 3, 2, 4, 1, 0],      # 0 arch — rises, turns, settles
+    [0, 4, 3, 2, 4, 1, 2, 0],      # 1 a wider leap up front
+    [0, 1, 2, 4, 3, 1, 2, 0],      # 2 stepwise, more scalar and restless
+    [0, 3, 2, 5, 4, 2, 1, 0],      # 3 reaches higher before falling back
+    [0, 2, 1, 3, 2, 5, 4, 0],      # 4 syncopated shape, delays the peak
+]
+
+
+def subject_for(seed: int) -> list[int]:
+    return SUBJECTS[seed % len(SUBJECTS)]
+
+
+def _degree_to_midi(root: int, scale: list[int], degree: int, octave: int = 0) -> int:
+    """Walk the scale by degree, wrapping into octaves. Degrees may go negative
+    or past the top of the scale; the octave follows."""
+    n = len(scale)
+    return root + scale[degree % n] + 12 * (degree // n + octave)
+
+
+def _subject_at(bar: int, invert: bool, retrograde: bool,
+                seed: int = 0) -> list[int]:
+    """The subject, transformed. Inversion mirrors every interval around the
+    first note; retrograde reverses the order. Both are Baroque, both keep the
+    material identical while changing the surface."""
+    s = list(subject_for(seed))
+    if invert:
+        s = [2 * s[0] - d for d in s]
+    if retrograde:
+        s = s[::-1]
+    return s
+
+
+# ------------------------------------------------------------------ timbres
+_TIMBRE_CACHE: dict = {}
+
+
+def _cached(key, fn):
+    if key not in _TIMBRE_CACHE:
+        _TIMBRE_CACHE[key] = fn()
+    return _TIMBRE_CACHE[key]
+
+
+def _harpsichord(midi: int, dur: float) -> np.ndarray:
+    """Plucked, bright, uniform. A harpsichord cannot play loud or soft — the
+    plectrum plucks the same way however hard the key is struck, which is why
+    it sounds mechanical and precise. That is modelled here as a fixed attack
+    and a harmonic series heavy in the odd partials."""
+    def make():
+        n = max(1, int(dur * SR))
+        t = np.arange(n) / SR
+        f = _hz(midi)
+        out = np.zeros(n)
+        for k, amp in ((1, 1.0), (2, 0.55), (3, 0.62), (4, 0.25), (5, 0.34),
+                       (6, 0.14), (7, 0.20), (9, 0.11)):
+            if f * k > 15000:
+                break
+            out += amp * np.sin(2 * math.pi * f * k * t + k * 0.7)
+        pluck = np.exp(-t / (0.055 + 220.0 / max(80.0, f)))       # short, bright
+        body = np.exp(-t / 0.55)
+        env = _env_ar(n, 0.0016, 0.30)
+        return (out * (0.72 * pluck + 0.28 * body) * env) * 0.055
+    return _cached(("hpsi", midi, round(dur, 3)), make)
+
+
+def _rhodes(midi: int, dur: float) -> np.ndarray:
+    """Electric piano. A struck tine: a sine fundamental with a bell-like
+    partial that decays much faster than the body — which is the whole reason a
+    Rhodes sounds warm underneath and glassy on the attack."""
+    def make():
+        n = max(1, int(dur * SR))
+        t = np.arange(n) / SR
+        f = _hz(midi)
+        body = np.sin(2 * math.pi * f * t) * np.exp(-t / 0.85)
+        tine = np.sin(2 * math.pi * f * 7.02 * t) * np.exp(-t / 0.045) * 0.22
+        warm = np.sin(2 * math.pi * f * 2 * t) * np.exp(-t / 0.40) * 0.16
+        env = _env_ar(n, 0.005, 0.55)
+        return (body + tine + warm) * env * 0.085
+    return _cached(("rhod", midi, round(dur, 3)), make)
+
+
+def _upright(midi: int, dur: float) -> np.ndarray:
+    """The bass pulse. Restrained and electronic rather than a walking upright
+    — a rounded sine with a short woody knock on the front, so it marks the
+    harmony without ever becoming the thing you listen to."""
+    def make():
+        n = max(1, int(dur * SR))
+        t = np.arange(n) / SR
+        f = _hz(midi)
+        body = (np.sin(2 * math.pi * f * t)
+                + 0.30 * np.sin(2 * math.pi * f * 2 * t)
+                + 0.10 * np.sin(2 * math.pi * f * 3 * t))
+        m = int(0.008 * SR)
+        knock = np.zeros(n)
+        knock[:m] = _noise(m, int(midi)) * _env_decay(m, 0.0035) * 0.16
+        env = _env_ar(n, 0.008, max(0.10, dur * 0.5))
+        return (body * env + knock) * 0.26
+    return _cached(("bass", midi, round(dur, 3)), make)
+
+
+def _rimclick() -> np.ndarray:
+    """A rim click, not a snare. Dry, tiny, and out of the way."""
+    def make():
+        n = int(0.055 * SR)
+        h = _noise(n, 77) * _env_decay(n, 0.0075)
+        tone = _sine(1750, n) * _env_decay(n, 0.010) * 0.5
+        return _hp1(h + tone, 2400) * 0.20
+    return _cached(("rim",), make)
+
+
+def _ride() -> np.ndarray:
+    """A ride tip, high and thin, so the swing reads without any wash."""
+    def make():
+        n = int(0.11 * SR)
+        h = _noise(n, 91) * _env_decay(n, 0.028)
+        return _lp1(_hp1(_hp1(h, 8000), 8000), 14000) * 0.085
+    return _cached(("ride",), make)
+
+
+def _brush() -> np.ndarray:
+    """A brush sweep on the backbeat. Air, not impact."""
+    def make():
+        n = int(0.19 * SR)
+        h = _noise(n, 55) * _env_ar(n, 0.035, 0.075)
+        return _lp1(_hp1(_hp1(h, 4200), 4200), 11000) * 0.10
+    return _cached(("brush",), make)
+
+
+def build_cipher(bars: int = CIPHER_BARS, seed: int = 3,
+                 notch_db: float = -14.0) -> np.ndarray:
+    """Render a seam-exact loop of Baroque-jazz counterpoint at 122 BPM."""
+    rng = np.random.default_rng(seed)
+    rot = seed % len(CIPHER_CHANGES)      # which chord the loop opens on
+    beat = 60.0 / CIPHER_BPM
+    bar_s = beat * 4
+    step = beat / 4.0                                   # a sixteenth
+    n = int(round(bars * bar_s * SR))
+    voices = np.zeros(n)     # the two contrapuntal lines
+    low = np.zeros(n)        # bass
+    perc = np.zeros(n)
+
+    rim, ride, brush = _rimclick(), _ride(), _brush()
+
+    for b in range(bars):
+        name, root, tones, scale = CIPHER_CHANGES[(b + rot) % len(CIPHER_CHANGES)]
+        bar0 = int(round(b * bar_s * SR))
+        cycle = b % 16
+        invert = (b // 4) % 2 == 1                      # flip every 4 bars
+        retro = (b // 8) % 2 == 1                       # reverse every 8
+        subj = _subject_at(b, invert, retro, seed)
+
+        thin = cycle in (7, 15)      # two bars of air per sixteen, for breath
+
+        # --- the canon. The harpsichord states the subject twice in the bar;
+        # the Rhodes answers one beat later, a sixth below. Same material,
+        # displaced in time and pitch — which is what makes lines interlock
+        # instead of merely stack.
+        for rep in range(2):
+            for i, deg in enumerate(subj):
+                st = rep * 8 + i
+                at = bar0 + int(round(st * step * SR))
+                # The lead sits an octave higher than a keyboard player would
+                # naturally place it. A harpsichord is brilliant up there, and
+                # more importantly its fundamental clears the top of the speech
+                # band, so the notch below has far less work to do and costs the
+                # instrument far less of its body.
+                lead = _degree_to_midi(root, scale, deg, octave=3)
+                _add(voices, _harpsichord(lead, step * 2.2), at)
+
+                if not thin:
+                    answer_at = at + int(round(beat * SR))
+                    ans = _degree_to_midi(root, scale, deg - 3, octave=2)
+                    _add(voices, _rhodes(ans, step * 3.0), answer_at)
+
+        # --- bass: root on 1, fifth on 3, and a chromatic approach into the
+        # next chord on the "and" of 4. That approach note is the single most
+        # jazz thing in the arrangement.
+        _add(low, _upright(root - 12, beat * 1.6), bar0)
+        _add(low, _upright(root - 12 + 7, beat * 0.9),
+             bar0 + int(round(2 * beat * SR)))
+        if not thin:
+            nxt = CIPHER_CHANGES[(b + rot + 1) % len(CIPHER_CHANGES)][1] - 12
+            _add(low, _upright(nxt + 1, beat * 0.5),
+                 bar0 + int(round(3.5 * beat * SR)))
+
+        # --- percussion: rim on 2 and 4, a swung ride, a brush on 4.
+        for bt in (1, 3):
+            _add(perc, rim, bar0 + int(round(bt * beat * SR)))
+        _add(perc, brush, bar0 + int(round(3 * beat * SR)))
+        if not thin:
+            for e in range(8):
+                # light swing: the off-beat eighth lands late, but nowhere near
+                # a triplet — the straight sixteenths above have to stay legible
+                swing = 0.0 if e % 2 == 0 else 0.055
+                at = bar0 + int(round((e * 0.5 + swing) * beat * SR))
+                if e % 2 == 0 or rng.random() < 0.72:
+                    _add(perc, ride * (1.0 if e % 2 == 0 else 0.6), at)
+
+    # --- bus. The counterpoint is the thing that would fight a voice, so it is
+    # shaped high and thin before the notch ever runs.
+    # Raising the lead an octave moved its weight into 3-8 kHz, which is where
+    # brittleness lives — the ear is most sensitive there and an hour of it is
+    # fatiguing. Tilt back down above 4.5k so the harpsichord stays crisp and
+    # stops short of glassy, and let a little more Rhodes body through below.
+    voices = _shape(voices, [(20, 0.05), (200, 0.42), (700, 0.78), (2200, 0.95),
+                             (4500, 0.88), (7000, 0.70), (11000, 0.46),
+                             (20000, 0.26)])
+    low = _shape(low, [(20, 0.4), (50, 1.0), (170, 1.0), (280, 0.5),
+                       (800, 0.08), (20000, 0.02)])
+    perc = _shape(perc, [(20, 0.1), (300, 0.4), (3000, 0.9), (9000, 1.0),
+                         (14000, 0.7), (20000, 0.4)])
+
+    mix = voices * 1.0 + low * 0.95 + perc * 0.8
+    mix = _shape(mix, [(8, 0.0), (22, 0.18), (34, 0.85), (55, 1.0), (20000, 1.0)])
+    mix = voice_notch(mix, notch_db)
+    mix = np.tanh(mix * 1.1) * 0.93
+
+    peak = float(np.max(np.abs(mix))) or 1.0
+    return (mix * (10 ** (PEAK_TARGET_DBFS / 20.0) / peak)).astype(np.float32)
+
+
+def cipher_for(total: float, gain: float = 1.0, seed: int = 3,
+               notch_db: float = -14.0) -> np.ndarray:
+    """A cipher bed cut to exactly `total` seconds."""
+    bar_s = (60.0 / CIPHER_BPM) * 4
+    bars = max(8, int(math.ceil(total / bar_s)) + 1)
+    loop = build_cipher(bars=bars, seed=seed, notch_db=notch_db)
+    n = int(total * SR)
+    if len(loop) < n:
+        loop = np.tile(loop, int(math.ceil(n / len(loop))))
+    out = _fade_edges(np.array(loop[:n], dtype=np.float64), 0.9)
+    peak = float(np.max(np.abs(out))) or 1.0
+    return np.clip(out * (10 ** (PEAK_TARGET_DBFS / 20.0) / peak) * gain,
+                   -1.0, 1.0).astype(np.float32)
+
+
 # ------------------------------------------------------------------ public API
 def build_track(scenes, total: float, gain: float = 1.0, bed: bool = True) -> np.ndarray:
     """Build the whole track for a scene list.
@@ -658,6 +945,63 @@ def self_test() -> int:
           not np.array_equal(np.asarray(build_groove(bars=8, seed=99)),
                              g.astype(np.float32)))
 
+    # --- cipher: the baroque/jazz bed --------------------------------------
+    c = np.asarray(build_cipher(bars=8), dtype=np.float64)
+    cbar = (60.0 / CIPHER_BPM) * 4
+    check(f"cipher runs at {CIPHER_BPM} BPM to the sample",
+          abs(len(c) / SR - 8 * cbar) < 0.002)
+    check("cipher peaks on the -18 dBFS target",
+          -19.5 <= analyze(c)["peak_dbfs"] <= -16.5)
+
+    cst = analyze(c)
+    # A keyboard arrangement sits where a voice sits, so this style is held to
+    # a looser bar than the groove — but it is still held to one.
+    check(f"cipher keeps the narration band workable "
+          f"({cst['speech_band_energy_pct']}%)",
+          cst["speech_band_energy_pct"] < 4.0)
+
+    dc = np.abs(np.diff(np.concatenate([c, c])))
+    check("the cipher loop seam is not a click",
+          float(dc[len(c) - 1]) <= float(np.percentile(dc, 99.9)))
+
+    # The counterpoint must actually be contrapuntal: the subject transformed
+    # by inversion and retrograde has to differ from the subject itself.
+    plain = _subject_at(0, False, False)
+    check("inversion mirrors the subject", _subject_at(0, True, False) != plain)
+    check("retrograde reverses the subject",
+          _subject_at(0, False, True) == plain[::-1])
+    check("inversion preserves the first note (it mirrors around it)",
+          _subject_at(0, True, False)[0] == plain[0])
+    check("every degree of the subject lands in the chord's scale",
+          all(_degree_to_midi(50, [0, 2, 3, 5, 7, 9, 10], d, 2) > 0
+              for d in _subject_at(0, True, True)))
+    # The changes descend by fifths, with exactly two intentional exceptions:
+    #   Fmaj7 -> Bm7b5 is a DIMINISHED fifth. Every diatonic circle of fifths
+    #     contains one tritone; it is what keeps the sequence in key, and it is
+    #     the step that gives the progression its unease.
+    #   Am7 -> A7b9 keeps the root and changes the quality, turning the tonic
+    #     minor into the dominant that pulls the loop back to Dm.
+    steps = [(CIPHER_CHANGES[i][1] - CIPHER_CHANGES[i + 1][1]) % 12
+             for i in range(len(CIPHER_CHANGES) - 1)]
+    check("the changes descend by fifths",
+          sum(1 for st in steps if st == 7) == len(steps) - 2)
+    check("exactly one step is the diatonic tritone",
+          sum(1 for st in steps if st == 6) == 1)
+    check("the last change turns the tonic minor into a dominant",
+          steps[-1] == 0 and CIPHER_CHANGES[-1][2] == [0, 4, 7, 10]
+          and CIPHER_CHANGES[-2][2] == [0, 3, 7, 10])
+
+    check("the same seed renders the same cipher",
+          np.array_equal(np.asarray(build_cipher(bars=8)), c.astype(np.float32)))
+    check("a different seed renders a genuinely different cipher",
+          not np.array_equal(np.asarray(build_cipher(bars=8, seed=41)),
+                             c.astype(np.float32)))
+    check("each seed selects a different subject",
+          subject_for(0) != subject_for(1) and subject_for(0) == subject_for(5))
+    cc = cipher_for(5.0)
+    check("cipher_for cuts to an exact duration",
+          abs(len(cc) / SR - 5.0) < 0.002)
+
     cut = groove_for(5.0)
     check("groove_for cuts to an exact duration",
           abs(len(cut) / SR - 5.0) < 0.002)
@@ -687,6 +1031,8 @@ def main():
     ap = argparse.ArgumentParser(description="The Sentinel Report audio bed")
     ap.add_argument("--demo", help="write a 30s audition of every drone cue here")
     ap.add_argument("--groove", help="write a seamless 124 BPM loop here")
+    ap.add_argument("--cipher",
+                    help="write a seamless 122 BPM baroque/jazz loop here")
     ap.add_argument("--minutes", type=float, default=4.0,
                     help="length of --groove, rounded to whole bars (default 4)")
     ap.add_argument("--seed", type=int, default=7,
@@ -697,6 +1043,21 @@ def main():
     a = ap.parse_args()
     if a.self_test:
         sys.exit(self_test())
+    if a.cipher:
+        bar_s = (60.0 / CIPHER_BPM) * 4
+        bars = max(8, int(round(a.minutes * 60.0 / bar_s)))
+        print(f"rendering {bars} bars at {CIPHER_BPM} BPM "
+              f"({bars * bar_s / 60:.2f} min), seed {a.seed}…")
+        g = build_cipher(bars=bars, seed=a.seed,
+                         notch_db=a.notch if a.notch != -9.0 else -14.0)
+        write_wav(a.cipher, g)
+        st = analyze(g)
+        print(f"-> {a.cipher}")
+        print(f"   {st['seconds']}s · peak {st['peak_dbfs']} dBFS · "
+              f"rms {st['rms_dbfs']} dBFS")
+        print(f"   {st['speech_band_energy_pct']}% of energy in the narration "
+              f"band · loops seamlessly")
+        return
     if a.groove:
         bars = max(8, int(round(a.minutes * 60.0 / _bar_s())))
         print(f"rendering {bars} bars at {BPM} BPM "

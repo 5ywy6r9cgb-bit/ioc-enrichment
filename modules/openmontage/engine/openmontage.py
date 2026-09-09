@@ -880,13 +880,18 @@ def render(spec_path: Path, out: Path, force: bool, verbose: bool) -> dict:
                                             float(spec.get("audio_gain", 1.0)),
                                             int(spec.get("audio_seed", 7)),
                                             float(spec.get("audio_notch_db", -9.0)))
+            elif style == "cipher":
+                track = om_audio.cipher_for(total,
+                                            float(spec.get("audio_gain", 1.0)),
+                                            int(spec.get("audio_seed", 3)),
+                                            float(spec.get("audio_notch_db", -14.0)))
             elif style == "drone":
                 track = om_audio.build_track(scenes, total,
                                              float(spec.get("audio_gain", 1.0)),
                                              bool(spec.get("audio_drone", True)))
             else:
                 raise SpecError(f"unknown audio_style '{style}'. "
-                                "Known: drone, groove")
+                                "Known: drone, groove, cipher")
             wav = out.with_suffix(".bed.wav")
             om_audio.write_wav(wav, track)
             st = om_audio.analyze(track)

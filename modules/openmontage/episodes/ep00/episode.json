@@ -130,8 +130,8 @@
       "source_note": "GREEN — the hash is verified against a real file at build time. A mismatch refuses the render."
     }
   ],
-  "audio_style": "groove",
-  "audio_gain": 0.85,
-  "audio_seed": 7,
-  "_audio_note": "124 BPM generated bed. audio_style: drone | groove · audio_seed changes the variation without changing the palette · audio_notch_db is how much room is carved for narration (-9 default) · audio_bed:false for silence."
+  "audio_style": "cipher",
+  "audio_gain": 0.9,
+  "audio_seed": 3,
+  "_audio_note": "Generated bed, no sampled or licensed material. audio_style: drone (sparse) | groove (124 BPM electronic) | cipher (122 BPM baroque counterpoint over jazz changes) · audio_seed picks the variation — for cipher it selects the subject and the opening chord · audio_notch_db is how much room is carved for narration · audio_bed:false for silence."
 }
