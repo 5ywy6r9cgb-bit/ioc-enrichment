@@ -1,0 +1,21 @@
+{
+  "_source": "bin/sentinel connect graph — preview output, captured library",
+  "_verify": "Re-run `bin/sentinel connect graph` before publishing. Every number here must match that output on the day you publish, or the episode is wrong.",
+  "_note": "counts_are_floors: the capture was truncated for 3358 subjects, so every count is a lower bound and is stated as one on screen.",
+  "captures_read": 5985,
+  "organisations": 7872,
+  "subjects_searched": 266,
+  "filed_for_sworn_filings": 5052,
+  "appears_under_search_results": 10047,
+  "lobbyist_names": 1611,
+  "agencies": 156,
+  "issue_codes": 79,
+  "lobbied_for_person_to_client": 20268,
+  "lobbied_client_to_agency": 13519,
+  "filing_rows_read": 84226,
+  "same_filing_seen_again": 35910,
+  "restatements_or_amendments": 4362,
+  "distinct_relationship_quarters": 43954,
+  "subjects_truncated": 3358,
+  "captures_short_of_source_count": 3767
+}
