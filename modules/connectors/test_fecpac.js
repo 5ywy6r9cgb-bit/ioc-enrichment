@@ -272,6 +272,35 @@ async function run() {
   check('progress reporting is optional, not required',
     (await F.collect(paged, () => 'u', F.parseDisbursements, 1)).rows.length === 1);
 
+  // --- the whole path, offline. Every piece above passed while the command
+  // that calls them died on `Assignment to constant variable` — the parts
+  // were tested and the wiring was not.
+  require('./cli.js');   // throws on a syntax error before anything runs
+  let served = 0;
+  const wired = async (url) => {
+    if (/schedule_b/.test(url)) {
+      served += 1;
+      return { results: served > 1 ? [] : [
+        { recipient_name: 'A FOR CONGRESS', disbursement_amount: 5000,
+          disbursement_date: '2022-03-01', disbursement_type: '24K',
+          recipient_committee_id: 'C9' },
+        { recipient_name: 'B FOR CONGRESS', disbursement_amount: 900,
+          disbursement_date: '2022-04-01', disbursement_type: '24K',
+          recipient_committee_id: 'C8', memo_code: 'X' },
+        { recipient_name: 'C OUT OF CYCLE', disbursement_amount: 700,
+          disbursement_date: '2026-04-01', disbursement_type: '24K',
+          recipient_committee_id: 'C7' },
+      ], pagination: {} };
+    }
+    return { results: [], pagination: {} };
+  };
+  const walk = await F.collect(wired, () => 'schedule_b', F.parseDisbursements, 3, 0);
+  const kept = F.clampToCycle(walk.rows.filter(F.isContribution), 2022);
+  const s2 = F.splitConduit(kept.kept);
+  eq('collect → filter → clamp → split runs end to end', kept.dropped.length, 1);
+  eq('and own funds come out alone', s2.own_usd, 5000);
+  eq('with forwarded money beside it, not inside it', s2.forwarded_usd, 900);
+
   console.log(`\n  ${fails ? 'FAIL' : 'PASS'} — ${ran - fails}/${ran} checks\n`);
   return fails ? 1 : 0;
 }

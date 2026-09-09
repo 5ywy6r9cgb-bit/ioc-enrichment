@@ -976,7 +976,7 @@ async function cmdFecPac(name, opts = {}) {
     (pg, got, total, cap) => process.stdout.write(
       `\r    page ${String(pg).padStart(2)}/${cap} · ${String(total).padStart(5)} rows` + (got ? '' : ' (empty)')));
   process.stdout.write('\n');
-  const contribs = b.rows.filter(F.isContribution);
+  let contribs = b.rows.filter(F.isContribution);
 
   console.log(C.dim('  reading Schedule E (independent expenditures) …'));
   const e = await F.collect(fetchJson,
