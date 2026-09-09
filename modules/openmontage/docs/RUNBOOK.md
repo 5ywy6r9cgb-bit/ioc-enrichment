@@ -167,6 +167,9 @@ in the episode that goes stale on its own.
 
 ## 4. Record and cut
 
+See [`RECORDING.md`](RECORDING.md) for the cut points, the track layout, and
+why the finished runtime is longer than the rendered one.
+
 1. Open `builds/ep00.script.md` on the phone.
 2. Record narration to the timecodes. One scene per take. Leave half a second
    of silence either side of each line so you can nudge sync.
