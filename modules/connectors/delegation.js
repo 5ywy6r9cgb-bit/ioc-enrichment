@@ -56,12 +56,45 @@ const API = 'https://api.open.fec.gov/v1';
 /** Offices the FEC recognises. P is president; a state sweep wants H and S. */
 const OFFICES = { H: 'House', S: 'Senate', P: 'President' };
 
+/**
+ * /candidates/SEARCH/, not /candidates/.
+ *
+ * They look interchangeable and are not: only the search endpoint returns
+ * `principal_committees`. Against the plain one the field is simply absent,
+ * every candidate resolves to an empty committee id, no totals are ever
+ * fetched, and the sweep reports "no committee totals filed" for an entire
+ * delegation — 115 members of one, all wrong, with nothing in the output
+ * distinguishing that from a state where nobody has filed.
+ */
 function candidatesUrl(state, office, cycle, key, page = 1) {
-  return `${API}/candidates/?api_key=${encodeURIComponent(key)}`
+  return `${API}/candidates/search/?api_key=${encodeURIComponent(key)}`
        + `&state=${encodeURIComponent(String(state).toUpperCase())}`
        + `&office=${encodeURIComponent(String(office).toUpperCase())}`
        + `&election_year=${encodeURIComponent(cycle)}`
        + `&per_page=100&page=${page}&sort=district`;
+}
+
+/** Fallback when the roster carries no committee: ask for the candidate's own. */
+function candidateCommitteesUrl(candidateId, cycle, key) {
+  return `${API}/candidate/${encodeURIComponent(candidateId)}/committees/`
+       + `?api_key=${encodeURIComponent(key)}&cycle=${encodeURIComponent(cycle)}`
+       + '&designation=P&per_page=10';
+}
+
+function parseCandidateCommittees(json) {
+  return (json.results || [])
+    .map((r) => ({
+      committee_id: r.committee_id || '',
+      name: r.name || '',
+      last_file_date: r.last_file_date || '',
+    }))
+    .filter((c) => c.committee_id)
+    .sort((a, b) => String(b.last_file_date).localeCompare(String(a.last_file_date)));
+}
+
+/** Is this row a sitting member rather than someone who filed to run? */
+function isIncumbent(c) {
+  return /incumbent/i.test(String(c.incumbent || ''));
 }
 
 /**
@@ -208,7 +241,8 @@ function summarise(rows) {
  * members at two calls each is a minute of silence otherwise.
  */
 async function sweep(fetchJson, { state, offices = ['S', 'H'], cycle, key,
-                                  pace = 0, onStep = null }) {
+                                  pace = 0, onStep = null,
+                                  incumbentsOnly = true }) {
   const candidates = [];
   for (const office of offices) {
     for (let page = 1; page <= 5; page++) {
@@ -222,22 +256,48 @@ async function sweep(fetchJson, { state, offices = ['S', 'H'], cycle, key,
     }
   }
 
+  // "My legislators" means the people holding the seats. A cycle roster is
+  // everyone who filed — 115 for one state, most of them paper candidates —
+  // and burying seventeen members in that is the same failure as sorting a
+  // state's Senate history by who filed most recently.
+  const all = candidates.length;
+  const filtered = incumbentsOnly ? candidates.filter(isIncumbent) : candidates;
+  const excluded = all - filtered.length;
+
   const rows = [];
-  for (let i = 0; i < candidates.length; i++) {
-    const c = candidates[i];
+  for (let i = 0; i < filtered.length; i++) {
+    const c = filtered[i];
     let totals = null;
+    // The roster usually names the committee. When it does not, ask — rather
+    // than reporting a sitting member as having filed nothing.
+    if (!c.committee_id) {
+      try {
+        const cj = await fetchJson(candidateCommitteesUrl(c.candidate_id, cycle, key));
+        const found = parseCandidateCommittees(cj);
+        if (found.length) {
+          c.committee_id = found[0].committee_id;
+          c.committee_name = found[0].name;
+          c.committee_source = 'candidate lookup';
+        }
+      } catch { /* leave it empty and report it as empty */ }
+      if (pace) await new Promise((r) => setTimeout(r, pace));
+    }
     if (c.committee_id) {
       const json = await fetchJson(totalsUrl(c.committee_id, cycle, key));
       totals = parseTotals(json);
     }
     rows.push({ candidate: c, totals, audit: auditMember(totals) });
-    if (onStep) onStep('totals', c.name, i + 1, candidates.length);
+    if (onStep) onStep('totals', c.name, i + 1, filtered.length);
     if (pace) await new Promise((r) => setTimeout(r, pace));
   }
-  return { rows: rank(rows), summary: summarise(rows) };
+  const summary = summarise(rows);
+  summary.roster_size = all;
+  summary.excluded_non_incumbent = excluded;
+  return { rows: rank(rows), summary };
 }
 
 module.exports = {
   API, OFFICES, candidatesUrl, parseCandidates, totalsUrl, parseTotals,
+  candidateCommitteesUrl, parseCandidateCommittees, isIncumbent,
   auditMember, rank, summarise, sweep, pct,
 };

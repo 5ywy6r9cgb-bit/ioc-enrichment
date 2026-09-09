@@ -182,10 +182,79 @@ async function run() {
   eq('the delegation summary is computed', out.summary.members, 2);
   check('progress is reported for the roster and for each member',
     steps.includes('candidates') && steps.includes('totals'));
-  eq('a member with no committee costs no totals call',
+  // a candidate the fallback also cannot place stays empty rather than guessed.
+  // incumbentsOnly is off here because this fixture has no incumbency field —
+  // with the default on it would be filtered out and the row would not exist,
+  // which is a different thing than having no committee.
+  eq('a member no lookup can place is reported empty, not invented',
     (await D.sweep(async () => ({ results: [{ candidate_id: 'H1', name: 'X',
       principal_committees: [] }], pagination: { pages: 1 } }),
-      { state: 'OH', offices: ['H'], cycle: 2026, key: 'K' })).rows[0].totals, null);
+      { state: 'OH', offices: ['H'], cycle: 2026, key: 'K',
+        incumbentsOnly: false })).rows[0].totals, null);
+
+  // --- the endpoint that killed the first live run.
+  // /candidates/ and /candidates/search/ look interchangeable; only the
+  // second returns principal_committees. Against the first, every one of
+  // 115 Ohio candidates resolved to an empty committee and the sweep
+  // reported "no committee totals filed" for an entire delegation.
+  check('the roster comes from the SEARCH endpoint',
+    D.candidatesUrl('OH', 'H', 2026, 'K').includes('/candidates/search/'));
+
+  // --- and when the roster still names no committee, ask
+  check('the fallback asks for the candidate\'s own committees',
+    D.candidateCommitteesUrl('H0OH01', 2026, 'K').includes('/candidate/H0OH01/committees/'));
+  check('and asks only for principal ones',
+    D.candidateCommitteesUrl('H0OH01', 2026, 'K').includes('designation=P'));
+  const fb = D.parseCandidateCommittees({ results: [
+    { committee_id: 'C1', name: 'OLD', last_file_date: '2014-01-01' },
+    { committee_id: 'C2', name: 'NEW', last_file_date: '2026-07-31' },
+    { name: 'NO ID' },
+  ] });
+  eq('the live committee wins the fallback too', fb[0].committee_id, 'C2');
+  eq('and an id-less row is dropped', fb.length, 2);
+
+  let fellBack = 0;
+  const noPc = async (url) => {
+    if (/\/candidates\/search\//.test(url)) {
+      return { results: [{ candidate_id: 'H0OH01', name: 'SITTING MEMBER',
+        office: 'H', state: 'OH', district: '03',
+        incumbent_challenge_full: 'Incumbent' }], pagination: { pages: 1 } };
+    }
+    if (/\/committees\//.test(url)) {
+      fellBack += 1;
+      return { results: [{ committee_id: 'C9', name: 'CMTE', last_file_date: '2026-07-31' }] };
+    }
+    return { results: [{ receipts: 100, individual_contributions: 40,
+      other_political_committee_contributions: 60 }] };
+  };
+  const rescued = await D.sweep(noPc, { state: 'OH', offices: ['H'], cycle: 2026, key: 'K' });
+  eq('a member with no committee in the roster is looked up', fellBack, 1);
+  check('and their money is found rather than reported missing',
+    rescued.rows[0].totals !== null);
+  eq('with the share computed', rescued.rows[0].audit.pac_share_of_contributed, 60);
+
+  // --- "my legislators" is the incumbents, not the 115-name cycle roster
+  const roster = async (url) => {
+    if (/\/candidates\/search\//.test(url)) {
+      return { results: [
+        { candidate_id: 'H1', name: 'SITTING', office: 'H', state: 'OH', district: '03',
+          incumbent_challenge_full: 'Incumbent',
+          principal_committees: [{ committee_id: 'C1', last_file_date: '2026-07-31' }] },
+        { candidate_id: 'H2', name: 'PAPER CANDIDATE', office: 'H', state: 'OH',
+          district: '03', incumbent_challenge_full: 'Challenger',
+          principal_committees: [{ committee_id: 'C2', last_file_date: '2026-07-31' }] },
+      ], pagination: { pages: 1 } };
+    }
+    return { results: [{ receipts: 10, individual_contributions: 10 }] };
+  };
+  const inc = await D.sweep(roster, { state: 'OH', offices: ['H'], cycle: 2026, key: 'K' });
+  eq('only sitting members are swept by default', inc.rows.length, 1);
+  eq('and the roster size is still reported', inc.summary.roster_size, 2);
+  eq('with the number left out', inc.summary.excluded_non_incumbent, 1);
+  const everyone = await D.sweep(roster, { state: 'OH', offices: ['H'], cycle: 2026,
+    key: 'K', incumbentsOnly: false });
+  eq('--all includes challengers', everyone.rows.length, 2);
+  eq('and excludes nobody', everyone.summary.excluded_non_incumbent, 0);
 
   console.log(`\n  ${fails ? 'FAIL' : 'PASS'} — ${ran - fails}/${ran} checks\n`);
   return fails ? 1 : 0;

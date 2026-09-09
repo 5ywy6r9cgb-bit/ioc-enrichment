@@ -937,6 +937,7 @@ async function cmdDelegation(state, opts = {}) {
     + opts.offices.map((o) => D.OFFICES[o]).join(' + '));
   const out = await D.sweep(fetchJson, {
     state, offices: opts.offices, cycle, key, pace: 350,
+    incumbentsOnly: opts.incumbentsOnly !== false,
     onStep: (kind, a, b, c) => {
       if (kind === 'candidates') process.stdout.write(`\r    roster ${D.OFFICES[a]} · ${b} candidate(s)      `);
       else process.stdout.write(`\r    totals ${String(b).padStart(3)}/${c} · ${String(a).slice(0, 34).padEnd(34)}`);
@@ -973,6 +974,10 @@ async function cmdDelegation(state, opts = {}) {
   console.log('');
   console.log(`  ${C.b('DELEGATION')}  ${s.with_totals} of ${s.members} with totals filed`
     + (s.missing_totals ? C.dim(`  · ${s.missing_totals} without`) : ''));
+  if (s.excluded_non_incumbent) {
+    console.log(C.dim(`    ${s.excluded_non_incumbent} non-incumbent candidate(s) on the `
+      + `${s.roster_size}-name cycle roster were left out — add --all for everyone.`));
+  }
   console.log(`    raised        ${money(s.receipts)}`);
   console.log(`    spent         ${money(s.disbursements)}`);
   console.log(`    from PACs     ${money(s.pac_contributions)}`
@@ -1819,7 +1824,7 @@ async function main() {
     const state = (args[1] || '').toUpperCase();
     const cycle = flagNum(argv, '--cycle');
     if (!/^[A-Z]{2}$/.test(state)) {
-      console.error('\n  usage: sentinel connect delegation OH [--cycle 2026] [--house] [--senate]');
+      console.error('\n  usage: sentinel connect delegation OH [--cycle 2026] [--house] [--senate] [--all]');
       console.error('  Sweeps every federal candidate for that state and audits their money.\n');
       process.exit(2);
     }
@@ -1829,6 +1834,7 @@ async function main() {
     return cmdDelegation(state, {
       cycle, offices: offices.length ? offices : ['S', 'H'],
       csv: flagVal(argv, '--csv'), dryRun: opts.dryRun,
+      incumbentsOnly: !argv.includes('--all'),
     });
   }
   if (action === 'fecpac') {
