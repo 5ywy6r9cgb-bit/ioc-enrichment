@@ -974,6 +974,17 @@ async function cmdDelegation(state, opts = {}) {
   console.log('');
   console.log(`  ${C.b('DELEGATION')}  ${s.with_totals} of ${s.members} with totals filed`
     + (s.missing_totals ? C.dim(`  · ${s.missing_totals} without`) : ''));
+  // election_year is who is ON THE BALLOT, not who holds the seat. A senator
+  // mid-term does not appear in it at all — Ohio's 2026 sweep returns one
+  // senator, not two, and a table headed "delegation" that is missing a
+  // sitting member is wrong in the way nobody checks.
+  const senators = out.rows.filter((r) => r.candidate.office === 'S').length;
+  if (opts.offices.includes('S') && senators < 2) {
+    console.log(C.y(`    ${senators} senator(s) here, not 2. election_year `
+      + `${cycle} is who is ON THE BALLOT — a senator mid-term is not, and is`));
+    console.log(C.y('    missing from this table. Check the other class with '
+      + 'its own election year.'));
+  }
   if (s.excluded_non_incumbent) {
     console.log(C.dim(`    ${s.excluded_non_incumbent} non-incumbent candidate(s) on the `
       + `${s.roster_size}-name cycle roster were left out — add --all for everyone.`));
