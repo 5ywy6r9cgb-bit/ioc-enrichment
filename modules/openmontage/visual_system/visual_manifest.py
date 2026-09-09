@@ -48,6 +48,7 @@ USAGE
     python3 visual_manifest.py ~/Pictures/TSR --check-only
     python3 visual_manifest.py ~/Pictures/TSR --threshold 8
     python3 visual_manifest.py ~/Pictures/TSR --approved
+    python3 visual_manifest.py --find          # where are my photos?
     python3 visual_manifest.py --self-test
 
 Requires: pillow, imagehash, piexif  (piexif is optional — GPS is skipped
@@ -516,6 +517,88 @@ def print_approved(m: dict) -> None:
               f"{r['relative_path']}")
 
 
+# ------------------------------------------------------------------ discovery
+# Where a Mac actually keeps photographs. Scanned only to REPORT what is there
+# — nothing is read, hashed, or written during a --find.
+SEARCH_ROOTS = ["~/Pictures", "~/Desktop", "~/Documents", "~/Downloads",
+                "~/Movies", "/Volumes"]
+SKIP_DIRS = {"node_modules", "venv", ".git", "Library", "Caches",
+             "com.apple.mediaanalysisd", "resources", "private"}
+
+
+def find_libraries(min_images: int = 5, max_depth: int = 4) -> list[tuple[int, Path]]:
+    """Report folders that hold photographs, biggest first.
+
+    Apple Photos libraries are reported but never descended into. A
+    `.photoslibrary` is a package holding a database and re-encoded
+    derivatives, and scanning inside it gives you thousands of thumbnails
+    instead of your originals — which is exactly the DERIVATIVE problem the
+    media intake tool warns about. Export from Photos first:
+    File > Export > Export Unmodified Original.
+    """
+    found: dict[Path, int] = {}
+    packages: list[Path] = []
+    for root in SEARCH_ROOTS:
+        base = Path(root).expanduser()
+        if not base.is_dir():
+            continue
+        for dirpath, dirnames, filenames in os.walk(base):
+            here = Path(dirpath)
+            try:
+                depth = len(here.relative_to(base).parts)
+            except ValueError:
+                continue
+            if depth >= max_depth:
+                dirnames[:] = []
+            # do not descend into packages or noise
+            keep = []
+            for d in dirnames:
+                if d.startswith(".") or d in SKIP_DIRS:
+                    continue
+                if d.endswith((".photoslibrary", ".photolibrary", ".aplibrary")):
+                    packages.append(here / d)
+                    continue
+                keep.append(d)
+            dirnames[:] = keep
+            n = sum(1 for f in filenames
+                    if not f.startswith(".")
+                    and Path(f).suffix.lower() in SUPPORTED)
+            if n >= min_images:
+                found[here] = n
+    for pkg in packages:
+        found[pkg] = -1                       # marked, not counted
+    return sorted(found.items(), key=lambda kv: (-kv[1], str(kv[0])))
+
+
+def print_found(rows) -> None:
+    print()
+    if not rows:
+        print("  No folders with photographs found under:")
+        for r in SEARCH_ROOTS:
+            print(f"    {r}")
+        print()
+        print("  If your photos are on an external drive, plug it in and")
+        print("  run this again — /Volumes is searched.")
+        print()
+        return
+    print("  FOLDERS HOLDING PHOTOGRAPHS")
+    print()
+    for path, n in rows:
+        if n < 0:
+            print(f"      pkg  {path}")
+            print(f"           ^ Apple Photos library — do NOT scan this.")
+            print(f"             Photos > File > Export > Export Unmodified")
+            print(f"             Original, into a normal folder, then scan that.")
+        else:
+            print(f"    {n:>5}  {path}")
+    print()
+    print("  Point the inventory at whichever one is your working library:")
+    real = next((p for p, n in rows if n > 0), None)
+    if real:
+        print(f'    python3 {Path(__file__).name} "{real}"')
+    print()
+
+
 # --------------------------------------------------------------- self-test
 def self_test() -> int:
     import tempfile as tf
@@ -616,6 +699,39 @@ def self_test() -> int:
         check("--check-only writes nothing",
               (root / MANIFEST_NAME).read_bytes() == before)
 
+        # --- discovery: find the library without reading anything in it
+        # Patch the RUNNING module's globals. `import visual_manifest` here
+        # would create a second module object (this file is __main__ when run
+        # directly), and patching that copy would leave find_libraries reading
+        # the original list.
+        g = globals()
+        saved = g["SEARCH_ROOTS"][:]
+        try:
+            (root / "sub" / "deeper").mkdir(parents=True)
+            for i in range(6):
+                Image.new("RGB", (40, 40), (i * 30, 80, 110)).save(
+                    root / "sub" / "deeper" / f"p{i}.jpg")
+            (root / "My Photos.photoslibrary" / "originals").mkdir(parents=True)
+            for i in range(20):
+                Image.new("RGB", (20, 20), (5, 5, 5)).save(
+                    root / "My Photos.photoslibrary" / "originals" / f"t{i}.jpg")
+            (root / "node_modules" / "x").mkdir(parents=True)
+            for i in range(9):
+                Image.new("RGB", (20, 20), (5, 5, 5)).save(
+                    root / "node_modules" / "x" / f"n{i}.png")
+
+            g["SEARCH_ROOTS"] = [str(root)]
+            rows = find_libraries()
+            names = {pp.name: n for pp, n in rows}
+            check("--find reports a folder of photographs",
+                  names.get("deeper") == 6)
+            check("--find flags an Apple Photos library instead of scanning it",
+                  names.get("My Photos.photoslibrary") == -1)
+            check("--find skips node_modules",
+                  not any("node_modules" in str(pp) for pp, _ in rows))
+        finally:
+            g["SEARCH_ROOTS"] = saved
+
         # --- a malformed overrides file fails loudly rather than being ignored
         (root / OVERRIDES_NAME).write_text('{"version":1,"visuals":{"x":{}}}')
         try:
@@ -642,11 +758,16 @@ def main() -> int:
                     help="report, write nothing")
     ap.add_argument("--approved", action="store_true",
                     help="list images cleared for use, one per line")
+    ap.add_argument("--find", action="store_true",
+                    help="locate folders on this machine that hold photographs")
     ap.add_argument("--self-test", action="store_true")
     a = ap.parse_args()
 
     if a.self_test:
         return self_test()
+    if a.find:
+        print_found(find_libraries())
+        return 0
     if not a.library:
         ap.print_help()
         return 2

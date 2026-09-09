@@ -223,11 +223,32 @@ A photo scene:
 
 ## 7. The photo library
 
-Before photographs go anywhere near an episode, inventory them:
+First, find where your photographs actually are:
 
 ```bash
 cd ~/sentinel
-python3 modules/openmontage/visual_system/visual_manifest.py ~/Pictures/TSR
+python3 modules/openmontage/visual_system/visual_manifest.py --find
+```
+
+It searches `~/Pictures`, `~/Desktop`, `~/Documents`, `~/Downloads`, `~/Movies`
+and `/Volumes` (plug an external drive in first if that is where they live) and
+lists every folder holding photographs, biggest first. It reads nothing and
+writes nothing.
+
+**An Apple Photos library is flagged, never scanned.** A `.photoslibrary` is a
+package holding a database and re-encoded derivatives — scanning inside it
+gives you thousands of thumbnails instead of your originals, which is exactly
+the DERIVATIVE problem the media intake tool warns about. Export first:
+
+> Photos → select → File → Export → **Export Unmodified Original**
+
+"Export Movie" and plain "Export" re-encode and strip metadata. Always
+Unmodified Original for anything evidentiary.
+
+Then inventory the folder it names:
+
+```bash
+python3 modules/openmontage/visual_system/visual_manifest.py "/path/it/printed"
 ```
 
 It writes two files next to your photos:
