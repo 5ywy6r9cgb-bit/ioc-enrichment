@@ -901,6 +901,183 @@ function subjectFrom(positional, argv, flagNames) {
  * from political committees rather than from people is the number this
  * exists for, and it only means anything with the whole delegation beside it.
  */
+/**
+ * connect member — one politician, and every direction money moves.
+ *
+ * Money TO them, money FOR them, money AGAINST them: three flows aimed at one
+ * person, reported separately everywhere else and never reconciled. The facts
+ * live in the relationships between them.
+ */
+async function cmdMember(name, opts = {}) {
+  const M = require('./member.js');
+  const env = R.loadEnv();
+  const key = R.resolveKey(R.CONNECTORS.fec, env);
+  if (!key) {
+    console.error(`\n  ${C.r('FEC_API_KEY is not set.')}\n`);
+    process.exit(2);
+  }
+  const now = new Date().getFullYear();
+  const cycle = opts.cycle || (now % 2 === 0 ? now : now - 1);
+
+  const fetchJson = async (url) => {
+    let wait = 1500;
+    for (let attempt = 1; attempt <= 4; attempt++) {
+      const res = await R.request('GET', url, {});
+      if (res.status === 200) return JSON.parse(res.body);
+      if (![429, 503, 504].includes(res.status) || attempt === 4) {
+        throw new Error(`FEC returned ${res.status} — ${String(res.body || '').slice(0, 160)}`);
+      }
+      await new Promise((r) => setTimeout(r, wait)); wait *= 2;
+    }
+  };
+
+  // ---- who, exactly. A name is not an identity.
+  let picked = null;
+  if (opts.candidate) {
+    picked = { candidate_id: opts.candidate, name: opts.candidate, committee_id: '' };
+  } else {
+    const matches = M.parseCandidateMatches(
+      await fetchJson(M.candidateSearchUrl(name, key)));
+    if (!matches.length) {
+      console.log(`\n  ${C.y('No candidate of that name is registered with the FEC.')}\n`);
+      return;
+    }
+    if (matches.length > 1 && !opts.candidate) {
+      console.log(`\n  ${C.b('Candidates matching')} "${name}"\n`);
+      for (const m of matches) {
+        console.log(`  ${C.g(m.candidate_id)}  ${m.name}  ${C.dim(`${m.party} · ${m.office} `
+          + `${m.state}${m.district && m.district !== '00' ? '-' + m.district : ''}`
+          + `${m.incumbent ? ' · ' + m.incumbent : ''}`)}`);
+      }
+      console.log(`\n  ${C.b('Nothing was counted.')} ${C.dim('Pick one:')}`);
+      console.log(C.dim(`    sentinel connect member "${name}" --candidate ${matches[0].candidate_id} --cycle ${cycle}`));
+      console.log(C.dim('\n  A name is not an identity. Two people share one and one person'));
+      console.log(C.dim('  files under several spellings; choosing for you would be'));
+      console.log(C.dim('  choosing who the story is about.\n'));
+      return;
+    }
+    picked = matches[0];
+  }
+
+  console.log(`\n  ${C.b(picked.name)}  ${C.dim(picked.candidate_id)}  cycle ${cycle}`);
+  if (opts.dryRun) {
+    console.log(C.dim('\n  DRY RUN — would read Schedule A (committee money in) and'));
+    console.log(C.dim('  Schedule E (spending for and against).\n'));
+    return;
+  }
+
+  const page = (label) => (pg, got, total, cap) => process.stdout.write(
+    `\r    ${label} page ${String(pg).padStart(2)}/${cap} · ${String(total).padStart(5)} rows`);
+
+  let contribsIn = [];
+  let inTrunc = false;
+  if (picked.committee_id) {
+    console.log(C.dim(`  reading Schedule A — committee money into ${picked.committee_name || picked.committee_id} …`));
+    const a = await M.collect(fetchJson,
+      (li, ld) => M.contributionsInUrl(picked.committee_id, cycle, key, li, ld),
+      M.parseContributionsIn, 25, 400, page('in '));
+    process.stdout.write('\n');
+    contribsIn = a.rows; inTrunc = a.truncated;
+  } else {
+    console.log(C.y('  no principal committee on file — money IN cannot be read.'));
+  }
+
+  console.log(C.dim('  reading Schedule E — spending for and against …'));
+  const e = await M.collect(fetchJson,
+    (li, ld) => M.independentUrl(picked.candidate_id, cycle, key, li, ld),
+    M.parseIndependent, 25, 400, page('out'));
+  process.stdout.write('\n');
+
+  const ac = M.clampToCycle(contribsIn, cycle);
+  const ec = M.clampToCycle(e.rows, cycle);
+  const dropped = ac.dropped.length + ec.dropped.length;
+  const orgs = M.byOrganisation(ac.kept, ec.kept);
+  const s = M.summarise(ac.kept, ec.kept, orgs);
+
+  const usd = (n) => (n ? '$' + Math.round(n).toLocaleString('en-US') : '—');
+  console.log('');
+  if (dropped) console.log(C.dim(`  ${dropped} row(s) outside cycle ${cycle} removed here.\n`));
+
+  console.log(`  ${C.g(usd(s.to_them_own))}  TO THEM ${C.dim('— committee contributions into their account')}`);
+  if (s.to_them_forwarded) {
+    console.log(`  ${C.y(usd(s.to_them_forwarded))}  forwarded through conduits `
+      + C.dim(`(${s.to_them_forwarded_rows} row(s)) — individuals' money, not the committees'`));
+  }
+  console.log(`  ${C.b(usd(s.for_them))}  FOR THEM ${C.dim(`— independent, ${s.for_them_rows} expenditure(s). They never received it`)}`);
+  console.log(`  ${C.r(usd(s.against_them))}  AGAINST THEM ${C.dim(`— independent, ${s.against_them_rows} expenditure(s)`)}`);
+  console.log(C.dim(`  ${s._no_grand_total}`));
+
+  console.log('');
+  if (s.contested_ratio === 0) {
+    // Zero is a finding, not a gap: nothing defended them at all.
+    console.log(`  CONTESTED RATIO   ${C.r('0.00')}  `
+      + C.dim('NOTHING was spent for them — every outside dollar attacked'));
+  } else if (s.contested_ratio !== null) {
+    const c = s.contested_ratio;
+    console.log(`  CONTESTED RATIO   ${C.b(c.toFixed(2))}  `
+      + C.dim(c >= 0.8 && c <= 1.25 ? 'a genuinely fought seat — both sides spending'
+        : c < 0.8 ? 'more spent against them than for them'
+          : 'more spent for them than against them'));
+  } else if (s.for_them > 0) {
+    console.log(`  CONTESTED RATIO   ${C.dim('undefined')}  `
+      + C.dim('nobody spent against them — an unopposed seat, not a contested one'));
+  }
+  if (s.outside_pressure !== null) {
+    console.log(`  OUTSIDE PRESSURE  ${C.b(s.outside_pressure.toFixed(2) + 'x')}  `
+      + C.dim(s.outside_pressure > 1
+        ? 'MORE money moved around them than through them — none of it theirs to control'
+        : 'their own account still carried more than outside groups spent'));
+  }
+
+  const rows = orgs.slice(0, 20);
+  if (rows.length) {
+    console.log(`\n  ${C.b('Every organisation touching this seat')} ${C.dim(`(${orgs.length} total, top 20)`)}`);
+    console.log(C.dim('         gave    forwarded          for      against   organisation'));
+    for (const o of rows) {
+      const f = (n) => (n ? Math.round(n).toLocaleString('en-US') : '—');
+      const multi = [o.gave + o.forwarded, o.spent_for, o.spent_against]
+        .filter((v) => v > 0).length > 1;
+      console.log(`  ${String(f(o.gave)).padStart(11)}${String(f(o.forwarded)).padStart(13)}`
+        + `${String(f(o.spent_for)).padStart(13)}${String(f(o.spent_against)).padStart(13)}`
+        + `   ${multi ? C.y('! ') : '  '}${o.name.slice(0, 40)}`);
+    }
+  }
+
+  const both = M.twoColumn(orgs);
+  if (both.length) {
+    console.log(`\n  ${C.y('IN MORE THAN ONE DIRECTION')} — ${both.length} organisation(s)`);
+    console.log(C.dim('  An organisation that gives to a member AND spends against them is'));
+    console.log(C.dim('  a documented fact that wants an explanation. Pull the filings.'));
+  }
+
+  const single = orgs.filter((o) => o.spent_against > 0 && !o.gave && !o.forwarded && !o.spent_for);
+  if (single.length) {
+    console.log(`\n  ${C.dim('Spent ONLY against them, nothing else here:')}`);
+    for (const o of single.slice(0, 8)) {
+      console.log(`    ${usd(o.spent_against).padStart(12)}  ${o.name}`);
+    }
+    console.log(C.dim('  Whether that is a committee\'s whole purpose needs its own pull:'));
+    console.log(C.dim(`    sentinel connect fecpac "NAME" --committee ID --cycle ${cycle}`));
+  }
+
+  if (inTrunc || e.truncated) {
+    console.log(`\n  ${C.y('TRUNCATED')} — a page cap was reached. These are FLOORS.`);
+  }
+  console.log(`\n  ${C.dim('Verify:')} https://www.fec.gov/data/candidate/${picked.candidate_id}/\n`);
+
+  if (opts.csv) {
+    const out = [['organisation', 'committee_id', 'gave', 'forwarded',
+      'spent_for', 'spent_against'].join(',')];
+    for (const o of orgs) {
+      out.push([JSON.stringify(o.name), o.committee_id, o.gave, o.forwarded,
+        o.spent_for, o.spent_against].join(','));
+    }
+    fs.writeFileSync(opts.csv, out.join('\n') + '\n');
+    console.log(`  ${C.g('csv')}  ${opts.csv}  (${orgs.length} row(s))\n`);
+  }
+}
+
+
 async function cmdDelegation(state, opts = {}) {
   const D = require('./delegation.js');
   const env = R.loadEnv();
@@ -1830,6 +2007,18 @@ async function main() {
       limit: li >= 0 && argv[li + 1] ? parseInt(argv[li + 1], 10) : undefined,
       dryRun: opts.dryRun,
     });
+  }
+  if (action === 'member') {
+    const cycle = flagNum(argv, '--cycle');
+    const cand = flagVal(argv, '--candidate');
+    const q = subjectFrom(args.slice(1), argv, ['--cycle', '--candidate', '--csv']);
+    if (!q && !cand) {
+      console.error('\n  usage: sentinel connect member "NAME" [--cycle 2024]');
+      console.error('  Every direction outside money moves around one politician.\n');
+      process.exit(2);
+    }
+    return cmdMember(q, { cycle, candidate: cand, csv: flagVal(argv, '--csv'),
+      dryRun: opts.dryRun });
   }
   if (action === 'delegation') {
     const state = (args[1] || '').toUpperCase();
