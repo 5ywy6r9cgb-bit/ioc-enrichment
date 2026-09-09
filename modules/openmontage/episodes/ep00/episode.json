@@ -1,0 +1,133 @@
+{
+  "spec_version": "OPENMONTAGE-SPEC/1",
+  "project": "The Sentinel Report",
+  "title": "Episode 00 — We built the newsroom first",
+  "preset": "vertical",
+  "fps": 30,
+  "theme": "sentinel_light",
+  "footer": "THE SENTINEL REPORT · EPISODE 00",
+  "crossfade": 0.5,
+  "_production": [
+    "THE BONES OF THE EPISODE. Render this, drop it into Detail or Captions on",
+    "the phone, and film yourself into the five `question` scenes. Each one",
+    "prints a dim [ your answer, ~Ns ] cue telling you how long you have.",
+    "",
+    "  python3 ../../engine/openmontage.py --spec episode.json --check-safe",
+    "  python3 ../../engine/openmontage.py --spec episode.json --contact-sheet builds/sheet.png",
+    "  python3 ../../engine/openmontage.py --spec episode.json --out builds/ep00.mp4",
+    "",
+    "EVERY CLAIM BELOW IS CHECKABLE AGAINST THIS REPOSITORY. Nothing here",
+    "characterizes anyone or asserts anything about a person. That is on",
+    "purpose: episode 00 is about the method, so the method is the only",
+    "subject. Numbers are re-verified by running `bin/sentinel test`.",
+    "",
+    "Photos are deliberately absent. See ../../docs/SHOTLIST.md — episode 01",
+    "is where the world comes in."
+  ],
+  "scenes": [
+    {
+      "type": "title",
+      "dur": 6.0,
+      "kick": "EPISODE 00",
+      "title": "We built the newsroom first.",
+      "sub": "Before the first story, the machine that has to survive being wrong.",
+      "vo": "Most people start with the story. We started with what makes it trustworthy.",
+      "delivery": "Flat. No lift at the end. This is a statement, not a pitch.",
+      "source_note": "Framing only. No claim about any person."
+    },
+    {
+      "type": "question",
+      "dur": 6.0,
+      "host": "THE RECORD",
+      "question": "Why build the tools before the story?",
+      "answer_cue": "your answer, ~6s",
+      "source_note": "Host scene. Film yourself here."
+    },
+    {
+      "type": "bignum",
+      "dur": 7.0,
+      "kick": "ENFORCED, NOT REMEMBERED",
+      "value": 9,
+      "fmt": "{:,.0f}",
+      "size": 250,
+      "caption": "things this system refuses to do.",
+      "sub": "Each one blocked by a database constraint, a trigger, or a code path — not by remembering to be careful at 2 a.m.",
+      "vo": "Nine refusals. Not policies. Constraints in the database that stop the thing happening.",
+      "delivery": "Slow on the number. Let it sit before the caption lands.",
+      "source_note": "Count of data rows in the 'What it refuses to do' table in README.md."
+    },
+    {
+      "type": "quote",
+      "dur": 10.0,
+      "label": "THE RULE",
+      "label_color": "accent",
+      "exhibit_placeholder": "README.md",
+      "quote": "Custody is not verification.",
+      "source": "Source: README.md — \"The two rules everything else follows\"",
+      "vo": "Holding a document and its hash means you have it. It does not mean anyone has read it.",
+      "delivery": "This is the thesis. Slower than everything around it.",
+      "source_note": "GREEN — verbatim from README.md in this repository."
+    },
+    {
+      "type": "question",
+      "dur": 6.0,
+      "host": "THE RECORD",
+      "question": "What stops you publishing something you can't prove?",
+      "answer_cue": "your answer, ~7s",
+      "source_note": "Host scene. Film yourself here."
+    },
+    {
+      "type": "bignum",
+      "dur": 7.0,
+      "kick": "THE RENDERER THAT MADE THIS VIDEO",
+      "value": 56,
+      "fmt": "{:,.0f}",
+      "size": 250,
+      "caption": "checks run before a frame is drawn.",
+      "sub": "Unknown scene type, missing field, missing asset, a hash that does not match its file — each one fails the build instead of shipping.",
+      "vo": "The engine that made this video checks itself first. It refuses frames it cannot verify.",
+      "delivery": "Matter-of-fact. This is a spec sheet, not a boast.",
+      "source_note": "Printed by `openmontage.py --self-test`. This number moves whenever the engine gains a check — re-run it and update this field before publishing."
+    },
+    {
+      "type": "question",
+      "dur": 6.0,
+      "host": "THE RECORD",
+      "question": "What does that actually protect?",
+      "answer_cue": "your answer, ~7s",
+      "source_note": "Host scene. Film yourself here."
+    },
+    {
+      "type": "title",
+      "dur": 8.0,
+      "xfade": 0.0,
+      "kick": "THE STANDARD",
+      "title": "Documents and dates. No characterization.",
+      "sub": "The record, stated flatly, is harder to argue with than any adjective — and it cannot be used against you later.",
+      "vo": "Facts with citations. No characterization. A flat timeline survives a deposition. An adjective does not.",
+      "delivery": "Hard cut in. Say it once, plainly, and stop.",
+      "source_note": "The writing rule this newsroom holds itself to."
+    },
+    {
+      "type": "question",
+      "dur": 6.0,
+      "host": "THE RECORD",
+      "question": "So what is the first story?",
+      "answer_cue": "your answer, ~8s",
+      "source_note": "Host scene. Film yourself here. This is the hook into episode 01."
+    },
+    {
+      "type": "hash",
+      "dur": 9.0,
+      "kick": "AUDIT US",
+      "title": "Every build carries a receipt.",
+      "hash": "b6f05b11cfda99c7e11bee4bf114b403bde7893719d371f070d00d9600212f4c",
+      "verify_file": "../../example/data/checks.json",
+      "sub": "Spec, data, images and output — all hashed into a manifest beside the video.",
+      "cta": "If the video claims it, the build enforces it.",
+      "vo": "Every render writes a manifest. The spec, every file it read, the video itself. Anyone can check.",
+      "delivery": "Close it out. Land on the last line and let the hash finish typing.",
+      "source_note": "GREEN — the hash is verified against a real file at build time. A mismatch refuses the render."
+    }
+  ]
+}

@@ -54,6 +54,9 @@ REQUIRED = {
     "vchart": ["dur", "data", "caption"],
     "chart":  ["dur", "image", "caption"],
     "hash":   ["dur", "title", "hash", "cta"],
+    "question": ["dur", "question"],
+    "quote":  ["dur", "label", "quote", "source"],
+    "photo":  ["dur", "image", "caption", "source"],
 }
 
 
@@ -362,8 +365,217 @@ def scene_hash(t, s, ctx):
     return img
 
 
+
+def scene_question(t, s, ctx):
+    """The host's question — a documentary chapter break, not a chat bubble.
+
+    This is the scene you film yourself into. It states the question on screen,
+    holds, and then hands the answer to you. `answer_cue` prints a dim
+    production note telling you how long to talk, which is invisible in feel
+    and useful on set. Set it to "" once you know the episode.
+
+    Deliberately stark: near-black, one line of serif in optical centre, and a
+    single breathing marker. Everything that is not the question is removed so
+    the question carries.
+    """
+    bg = brand.mix(ctx.t["ink"], (0, 0, 0), 0.45)      # near-black, not pure black
+    img = Image.new("RGB", (ctx.W, ctx.H), bg)
+    d = ImageDraw.Draw(img)
+    d.rectangle([0, 0, ctx.W, ctx.fs(6)], fill=ctx.t["accent"])   # series continuity
+
+    # eyebrow: who is asking. Establishes that a person is behind the question.
+    who = s.get("host", "THE RECORD")
+    fe = font("mono_b", ctx.fs(28))
+    spaced = "   ".join(list(str(who).upper()))
+    tw = d.textlength(spaced, font=fe)
+    eyebrow_y = ctx.fs(560)
+    d.text(((ctx.W - tw) / 2, eyebrow_y), spaced, font=fe,
+           fill=brand.mix(bg, ctx.t["cyan"], 0.75))
+
+    fq, lines = fit(d, s["question"], "serif_b", ctx.fs(92),
+                    ctx.W - ctx.fs(150), ctx.fs(560))
+    bb = fq.getbbox("Ag")
+    lh = int((bb[3] - bb[1]) * 1.24)
+    qy = eyebrow_y + ctx.fs(90)
+
+    # typewriter across the first 55% of the scene, then hold
+    total_chars = sum(len(l) for l in lines)
+    reveal = ease(min(1.0, t / 0.55)) if t < 0.55 else 1.0
+    shown = int(total_chars * reveal)
+    seen = 0
+    for i, ln in enumerate(lines):
+        if seen >= shown:
+            break
+        take = min(len(ln), shown - seen)
+        seen += len(ln)
+        tw = d.textlength(ln, font=fq)          # centre on the FULL line width
+        d.text(((ctx.W - tw) / 2, qy + i * lh), ln[:take], font=fq,
+               fill=ctx.t["paperwhite"])
+
+    # the only moving thing: a marker that breathes once the question has landed
+    if reveal >= 1.0:
+        import math
+        pulse = 0.5 + 0.5 * math.sin((t - 0.55) * 6.0)
+        mk_w = ctx.fs(90)
+        mk_y = qy + len(lines) * lh + ctx.fs(60)
+        d.rectangle([(ctx.W - mk_w) / 2, mk_y, (ctx.W + mk_w) / 2, mk_y + ctx.fs(8)],
+                    fill=brand.mix(bg, ctx.t["cyan"], 0.35 + 0.55 * pulse))
+
+    cue = s.get("answer_cue", "")
+    if cue:
+        fc = font("mono", ctx.fs(26))
+        txt = f"[ {cue} ]"
+        tw = d.textlength(txt, font=fc)
+        # anchored to the safe box: below that line the platform draws captions
+        d.text(((ctx.W - tw) / 2, ctx.safe["bottom"] - ctx.fs(60)), txt, font=fc,
+               fill=brand.mix(bg, ctx.t["muted"], 0.6))
+    return img
+
+
+def scene_quote(t, s, ctx):
+    """Document exhibit: label chip, serif pull-quote, cyan source line.
+
+    The source line is REQUIRED by the schema and is always the same colour in
+    the same place, so a viewer learns where the receipt lives. A card that
+    states something a document says, without naming the document, does not
+    render.
+    """
+    img = ctx.base_frame()
+    d = ImageDraw.Draw(img)
+
+    plate_h = 0
+    plate_top = ctx.fs(360)
+    if s.get("_doc"):
+        doc = s["_doc"]
+        pw = int(ctx.W * float(s.get("doc_width", 0.52)))
+        ph = int(doc.height * pw / doc.width)
+        ph = min(ph, ctx.fs(int(s.get("doc_max_h", 620))))
+        pw = int(doc.width * ph / doc.height)
+        plate = doc.resize((pw, ph), Image.LANCZOS)
+        px0 = (ctx.W - pw) // 2
+        d.rectangle([px0 - 6, plate_top - 6, px0 + pw + 6, plate_top + ph + 6],
+                    fill=(0, 0, 0))
+        img.paste(plate, (px0, plate_top))
+        plate_h = ph
+    elif s.get("exhibit_placeholder"):
+        # an honest placeholder: a blank plate naming the exhibit, never a
+        # fabricated-looking document
+        pw, ph = int(ctx.W * 0.52), ctx.fs(560)
+        px0 = (ctx.W - pw) // 2
+        d.rectangle([px0, plate_top, px0 + pw, plate_top + ph], fill=ctx.t["paperwhite"])
+        fe = font("serif_b", ctx.fs(44))
+        lab_f, lab_lines = fit(d, s["exhibit_placeholder"], "serif_b", ctx.fs(44),
+                               pw - ctx.fs(40), ph - ctx.fs(40))
+        draw_center(d, lab_lines, lab_f, plate_top + ph // 2 - ctx.fs(22),
+                    (40, 44, 50), ctx.W)
+        plate_h = ph
+
+    # measure first, then place, so the block always lands in the safe box
+    fq_m, lines_m = fit(d, s["quote"], "serif_b", ctx.fs(64),
+                        ctx.W - ctx.fs(140), ctx.fs(400))
+    bb_m = fq_m.getbbox("Ag")
+    lh_m = int((bb_m[3] - bb_m[1]) * 1.28)
+    src_lines = wrap(d, s["source"], font("mono", ctx.fs(30)), ctx.W - ctx.fs(140))
+    block_h = (ctx.fs(74) + ctx.fs(46) + len(lines_m) * lh_m
+               + ctx.fs(28) + len(src_lines) * ctx.fs(40))
+    if plate_h:
+        y = plate_top + plate_h + ctx.fs(70)
+    else:
+        y = max(ctx.fs(460), (ctx.safe["top"] + ctx.safe["bottom"] - block_h) // 2)
+
+    chip = brand.color(ctx.t, s.get("label_color", "accent"))
+    fl = font("sans_b", ctx.fs(38))
+    lab = str(s["label"]).upper()
+    lw = d.textlength(lab, font=fl)
+    pad = ctx.fs(28)
+    d.rounded_rectangle([ctx.fs(70), y, ctx.fs(70) + lw + pad * 2, y + ctx.fs(74)],
+                        radius=ctx.fs(14), fill=chip)
+    d.text((ctx.fs(70) + pad, y + ctx.fs(16)), lab, font=fl,
+           fill=ctx.t["ink"] if s.get("label_color") in ("gold", "cyan")
+           else (255, 255, 255))
+
+    y += ctx.fs(120)
+    for i, ln in enumerate(lines_m):
+        d.text((ctx.fs(70), y + i * lh_m), ln, font=fq_m, fill=ctx.t["ink"])
+    y += len(lines_m) * lh_m + ctx.fs(28)
+
+    fsrc = font("mono", ctx.fs(30))
+    for i, ln in enumerate(src_lines):
+        d.text((ctx.fs(70), y + i * ctx.fs(40)), ln, font=fsrc, fill=ctx.t["cyan"])
+
+    if s.get("scanline", False):
+        ctx.scanline(img, t)
+    return img
+
+
+def scene_photo(t, s, ctx):
+    """A photograph, full bleed, with its credit on its face.
+
+    This is the scene that carries the world into the episode — the building,
+    the camera on the pole, the empty counter at the clerk's office. Three
+    decisions are deliberate:
+
+    COVER, NOT LETTERBOX. The image is scaled to fill and centre-cropped, so a
+    phone photo in any aspect ratio fills a 9:16 frame with no black bars. Shoot
+    however you like; the frame is handled here.
+
+    A SCRIM, NOT A BOX. Text over a photograph needs contrast or it is
+    unreadable on half the shots. A vertical gradient darkens the lower third
+    just enough to hold type, without the graphic-design look of a caption box.
+
+    THE CREDIT IS REQUIRED. `source` is not optional on a photo any more than
+    on a document. Who took it and when — "Photo: M. Rosenburg, 2026-09-08" —
+    is rendered in the same cyan, in the same place, as every other citation in
+    the system. A photograph is evidence, and evidence carries provenance.
+    """
+    src = s["_image"]                                  # preloaded once
+    # cover-fill: scale so both dimensions reach the frame, then centre-crop
+    z = 1.0 + 0.05 * ease(t) if s.get("motion", True) else 1.0
+    scale = max(ctx.W / src.width, ctx.H / src.height) * z
+    nw, nh = max(1, int(src.width * scale)), max(1, int(src.height * scale))
+    img = src.resize((nw, nh), Image.LANCZOS).crop(
+        ((nw - ctx.W) // 2, (nh - ctx.H) // 2,
+         (nw - ctx.W) // 2 + ctx.W, (nh - ctx.H) // 2 + ctx.H))
+
+    # scrim: a gradient over the lower part of the frame so type stays legible
+    scrim_top = int(ctx.H * float(s.get("scrim_from", 0.45)))
+    grad = Image.new("L", (1, ctx.H), 0)
+    for y in range(scrim_top, ctx.H):
+        k = (y - scrim_top) / max(1, ctx.H - scrim_top)
+        grad.putpixel((0, y), int(235 * (k ** 1.35)))
+    mask = grad.resize((ctx.W, ctx.H))
+    img = Image.composite(Image.new("RGB", img.size, (8, 10, 14)), img, mask)
+
+    d = ImageDraw.Draw(img)
+    d.rectangle([0, 0, ctx.W, ctx.fs(10)], fill=ctx.t["accent"])
+    if s.get("kick"):
+        ctx.kicker(d, s["kick"], ctx.fs(360), fill=ctx.t["paperwhite"])
+
+    # measure from the bottom of the safe box upward, so nothing is ever
+    # covered by the platform's caption bar
+    fsrc = font("mono", ctx.fs(28))
+    src_lines = wrap(d, s["source"], fsrc, ctx.W - ctx.fs(140))
+    fc, cap_lines = fit(d, s["caption"], "serif_b", ctx.fs(62),
+                        ctx.W - ctx.fs(140), ctx.fs(360))
+    bbc = fc.getbbox("Ag")
+    lhc = int((bbc[3] - bbc[1]) * 1.24)
+
+    src_h = len(src_lines) * ctx.fs(38)
+    cap_h = len(cap_lines) * lhc
+    src_top = ctx.safe["bottom"] - src_h
+    cap_top = src_top - ctx.fs(34) - cap_h
+
+    for i, ln in enumerate(cap_lines):
+        d.text((ctx.fs(70), cap_top + i * lhc), ln, font=fc, fill=ctx.t["paperwhite"])
+    for i, ln in enumerate(src_lines):
+        d.text((ctx.fs(70), src_top + i * ctx.fs(38)), ln, font=fsrc, fill=ctx.t["cyan"])
+    return img
+
+
 RENDERERS = {"title": scene_title, "bignum": scene_bignum, "vchart": scene_vchart,
-             "chart": scene_chart, "hash": scene_hash}
+             "chart": scene_chart, "hash": scene_hash,
+             "question": scene_question, "quote": scene_quote,
+             "photo": scene_photo}
 
 
 # ----------------------------------------------------------------- spec layer
@@ -447,6 +659,28 @@ def resolve_scene(scene: dict, base: Path, theme: dict, idx: int) -> dict:
         s["_image_path"] = p
         s["_image"] = Image.open(p).convert("RGB")   # loaded ONCE, not per frame
 
+    if st == "photo":
+        ip = (base / s["image"]).resolve()
+        if not ip.is_file():
+            raise SpecError(f"{where}: photo not found: {ip}")
+        s["_image_path"] = ip
+        s["_image"] = Image.open(ip).convert("RGB")     # loaded ONCE, not per frame
+        if not str(s.get("source", "")).strip():
+            raise SpecError(f"{where}: a photo carries its credit — set 'source' to "
+                            "who shot it and when, e.g. \"Photo: M. Rosenburg, "
+                            "2026-09-08\"")
+
+    if st == "quote":
+        if s.get("doc"):
+            dp = (base / s["doc"]).resolve()
+            if not dp.is_file():
+                raise SpecError(f"{where}: document image not found: {dp}")
+            s["_doc_path"] = dp
+            s["_doc"] = Image.open(dp).convert("RGB")     # loaded ONCE, not per frame
+        if not str(s.get("source", "")).strip():
+            raise SpecError(f"{where}: 'source' cannot be empty — every card that "
+                            "states what a document says names that document")
+
     if st == "hash":
         h = str(s["hash"])
         if not re.fullmatch(r"[0-9a-f]{64}", h):
@@ -496,6 +730,16 @@ def preflight(spec_path: Path, out: Path, spec: dict, force: bool) -> tuple[Ctx,
 
 
 # ------------------------------------------------------- safe-zone enforcement
+# Scenes whose IMAGERY is meant to run to all four edges. For these, measuring
+# "everything that is not the background" would measure the photograph itself,
+# which is full bleed on purpose. What must stay inside the safe box is the
+# TYPE, so these are measured by rendering the scene twice — once with its text
+# blanked — and taking the difference.
+FULL_BLEED_SCENES = {"photo"}
+_BLANKABLE = ("kick", "title", "sub", "caption", "quote", "source", "cta",
+              "value", "label", "question", "answer_cue", "host")
+
+
 def safe_zone_report(ctx: Ctx, scenes: list) -> list[str]:
     """Find content placed where the platform's own UI will cover it.
 
@@ -514,10 +758,18 @@ def safe_zone_report(ctx: Ctx, scenes: list) -> list[str]:
     t = 0.999
     for i, s in enumerate(scenes, 1):
         frame = np.array(RENDERERS[s["type"]](t, s, ctx), dtype=np.int16)
-        # measure against the scene's OWN background, so a full-bleed scene
-        # such as `hash` is not read as entirely "content"
-        bg = frame[ctx.H // 2, 2].astype(np.int16)
-        ink = np.abs(frame - bg).sum(axis=2) > 24
+
+        if s["type"] in FULL_BLEED_SCENES:
+            # the difference between the scene and the same scene with no words
+            # in it is exactly the type — which is the thing that gets covered
+            blank = {k: ("" if k in _BLANKABLE else v) for k, v in s.items()}
+            base = np.array(RENDERERS[s["type"]](t, blank, ctx), dtype=np.int16)
+            ink = np.abs(frame - base).sum(axis=2) > 24
+        else:
+            # measure against the scene's OWN background, so a full-bleed scene
+            # such as `hash` is not read as entirely "content"
+            bg = frame[ctx.H // 2, 2].astype(np.int16)
+            ink = np.abs(frame - bg).sum(axis=2) > 24
 
         ink[0:ctx.fs(14), :] = False                          # accent bar
         if ctx.footer:
@@ -558,7 +810,8 @@ def build_manifest(spec_path, spec, scenes, out: Path, ctx, elapsed) -> dict:
     inputs = [{"role": "spec", "path": str(spec_path),
                "sha256": sha256_file(spec_path)}]
     for s in scenes:
-        for role, kk in (("chart_data", "_data_path"), ("chart_image", "_image_path")):
+        for role, kk in (("chart_data", "_data_path"), ("chart_image", "_image_path"),
+                         ("document", "_doc_path")):
             if kk in s:
                 inputs.append({"role": role, "path": str(s[kk]),
                                "sha256": sha256_file(Path(s[kk]))})
@@ -685,6 +938,133 @@ def stills(spec_path: Path, out_png: Path, sheet: bool):
     else:
         imgs[0].save(out_png)
     print(f"-> {out_png}")
+
+
+# ----------------------------------------------------------------- script export
+def tc(sec: float) -> str:
+    m, s_ = divmod(sec, 60)
+    return f"{int(m):02d}:{s_:06.3f}"
+
+
+def srt_tc(sec: float) -> str:
+    h, rem = divmod(sec, 3600)
+    m, s_ = divmod(rem, 60)
+    return f"{int(h):02d}:{int(m):02d}:{int(s_):02d},{int((s_ % 1) * 1000):03d}"
+
+
+def scene_times(scenes):
+    t, out = 0.0, []
+    for s_ in scenes:
+        out.append((t, t + s_["dur"]))
+        t += s_["dur"]
+    return out
+
+
+def export_script(spec_path: Path, out_md: Path, out_srt: Path | None = None) -> dict:
+    """Write the voiceover script, timed to the cut.
+
+    This is the half of the pipeline that faces the person, not the machine.
+    The spec already knows how long every scene runs, so it can tell you
+    whether the line you wrote can actually be said in the time available —
+    per scene, before you are standing in front of a camera discovering it.
+
+    Above WPM_COMFORT the line is flagged with the number of words to cut.
+    On-screen text is printed beside each line so narration COMPLEMENTS the
+    frame instead of reading it aloud, which is the most common way a
+    documentary voiceover goes flat.
+    """
+    spec = load_spec(spec_path)
+    theme = brand.theme(spec.get("theme"))
+    base = spec_path.parent
+    scenes = [resolve_scene(s_, base, theme, i)
+              for i, s_ in enumerate(spec["scenes"])]
+    times = scene_times(scenes)
+    total = sum(s_["dur"] for s_ in scenes)
+
+    L = [f"# {spec.get('title', 'Untitled')} — voiceover script\n\n",
+         f"**{spec.get('project', '')}** · total run {total:.1f}s · "
+         f"{spec.get('preset', 'vertical')} · openmontage {VERSION}\n\n",
+         "Record to these timecodes. On-screen text is listed so the narration "
+         "*complements* the frame rather than reading it aloud.\n\n---\n\n"]
+    warnings, words_total, host_scenes = [], 0, 0
+
+    for i, (s_, (a, b)) in enumerate(zip(scenes, times)):
+        vo = (s_.get("vo") or "").strip()
+        n = len(vo.split())
+        words_total += n
+        wpm = (n / s_["dur"]) * 60 if vo else 0
+        flag = ""
+        if vo and wpm > brand.WPM_COMFORT:
+            over = max(1, int(n - brand.WPM_COMFORT * s_["dur"] / 60))
+            flag = f"  **{wpm:.0f} wpm — too fast, cut ~{over} words**"
+            warnings.append(f"scene {i+1}: {wpm:.0f} wpm")
+        elif vo and wpm < brand.WPM_SPARSE:
+            flag = f"  ({wpm:.0f} wpm — room to slow down)"
+
+        on_screen = []
+        for k in ("kick", "title", "value", "caption", "sub", "question", "quote", "cta"):
+            if s_.get(k) not in (None, ""):
+                on_screen.append(f"{k}: {s_[k]}")
+        if s_["type"] == "hash":
+            on_screen.append(f"hash: {s_['hash'][:16]}… (types on)")
+        if s_.get("source"):
+            on_screen.append(f"source: {s_['source']}")
+
+        L.append(f"## {i+1}. {tc(a)} – {tc(b)}  ·  {s_['dur']:.1f}s  ·  "
+                 f"`{s_['type']}`\n\n")
+        L.append("**ON SCREEN**  \n" + "  \n".join(f"`{x}`" for x in on_screen) + "\n\n")
+
+        if s_["type"] == "question":
+            host_scenes += 1
+            cue = s_.get("answer_cue", "")
+            L.append(f"**YOU ARE ON CAMERA HERE.** The frame asks:\n\n"
+                     f"> {s_['question']}\n\n"
+                     f"Answer it{' — ' + cue if cue else ''}. One take, one thought. "
+                     f"Do not read this one; the whole point is that it is you.\n\n")
+        else:
+            L.append(f"**SAY** ({n} words{flag})\n\n"
+                     f"> {vo or '*(silence — let the visual land)*'}\n\n")
+        if s_.get("delivery"):
+            L.append(f"**DELIVERY** — {s_['delivery']}\n\n")
+        if s_.get("source_note"):
+            L.append(f"**SOURCE** — {s_['source_note']}\n\n")
+        L.append("---\n\n")
+
+    narrated = total - sum(s_["dur"] for s_ in scenes if s_["type"] == "question")
+    avg = (words_total / narrated) * 60 if narrated else 0
+    L.append(f"## Pacing\n\n{words_total} words over {narrated:.1f}s of narrated "
+             f"time = **{avg:.0f} wpm average**. Documentary narration sits at "
+             f"130–150; under 120 reads as deliberate, over 165 reads as rushed.\n\n")
+    L.append(f"{host_scenes} scene(s) are yours on camera, "
+             f"{total - narrated:.1f}s in total.\n\n")
+    L.append("**Over budget:** " + "; ".join(warnings) + "\n\n" if warnings
+             else "Every narrated scene is inside its budget.\n\n")
+    L.append("## Recording notes\n\n"
+             "- One scene per take. Do not try to run it in a single pass.\n"
+             "- Leave 0.5s of silence before and after each line so you can nudge "
+             "sync in the edit.\n"
+             "- The cut lands on the visual; the narration arrives just after it.\n"
+             "- Numbers get slowed down, not emphasised. Let the figure do the work.\n"
+             "- On the question scenes, answer the question on screen. If a take "
+             "needs a second thought, the scene is too short — change `dur` in the "
+             "spec and re-render rather than rushing the answer.\n")
+
+    out_md.parent.mkdir(parents=True, exist_ok=True)
+    out_md.write_text("".join(L), encoding="utf-8")
+
+    if out_srt:
+        S = []
+        for i, (s_, (a, b)) in enumerate(zip(scenes, times), 1):
+            vo = (s_.get("vo") or "").strip()
+            if not vo:
+                continue
+            S.append(f"{i}\n{srt_tc(a + 0.2)} --> {srt_tc(b - 0.2)}\n{vo}\n")
+        out_srt.parent.mkdir(parents=True, exist_ok=True)
+        out_srt.write_text("\n".join(S), encoding="utf-8")
+
+    return {"words": words_total, "wpm": avg, "warnings": warnings,
+            "host_scenes": host_scenes,
+            "md": str(out_md), "srt": str(out_srt) if out_srt else None}
 
 
 # ----------------------------------------------------------------- self-test
@@ -829,6 +1209,122 @@ def self_test() -> int:
         check(f"kicker fits the frame ({int(drawn)}px): '{kt[:28]}'", drawn <= ctxk.W)
     check("an empty kicker draws nothing rather than crashing",
           ctxk.kicker(ImageDraw.Draw(Image.new("RGB", (ctxk.W, 200))), "", 20) == 0)
+
+    # --- question + quote: the two scene types an episode is actually cut from
+    with tempfile.TemporaryDirectory() as td4:
+        b4 = Path(td4)
+
+        def expect4(scene, needle):
+            try:
+                resolve_scene(scene, b4, theme, 0)
+                return False
+            except SpecError as e:
+                return needle in str(e)
+
+        check("question scene requires a question",
+              expect4({"type": "question", "dur": 2}, "missing required field 'question'"))
+        okq = resolve_scene({"type": "question", "dur": 3,
+                             "question": "Who decides where the cameras go?"},
+                            b4, theme, 0)
+        check("question scene validates on dur + question alone",
+              okq["question"].startswith("Who decides"))
+
+        # a claim card must name its document — the rule the brand rests on
+        check("quote scene refuses an empty source line",
+              expect4({"type": "quote", "dur": 2, "label": "L", "quote": "q",
+                       "source": "   "}, "cannot be empty"))
+        check("quote scene catches a missing document image",
+              expect4({"type": "quote", "dur": 2, "label": "L", "quote": "q",
+                       "source": "s", "doc": "nope.png"}, "document image not found"))
+        okv = resolve_scene({"type": "quote", "dur": 2, "label": "THE WARRANT",
+                             "quote": "Injuries: none.",
+                             "source": "Source: Warrant 25GAH-553-WA"}, b4, theme, 0)
+        check("quote scene without a document plate still validates",
+              okv["source"].startswith("Source:"))
+
+    ctxq = Ctx(brand.preset("vertical"), theme, "", False)
+    imgq = scene_question(0.9, {"type": "question", "dur": 3,
+                                "question": "Who decides where the cameras go?",
+                                "host": "THE RECORD",
+                                "answer_cue": "your answer, ~5s"}, ctxq)
+    check("question scene renders a full frame", imgq.size == (ctxq.W, ctxq.H))
+    import numpy as _np
+    check("question frame is near-black, not paper",
+          int(_np.array(imgq)[1900, 10].mean()) < 40)
+
+    imgv = scene_quote(0.9, {"type": "quote", "dur": 3, "label": "THE DOCKET",
+                             "label_color": "gold", "quote": "Costs dismissed.",
+                             "source": "Source: FCMC 2025 CR B 019759",
+                             "exhibit_placeholder": "FCMC DOCKET"}, ctxq)
+    check("quote scene renders a full frame", imgv.size == (ctxq.W, ctxq.H))
+
+    # both new scene types must respect the safe box like every other scene
+    qscenes = [resolve_scene({"type": "question", "dur": 3,
+                              "question": "Who decides where the cameras go?",
+                              "host": "THE RECORD", "answer_cue": "your answer, ~5s"},
+                             Path("."), theme, 0),
+               resolve_scene({"type": "quote", "dur": 3, "label": "THE DOCKET",
+                              "quote": "Costs dismissed.", "source": "Source: FCMC"},
+                             Path("."), theme, 0)]
+    check("question and quote scenes keep content inside the safe box",
+          safe_zone_report(ctxq, qscenes) == [])
+
+    # --- photo: the scene that carries the world in
+    with tempfile.TemporaryDirectory() as td5:
+        b5 = Path(td5)
+        # a wide landscape photo — the hard case for a 9:16 frame
+        Image.new("RGB", (4032, 3024), (90, 110, 130)).save(b5 / "shot.jpg")
+
+        def expect5(scene, needle):
+            try:
+                resolve_scene(scene, b5, theme, 0)
+                return False
+            except SpecError as e:
+                return needle in str(e)
+
+        check("photo scene catches a missing image file",
+              expect5({"type": "photo", "dur": 3, "image": "nope.jpg",
+                       "caption": "c", "source": "Photo: X"}, "photo not found"))
+        check("a photo must carry its credit",
+              expect5({"type": "photo", "dur": 3, "image": "shot.jpg",
+                       "caption": "c", "source": "  "}, "carries its credit"))
+        okp = resolve_scene({"type": "photo", "dur": 4, "image": "shot.jpg",
+                             "kick": "GAHANNA", "caption": "The counter at the clerk's office.",
+                             "source": "Photo: M. Rosenburg, 2026-09-08"}, b5, theme, 0)
+        imgp = scene_photo(0.9, okp, ctxq)
+        check("a 4:3 photo fills the 9:16 frame with no letterbox",
+              imgp.size == (ctxq.W, ctxq.H))
+        arr = _np.array(imgp)
+        check("no black bars down either side",
+              int(arr[ctxq.H // 3, 4].mean()) > 30 and
+              int(arr[ctxq.H // 3, ctxq.W - 5].mean()) > 30)
+        check("the scrim darkens the lower frame so type stays legible",
+              int(arr[int(ctxq.H * 0.95), ctxq.W // 2].mean()) <
+              int(arr[int(ctxq.H * 0.20), ctxq.W // 2].mean()))
+        check("a photo scene keeps caption and credit inside the safe box",
+              safe_zone_report(ctxq, [okp]) == [])
+    with tempfile.TemporaryDirectory() as td6:
+        b6 = Path(td6)
+        (b6 / "s.json").write_text(json.dumps({
+            "title": "T", "preset": "vertical", "scenes": [
+                {"type": "title", "dur": 6, "title": "A", "vo": "four words go here"},
+                {"type": "question", "dur": 5, "question": "Q?",
+                 "answer_cue": "your answer, ~5s"},
+                {"type": "title", "dur": 2, "title": "B",
+                 "vo": " ".join(["word"] * 40)}]}))
+        r = export_script(b6 / "s.json", b6 / "out.md", b6 / "out.srt")
+        md = (b6 / "out.md").read_text()
+        check("script export writes markdown and srt",
+              (b6 / "out.md").is_file() and (b6 / "out.srt").is_file())
+        check("a question scene is marked as YOURS on camera",
+              "YOU ARE ON CAMERA HERE" in md and r["host_scenes"] == 1)
+        check("narration that cannot be said in time is flagged",
+              any("scene 3" in w for w in r["warnings"]))
+        check("wpm excludes the on-camera scenes from narrated time",
+              r["wpm"] > 0)
+        check("srt carries only narrated scenes, not the question",
+              "Q?" not in (b6 / "out.srt").read_text())
+
     print(f"\nSelf-test: {ran - fails}/{ran} behaved correctly.")
     return 1 if fails else 0
 
@@ -843,6 +1339,10 @@ def main():
     ap.add_argument("--contact-sheet", help="write all scenes to one PNG")
     ap.add_argument("--force", action="store_true", help="overwrite without notice")
     ap.add_argument("--verbose", action="store_true", help="show ffmpeg output live")
+    ap.add_argument("--script", help="write the voiceover script markdown here")
+    ap.add_argument("--srt", help="write an SRT caption file here")
+    ap.add_argument("--no-script", action="store_true",
+                    help="skip the automatic script export on render")
     ap.add_argument("--check-safe", action="store_true",
                     help="validate, then exit 3 if any scene breaks the safe zone")
     ap.add_argument("--fonts", action="store_true",
@@ -867,8 +1367,25 @@ def main():
             stills(spec_path, Path(a.contact_sheet), sheet=True)
         elif a.poster:
             stills(spec_path, Path(a.poster), sheet=False)
+        elif a.script or a.srt:
+            r = export_script(spec_path,
+                              Path(a.script) if a.script else out.with_suffix(".script.md"),
+                              Path(a.srt) if a.srt else None)
+            print(f"-> {r['md']}" + (f"\n-> {r['srt']}" if r["srt"] else ""))
+            print(f"   {r['words']} words · {r['wpm']:.0f} wpm · "
+                  f"{r['host_scenes']} scene(s) on camera")
+            for w in r["warnings"]:
+                print(f"   OVER BUDGET {w}")
         else:
             render(spec_path, out, a.force, a.verbose)
+            if not a.no_script:
+                r = export_script(spec_path, out.with_suffix(".script.md"),
+                                  out.with_suffix(".srt"))
+                print(f"-> {r['md']}\n-> {r['srt']}")
+                print(f"   narration {r['words']} words · {r['wpm']:.0f} wpm · "
+                      f"{r['host_scenes']} scene(s) on camera")
+                for w in r["warnings"]:
+                    print(f"   OVER BUDGET {w}")
     except SpecError as e:
         print(f"\nERROR: {e}", file=sys.stderr)
         sys.exit(2)
