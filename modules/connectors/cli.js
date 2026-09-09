@@ -1225,10 +1225,22 @@ async function cmdDelegation(state, opts = {}) {
   });
   process.stdout.write('\n\n');
 
+  // --outside adds the two directions committee totals cannot see: money
+  // spent FOR and AGAINST each seat by committees the member does not control.
+  if (opts.outside) {
+    console.log(C.dim('  reading Schedule E for each seat …'));
+    await D.addOutside(fetchJson, out.rows, { cycle, key, pace: 300,
+      onStep: (k, nm, i, n) => process.stdout.write(
+        `\r    outside ${String(i).padStart(3)}/${n} · ${String(nm).slice(0, 34).padEnd(34)}`) });
+    process.stdout.write('\n\n');
+  }
+
   const money = (n) => (n ? '$' + Math.round(n).toLocaleString('en-US') : '—');
   const share = (n) => (n === null || n === undefined ? '  —  ' : `${String(n.toFixed(1)).padStart(5)}%`);
 
-  console.log(C.dim('   PAC%   from people      raised       spent   cash left   member'));
+  console.log(C.dim(opts.outside
+    ? '   PAC%      raised   spent FOR  spent AGST   ratio   member'
+    : '   PAC%   from people      raised       spent   cash left   member'));
   for (const r of out.rows) {
     const c = r.candidate, a = r.audit;
     if (!r.totals) {
@@ -1239,12 +1251,26 @@ async function cmdDelegation(state, opts = {}) {
     const inc = /incumbent/i.test(c.incumbent) ? C.g('*') : ' ';
     const seat = c.office === 'S' ? 'SEN' : `${c.district || '??'}`.padStart(3, '0');
     const hot = a.pac_share_of_contributed !== null && a.pac_share_of_contributed >= 50;
-    console.log(`  ${hot ? C.y(share(a.pac_share_of_contributed)) : share(a.pac_share_of_contributed)}`
-      + ` ${share(a.individual_share_of_contributed)}`
-      + ` ${money(r.totals.receipts).padStart(12)}`
-      + ` ${money(r.totals.disbursements).padStart(11)}`
-      + ` ${money(r.totals.cash_on_hand).padStart(11)}`
-      + `  ${inc}${seat} ${c.party || '  '} ${c.name}`);
+    const pacCol = hot ? C.y(share(a.pac_share_of_contributed))
+      : share(a.pac_share_of_contributed);
+    if (opts.outside) {
+      const o = r.outside || {};
+      const rat = (o.contested_ratio === null || o.contested_ratio === undefined)
+        ? (o.against_them ? '  —  ' : '  ·  ')
+        : (o.contested_ratio === 0 ? C.r(' 0.00')
+          : String(o.contested_ratio.toFixed(2)).padStart(5));
+      console.log(`  ${pacCol} ${money(r.totals.receipts).padStart(11)}`
+        + ` ${money(o.for_them).padStart(11)}`
+        + ` ${o.against_them ? C.r(money(o.against_them).padStart(11)) : '          —'}`
+        + `   ${rat}   ${inc}${seat} ${c.party || '  '} ${c.name}`);
+    } else {
+      console.log(`  ${pacCol}`
+        + ` ${share(a.individual_share_of_contributed)}`
+        + ` ${money(r.totals.receipts).padStart(12)}`
+        + ` ${money(r.totals.disbursements).padStart(11)}`
+        + ` ${money(r.totals.cash_on_hand).padStart(11)}`
+        + `  ${inc}${seat} ${c.party || '  '} ${c.name}`);
+    }
     for (const f of (a.flags || [])) {
       console.log(C.dim(`         ${f.note}${f.amount ? ' — ' + money(f.amount) : ''}`));
     }
@@ -1276,6 +1302,20 @@ async function cmdDelegation(state, opts = {}) {
       ? `   (${s.pac_share_of_contributed}% of all contributions)` : ''));
   console.log(`    cash on hand  ${money(s.cash_on_hand)}`);
   console.log(C.dim(`    ${s._note}`));
+
+  if (opts.outside) {
+    const contested = out.rows.filter((r) => r.outside && r.outside.against_them > 0);
+    const undefended = contested.filter((r) => r.outside.contested_ratio === 0);
+    console.log('');
+    console.log(`  ${contested.length} of ${out.rows.length} seat(s) had money spent AGAINST them`);
+    if (undefended.length) {
+      console.log(`  ${C.r(String(undefended.length))} of those had NOTHING spent for them  `
+        + C.dim('— attacked and undefended'));
+    }
+    console.log(C.dim('  ratio is for-money over against-money. 0.00 means nothing defended'));
+    console.log(C.dim('  them; a dot means nobody spent against them at all, which is a'));
+    console.log(C.dim('  different seat and not necessarily a safer one.'));
+  }
 
   console.log(`\n  ${C.dim('PAC% is committee money as a share of CONTRIBUTIONS — individuals plus')}`);
   console.log(C.dim('  committees plus party. Not of receipts, which include loans and'));
@@ -2140,7 +2180,8 @@ async function main() {
     const state = (args[1] || '').toUpperCase();
     const cycle = flagNum(argv, '--cycle');
     if (!/^[A-Z]{2}$/.test(state)) {
-      console.error('\n  usage: sentinel connect delegation OH [--cycle 2026] [--house] [--senate] [--all]');
+      console.error('\n  usage: sentinel connect delegation OH [--cycle 2026] [--house] [--senate]');
+      console.error('                                        [--all] [--outside] [--csv FILE]');
       console.error('  Sweeps every federal candidate for that state and audits their money.\n');
       process.exit(2);
     }
@@ -2151,6 +2192,7 @@ async function main() {
       cycle, offices: offices.length ? offices : ['S', 'H'],
       csv: flagVal(argv, '--csv'), dryRun: opts.dryRun,
       incumbentsOnly: !argv.includes('--all'),
+      outside: argv.includes('--outside'),
     });
   }
   if (action === 'fecpac') {

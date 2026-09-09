@@ -260,6 +260,52 @@ async function run() {
   eq('--all includes challengers', everyone.rows.length, 2);
   eq('and excludes nobody', everyone.summary.excluded_non_incumbent, 0);
 
+  // --- outside spending bolted onto a swept roster.
+  // Cheap on purpose: the per-member view reads Schedule A in full, which is
+  // twenty-one pages for one member and four hundred requests for a
+  // delegation. Money IN is already in the totals, so only Schedule E is
+  // fetched here.
+  const swept = [
+    { candidate: { candidate_id: 'H1', name: 'ATTACKED' }, totals: { receipts: 1 }, audit: {} },
+    { candidate: { candidate_id: 'H2', name: 'DEFENDED' }, totals: { receipts: 1 }, audit: {} },
+    { candidate: { candidate_id: 'H3', name: 'UNTOUCHED' }, totals: { receipts: 1 }, audit: {} },
+    { candidate: { candidate_id: '', name: 'NO ID' }, totals: null, audit: null },
+  ];
+  let asked = 0;
+  const outFake = async (url) => {
+    asked += 1;
+    if (/candidate_id=H1/.test(url)) {
+      return { results: [
+        { committee_name: 'A', committee_id: 'CA', expenditure_amount: 90000,
+          support_oppose_indicator: 'O', expenditure_date: '2024-06-01' },
+        { committee_name: 'B', committee_id: 'CB', expenditure_amount: 5000,
+          support_oppose_indicator: 'O', expenditure_date: '2024-07-01' }] };
+    }
+    if (/candidate_id=H2/.test(url)) {
+      return { results: [
+        { committee_name: 'C', committee_id: 'CC', expenditure_amount: 40000,
+          support_oppose_indicator: 'S', expenditure_date: '2024-06-01' },
+        { committee_name: 'D', committee_id: 'CD', expenditure_amount: 40000,
+          support_oppose_indicator: 'O', expenditure_date: '2024-06-02' }] };
+    }
+    return { results: [] };
+  };
+  await D.addOutside(outFake, swept, { cycle: 2024, key: 'K' });
+  eq('a candidate with no id costs no request', asked, 3);
+  eq('opposition spending is summed for the attacked seat',
+    swept[0].outside.against_them, 95000);
+  eq('and nothing is invented in their support column',
+    swept[0].outside.for_them, 0);
+  eq('an attacked seat with no defence rates 0.00, not undefined',
+    swept[0].outside.contested_ratio, 0);
+  eq('a genuinely fought seat rates near 1', swept[1].outside.contested_ratio, 1);
+  eq('a seat nobody spent at has a null ratio, not zero',
+    swept[2].outside.contested_ratio, null);
+  eq('and zero rows rather than a guess', swept[2].outside.rows, 0);
+  eq('committees at a seat are counted distinctly', swept[0].outside.committees, 2);
+  check('a row with no candidate id is left without an outside block',
+    swept[3].outside === undefined);
+
   console.log(`\n  ${fails ? 'FAIL' : 'PASS'} — ${ran - fails}/${ran} checks\n`);
   return fails ? 1 : 0;
 }

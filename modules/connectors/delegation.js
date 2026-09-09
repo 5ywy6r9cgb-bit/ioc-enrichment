@@ -304,7 +304,47 @@ async function sweep(fetchJson, { state, offices = ['S', 'H'], cycle, key,
   return { rows: rank(rows), summary };
 }
 
+/**
+ * Outside spending at each seat, added to a swept roster.
+ *
+ * DELIBERATELY CHEAP. The per-member view reads Schedule A in full — 21
+ * pages for a member with two thousand contribution rows — and seventeen of
+ * those is four hundred requests and several minutes. For a comparison table
+ * the money IN is already in the committee totals, so only Schedule E is
+ * fetched: two or three pages a seat, thirty-odd requests for a delegation.
+ *
+ * Full detail stays in `connect member`. This is the column that lets you
+ * see which seats are contested at all.
+ */
+async function addOutside(fetchJson, rows, { cycle, key, pace = 0, onStep = null }) {
+  const M = require('./member.js');
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i];
+    if (!r.candidate.candidate_id) continue;
+    const e = await M.collect(fetchJson,
+      (li, ld) => M.independentUrl(r.candidate.candidate_id, cycle, key, li, ld),
+      M.parseIndependent, 10, pace);
+    const kept = M.clampToCycle(e.rows, cycle).kept;
+    const sum = (f) => kept.filter(f).reduce((a, x) => a + x.amount, 0);
+    const forThem = sum((x) => x.stance !== 'O');
+    const against = sum((x) => x.stance === 'O');
+    r.outside = {
+      for_them: forThem, against_them: against,
+      rows: kept.length, truncated: e.truncated,
+      // 0.00 is a finding — nothing defended them. null means nobody
+      // attacked them, which is a different seat entirely.
+      contested_ratio: against > 0 ? Math.round((forThem / against) * 100) / 100 : null,
+      // how many committees showed up at this seat at all
+      committees: new Set(kept.map((x) => x.by_committee_id || x.by)).size,
+    };
+    if (onStep) onStep('outside', r.candidate.name, i + 1, rows.length);
+    if (pace) await new Promise((res) => setTimeout(res, pace));
+  }
+  return rows;
+}
+
 module.exports = {
+  addOutside,
   API, OFFICES, candidatesUrl, parseCandidates, totalsUrl, parseTotals,
   candidateCommitteesUrl, parseCandidateCommittees, isIncumbent,
   auditMember, rank, summarise, sweep, pct,
