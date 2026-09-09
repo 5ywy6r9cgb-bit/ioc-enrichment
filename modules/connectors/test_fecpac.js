@@ -177,6 +177,51 @@ async function run() {
   check('with a year, active-only is not also applied',
     !/is_active_candidate/.test(fecUrl('OH/S/2026')));
 
+  // --- the conduit problem, found in live data an hour after shipping.
+  // AIPAC PAC's 2022 Schedule B showed $248,936 to one campaign committee —
+  // fifty times what a PAC may give from its own funds — across 2,482 rows
+  // averaging $842. Those are individuals' earmarked contributions being
+  // forwarded, not the committee's giving, and the column was labelled
+  // "capped, itemised, attributable — the strong material".
+  const conduitRows = [
+    { recipient: 'ELAINE FOR CONGRESS', amount: 248936, date: '2022-05-01' },
+    { recipient: 'SMALL FOR SENATE', amount: 900, date: '2022-05-02' },
+  ];
+  const found = F.auditContributions(conduitRows);
+  check('a recipient above the cap is flagged as a conduit signature',
+    found.some((f) => f.kind === 'over_cap'));
+  eq('and the worst offender is named', found[0].worst[0], 'ELAINE FOR CONGRESS');
+  check('a committee giving within the cap raises nothing',
+    F.auditContributions([{ recipient: 'A', amount: 5000, date: '2022-01-01' },
+                          { recipient: 'B', amount: 2500, date: '2022-01-01' }])
+      .length === 0);
+
+  const many = Array.from({ length: 300 }, (_, i) => (
+    { recipient: `R${i % 40}`, amount: 800, date: '2022-03-01' }));
+  check('an average the size of individual giving is flagged',
+    F.auditContributions(many).some((f) => f.kind === 'small_average'));
+
+  eq('a memo-coded row is not the committee\'s own money',
+    F.isEarmarked({ memo_code: 'X' }), true);
+  eq('memo text naming an earmark counts too',
+    F.isEarmarked({ memo_text: 'EARMARKED FOR CANDIDATE' }), true);
+  eq('an ordinary row is the committee\'s own',
+    F.isEarmarked({ memo_code: '', memo_text: '' }), false);
+  check('memo fields are parsed off the wire at all',
+    'memo_code' in F.parseDisbursements({ results: [{}] })[0]);
+
+  // --- an ignored filter returns everything, successfully.
+  // UDP's 2024 total came back at $236m across for and against, and a row
+  // dated 2025 for a 2026 Senate race sat inside a query for cycle 2024.
+  check('rows outside the requested cycle are reported',
+    F.auditCycle([{ date: '2025-06-01' }, { date: '2024-02-01' }], 2024).count === 1);
+  check('and the offending range is named',
+    F.auditCycle([{ date: '2025-06-01' }], 2024).range[0] === '2025-06-01');
+  eq('a cycle covers its odd year too',
+    F.auditCycle([{ date: '2023-11-01' }, { date: '2024-02-01' }], 2024), null);
+  eq('rows with no date do not raise a false alarm',
+    F.auditCycle([{ date: '' }], 2024), null);
+
   console.log(`\n  ${fails ? 'FAIL' : 'PASS'} — ${ran - fails}/${ran} checks\n`);
   return fails ? 1 : 0;
 }

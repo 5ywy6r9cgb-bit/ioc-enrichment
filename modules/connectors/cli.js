@@ -907,12 +907,22 @@ async function cmdFecPac(name, opts = {}) {
   const cycle = opts.cycle || (new Date().getFullYear() % 2 === 0
     ? new Date().getFullYear() : new Date().getFullYear() - 1);
 
+  // The FEC times out on wide schedule queries and answers 504 with a JSON
+  // body saying so. Crashing on it loses every page already fetched and reads
+  // as a bug in this tool rather than a slow query upstream.
   const fetchJson = async (url) => {
-    const res = await R.request('GET', url, {});
-    if (res.status !== 200) {
-      throw new Error(`FEC returned ${res.status} — ${String(res.body || '').slice(0, 200)}`);
+    let wait = 1500;
+    for (let attempt = 1; attempt <= 4; attempt++) {
+      const res = await R.request('GET', url, {});
+      if (res.status === 200) return JSON.parse(res.body);
+      const retryable = res.status === 504 || res.status === 503 || res.status === 429;
+      if (!retryable || attempt === 4) {
+        throw new Error(`FEC returned ${res.status} — ${String(res.body || '').slice(0, 160)}`);
+      }
+      console.log(C.dim(`    ${res.status} from the FEC — retrying in ${wait / 1000}s (${attempt}/3)`));
+      await new Promise((r) => setTimeout(r, wait));
+      wait *= 2;
     }
-    return JSON.parse(res.body);
   };
 
   // ---- step one: which committee, exactly
@@ -971,14 +981,43 @@ async function cmdFecPac(name, opts = {}) {
     F.parseIndependent, 25, 400);
 
   const t = F.totals(contribs, e.rows);
+  const usd = (n) => n.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
+
+  // Does the total describe what the label says? Ask before printing it.
+  const audit = F.auditContributions(contribs);
+  const cycleB = F.auditCycle(b.rows, cycle);
+  const cycleE = F.auditCycle(e.rows, cycle);
+  const conduit = audit.some((f) => f.kind === 'over_cap' || f.kind === 'small_average');
+
   console.log('');
-  console.log(`  ${C.g(t.contributions_usd.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }))}`
-    + `  in ${t.contributions_rows} DIRECT CONTRIBUTION(S) to other committees`);
-  console.log(C.dim('        capped, itemised, attributable — the strong material'));
+  if (conduit) {
+    console.log(`  ${C.r('READ THIS BEFORE QUOTING THE NUMBER BELOW.')}`);
+    for (const f of audit) {
+      for (const line of wrap(f.note, 68)) console.log(C.y(`    ${line}`));
+    }
+    console.log(C.dim('    A conduit forwards money that individuals earmarked for a named'));
+    console.log(C.dim('    candidate. It is their giving, disclosed under their names, moving'));
+    console.log(C.dim('    through this committee — not the committee giving its own funds.'));
+    console.log(C.dim('    Reported as the organisation\'s donation it is simply false, and'));
+    console.log(C.dim('    it is the most common error made with this exact filing.'));
+    console.log(C.dim(`    Check a row against https://www.fec.gov/data/committee/${picked.committee_id}/`));
+    console.log('');
+  }
+  for (const f of [cycleB, cycleE].filter(Boolean)) {
+    console.log(`  ${C.r('CYCLE FILTER DID NOT APPLY.')}`);
+    for (const line of wrap(f.note, 68)) console.log(C.y(`    ${line}`));
+    console.log('');
+  }
+
+  console.log(`  ${conduit ? C.y(usd(t.contributions_usd)) : C.g(usd(t.contributions_usd))}`
+    + `  moved to other committees, in ${t.contributions_rows} row(s)`);
+  console.log(C.dim(conduit
+    ? '        NOT established as this committee\'s own giving — see above'
+    : '        capped, itemised, attributable — the strong material'));
   console.log('');
-  console.log(`  ${C.y(t.ie_support_usd.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }))}`
+  console.log(`  ${C.y(usd(t.ie_support_usd))}`
     + `  spent FOR candidates, in ${t.ie_support_rows} independent expenditure(s)`);
-  console.log(`  ${C.y(t.ie_oppose_usd.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }))}`
+  console.log(`  ${C.y(usd(t.ie_oppose_usd))}`
     + `  spent AGAINST candidates, in ${t.ie_oppose_rows} independent expenditure(s)`);
   console.log(C.dim('        NOT donations. Uncapped, may not legally be coordinated,'));
   console.log(C.dim('        and money spent against someone is not a gift to anyone.'));

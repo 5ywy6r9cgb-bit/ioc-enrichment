@@ -123,8 +123,109 @@ function parseDisbursements(json) {
     // contribution codes are the ones that mean "gave to a candidate";
     // payroll and rent share this schedule and must not be counted as gifts.
     type: r.disbursement_type || '',
+    // A CONDUIT is not a donor. Some committees collect contributions
+    // EARMARKED by individuals for a named candidate and forward them; the
+    // money is the individual's and the FEC attributes it to the individual.
+    // On the conduit's own Schedule B those pass-throughs sit beside its
+    // treasury spending, and summing the column reports someone else's giving
+    // as the organisation's. memo_code marks entries that are not additive.
+    memo_code: r.memo_code || '',
+    memo_text: r.memo_text || '',
     image: r.image_number || '',
   }));
+}
+
+/**
+ * Money the committee gave from its OWN funds, as distinct from money it
+ * passed through on behalf of named individuals.
+ *
+ * A memo code, or memo text saying EARMARK, means the row is not the
+ * committee's own contribution. Read `earmarked` before quoting a total.
+ */
+function isEarmarked(row) {
+  if (String(row.memo_code || '').trim()) return true;
+  return /earmark/i.test(String(row.memo_text || ''));
+}
+
+// Federal caps, for sanity only — never for arithmetic. A multicandidate PAC
+// may give $5,000 per candidate per election, so a cycle with a primary and a
+// general tops out near $10,000. A committee showing far more than that to one
+// campaign is not breaking the law; it is almost certainly a conduit, and the
+// column has been read as its own giving when it is not.
+const PAC_PER_ELECTION_CAP_USD = 5000;
+const IMPLAUSIBLE_PER_RECIPIENT_USD = PAC_PER_ELECTION_CAP_USD * 4;
+
+/**
+ * Does this total describe what its label says?
+ *
+ * Returns findings, not a boolean, because "this looks like a conduit" is a
+ * thing to say out loud rather than a thing to silently correct.
+ */
+function auditContributions(contribs) {
+  const findings = [];
+  const byName = new Map();
+  for (const c of contribs) {
+    byName.set(c.recipient, (byName.get(c.recipient) || 0) + c.amount);
+  }
+  const over = [...byName.entries()]
+    .filter(([, v]) => v > IMPLAUSIBLE_PER_RECIPIENT_USD)
+    .sort((a, b) => b[1] - a[1]);
+  if (over.length) {
+    findings.push({
+      kind: 'over_cap',
+      count: over.length,
+      worst: over[0],
+      note: `${over.length} recipient(s) show more than $${IMPLAUSIBLE_PER_RECIPIENT_USD.toLocaleString('en-US')} `
+          + `— above what a PAC may give from its own funds in a cycle. `
+          + `That is the signature of a CONDUIT forwarding contributions `
+          + `earmarked by individuals. The money is theirs, not the committee's.`,
+    });
+  }
+  const marked = contribs.filter(isEarmarked).length;
+  if (marked) {
+    findings.push({
+      kind: 'memo_rows',
+      count: marked,
+      note: `${marked} row(s) carry a memo code or earmark text and are not `
+          + `additive with the rest.`,
+    });
+  }
+  const avg = contribs.length
+    ? contribs.reduce((a, c) => a + c.amount, 0) / contribs.length : 0;
+  if (contribs.length > 200 && avg < PAC_PER_ELECTION_CAP_USD / 4) {
+    findings.push({
+      kind: 'small_average',
+      count: contribs.length,
+      note: `average payment $${Math.round(avg).toLocaleString('en-US')} across `
+          + `${contribs.length} rows — the size of individual giving, not of a `
+          + `PAC writing cheques from its treasury.`,
+    });
+  }
+  return findings;
+}
+
+/**
+ * Did the filter you asked for actually apply?
+ *
+ * An API that ignores a parameter it does not support returns everything,
+ * successfully, and the caller cannot tell. `two_year_transaction_period`
+ * covers the odd year and the even year, so any row outside that window means
+ * the cycle filter did not take and the totals cover more than you asked for.
+ */
+function auditCycle(rows, cycle) {
+  const lo = `${Number(cycle) - 1}-01-01`;
+  const hi = `${Number(cycle)}-12-31`;
+  const outside = rows.filter((r) => r.date && (r.date < lo || r.date > hi));
+  if (!outside.length) return null;
+  const dates = outside.map((r) => r.date).sort();
+  return {
+    kind: 'cycle_filter_ignored',
+    count: outside.length,
+    range: [dates[0], dates[dates.length - 1]],
+    note: `${outside.length} of ${rows.length} row(s) fall outside cycle ${cycle} `
+        + `(${dates[0]} to ${dates[dates.length - 1]}). The cycle filter did not `
+        + `apply, so these totals cover more than the cycle asked for.`,
+  };
 }
 
 /** Payments a committee coded as a contribution to another committee. */
@@ -244,6 +345,8 @@ async function collect(fetchJson, buildUrl, parse, cap = 25, pace = 0) {
 
 module.exports = {
   API, committeeSearchUrl, parseCommittees,
+  isEarmarked, auditContributions, auditCycle,
+  PAC_PER_ELECTION_CAP_USD, IMPLAUSIBLE_PER_RECIPIENT_USD,
   disbursementsUrl, parseDisbursements, isContribution, CONTRIBUTION_TYPES,
   independentUrl, parseIndependent,
   byRecipient, totals, collect,
