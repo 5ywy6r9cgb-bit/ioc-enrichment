@@ -106,6 +106,27 @@ wrong — that is a shell redirect into a file literally called `#`. Delete it.
 git pull        # this is the transport. Always.
 ```
 
+### When the pull refuses because you already wrote that file
+
+```
+error: The following untracked working tree files would be overwritten by merge:
+        modules/openmontage/episodes/ep01/episode.json
+```
+
+Git is protecting you. It found a file on your machine that the incoming
+commit also creates, and it will not silently replace your version. **Do not
+delete it** — move it aside, pull, then decide with both in front of you:
+
+```bash
+cd ~/sentinel
+mv modules/openmontage/episodes/ep01/episode.json /tmp/mine_ep01.json
+git pull
+diff /tmp/mine_ep01.json modules/openmontage/episodes/ep01/episode.json
+```
+
+Keep whichever you want, or lift scenes out of yours into the pulled one.
+Nothing is lost, and you looked before choosing.
+
 ---
 
 ## 3. Build Episode 00 (already written)
@@ -314,6 +335,20 @@ Optional on any scene: `kick` (eyebrow), `sub`, `vo` (narration), `delivery`
 Durations that work: `title` 5–8s · `question` 5–7s · `photo` 3.5–5s ·
 `quote` 8–10s · `bignum` 6–7s · `hash` 8–9s.
 
+### Aspect ratio
+
+`"preset"` takes one of three:
+
+| preset | frame | safe box | for |
+|---|---|---|---|
+| `vertical` | 1080×1920 | top 300, bottom 1560 | TikTok, Reels, Shorts — **the default** |
+| `square` | 1080×1080 | top 120, bottom 960 | feed posts |
+| `landscape` | 1920×1080 | top 80, bottom 1000 | YouTube proper |
+
+The type is sized against a 1920px-tall frame, so `landscape` renders every
+line at 56% — correct proportionally, small on a phone. Cut vertical first and
+re-render landscape from the same spec by changing one word.
+
 ---
 
 ## 9. Exit codes
@@ -333,6 +368,8 @@ wrong in the feed.
 | `font missing` | fonts not resolving | `python3 openmontage.py --fonts` |
 | `ffmpeg not found on PATH` | ffmpeg missing | `brew install ffmpeg` |
 | `HASH MISMATCH` | a file changed after you wrote its hash | re-hash, or fix the file |
+| `unknown audio_style '…'` | `audio_style` is one of three names, not a description | use `drone`, `groove` or `cipher` — see §5 |
+| `untracked working tree files would be overwritten` | you wrote a file the pull also creates | move yours aside, pull, diff — see §2 |
 | `photo not found` | path is relative to the spec file | check `assets/` |
 | `a photo carries its credit` | `source` empty on a photo | add who shot it and when |
 | `cannot be empty` on a quote | `source` empty | name the document |

@@ -152,6 +152,23 @@ class Ctx:
     def fs(self, size: int) -> int:
         return max(10, int(size * self.s))
 
+    # ---- brand furniture geometry -------------------------------------
+    # The accent bar and the footer plate are drawn to the frame edges on
+    # purpose and must be excluded when measuring content against the safe
+    # box. Both the drawing and the measuring read these two methods, so
+    # they cannot drift apart. They did: the checker masked `fs(14)` rows
+    # while the bar was drawn to `fs(10)`, and in landscape the `max(10, …)`
+    # floor in fs() collapses BOTH to 10 — leaving the bar's last row
+    # unmasked and reporting every scene as 70px above the safe top.
+    def bar_rows(self) -> int:
+        """Rows the top accent bar occupies. PIL's rectangle draws its end
+        row, so a bar to y=fs(10) is fs(10)+1 rows; +1 more for the seam."""
+        return self.fs(10) + 2
+
+    def footer_top(self) -> int:
+        """First row of the footer plate, or H if there is no footer."""
+        return self.H - self.fs(88) - 2 if self.footer else self.H
+
     def base_frame(self) -> Image.Image:
         img = Image.new("RGB", (self.W, self.H), self.t["paper"])
         d = ImageDraw.Draw(img)
@@ -812,11 +829,10 @@ def safe_zone_report(ctx: Ctx, scenes: list) -> list[str]:
             bg = frame[ctx.H // 2, 2].astype(np.int16)
             ink = np.abs(frame - bg).sum(axis=2) > 24
 
-        ink[0:ctx.fs(14), :] = False                          # accent bar
-        if ctx.footer:
-            ink[ctx.H - ctx.fs(92):, :] = False               # footer plate
+        ink[0:ctx.bar_rows(), :] = False                      # accent bar
+        ink[ctx.footer_top():, :] = False                     # footer plate
         sy = int(ctx.H * (0.08 + 0.84 * t))                   # scanline, this frame
-        ink[max(0, sy - ctx.fs(10)):sy + ctx.fs(10), :] = False
+        ink[max(0, sy - ctx.fs(10) - 6):sy + ctx.fs(10) + 6, :] = False
 
         rows = np.where(ink.any(axis=1))[0]
         if not len(rows):
@@ -1290,6 +1306,22 @@ def self_test() -> int:
           len(safe_zone_report(Ctx(narrow, theme, "", False), placed)) > 0)
     check("narrowing one preset copy does not mutate the brand",
           brand.preset("vertical")["safe"]["top"] == 300)
+
+    # The bug this catches: fs() floors at 10px, so in landscape (scale
+    # 0.5625) the bar drawn to fs(10) and a mask of fs(14) rows were the
+    # same 10 — one row of brand furniture survived and every scene in a
+    # 1920x1080 episode reported "content starts at y=10". The mask now
+    # comes from the same method the bar is drawn from. Every preset, with
+    # and without a footer, because the footer plate has the same shape of
+    # problem at the other end of the frame.
+    for pname in sorted(brand.PRESETS):
+        for foot in ("", "THE SENTINEL REPORT · WE WATCH THE CODE"):
+            cx = Ctx(brand.preset(pname), theme, foot, False)
+            check(f"brand furniture is not read as content ({pname}"
+                  f"{', footer' if foot else ''})",
+                  safe_zone_report(cx, placed) == [])
+            check(f"the accent bar is fully masked ({pname})",
+                  cx.bar_rows() > cx.fs(10))
 
     # A kicker must never run off the frame, however long the text.
     ctxk = Ctx(brand.preset("vertical"), theme, "", False)
