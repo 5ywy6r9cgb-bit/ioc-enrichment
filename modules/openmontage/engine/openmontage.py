@@ -45,6 +45,11 @@ from PIL import Image, ImageDraw, ImageFont
 
 import brand
 
+try:
+    import om_audio
+except ImportError:                       # numpy absent -> silent render
+    om_audio = None
+
 VERSION = "0.3.0"
 SPEC_VERSION = "OPENMONTAGE-SPEC/1"
 
@@ -806,7 +811,8 @@ def render_frame(s, i, nf, ctx, prev_last, xf_frames):
     return img
 
 
-def build_manifest(spec_path, spec, scenes, out: Path, ctx, elapsed) -> dict:
+def build_manifest(spec_path, spec, scenes, out: Path, ctx, elapsed,
+                   audio_note=None) -> dict:
     inputs = [{"role": "spec", "path": str(spec_path),
                "sha256": sha256_file(spec_path)}]
     for s in scenes:
@@ -832,6 +838,7 @@ def build_manifest(spec_path, spec, scenes, out: Path, ctx, elapsed) -> dict:
                   "duration_s": round(sum(s["dur"] for s in scenes), 3),
                   "frames": frames_for(scenes, ctx.FPS)},
         "render_seconds": round(elapsed, 1),
+        "audio": audio_note or "silent",
         "scenes": [{"n": i + 1, "type": s["type"], "dur": s["dur"],
                     "claim": s.get("caption") or s.get("title", "")} for i, s in enumerate(scenes)],
         "inputs": sorted(inputs, key=lambda x: (x["role"], x["path"])),
@@ -846,17 +853,51 @@ def render(spec_path: Path, out: Path, force: bool, verbose: bool) -> dict:
     print(f"openmontage {VERSION} · {len(scenes)} scenes · {total:.1f}s · "
           f"{ctx.W}x{ctx.H} @ {ctx.FPS}fps · {nframes} frames")
 
-    cmd = ["ffmpeg", "-y", "-f", "rawvideo", "-pix_fmt", "rgb24",
-           "-s", f"{ctx.W}x{ctx.H}", "-r", str(ctx.FPS), "-i", "-",
-           "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "20",
-           "-movflags", "+faststart", str(out)]
-    audio = spec.get("audio")
-    if audio:
-        ap = (spec_path.parent / audio).resolve()
+    # ffmpeg requires every input to be declared BEFORE any output option, so
+    # the command is assembled in three parts rather than patched at the tail.
+    video_in = ["ffmpeg", "-y", "-f", "rawvideo", "-pix_fmt", "rgb24",
+                "-s", f"{ctx.W}x{ctx.H}", "-r", str(ctx.FPS), "-i", "-"]
+    encode = ["-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "20",
+              "-movflags", "+faststart"]
+
+    # Audio: either a file you supply, or a bed synthesised from the scene list.
+    # The synthesised bed is generated here, from om_audio.py — nothing is
+    # sampled or licensed, and the wav is hashed into the manifest like every
+    # other input.
+    audio_path, audio_note, audio_vol = None, None, None
+    if spec.get("audio"):
+        ap = (spec_path.parent / spec["audio"]).resolve()
         if not ap.is_file():
             raise SpecError(f"audio file not found: {ap}")
-        cmd = cmd[:-1] + ["-i", str(ap), "-shortest", "-c:a", "aac", "-b:a", "160k",
-                          "-filter:a", f"volume={spec.get('audio_volume', 0.2)}", str(out)]
+        audio_path = ap
+        audio_vol = float(spec.get("audio_volume", 0.2))
+        audio_note = f"supplied file: {ap.name}"
+    elif spec.get("audio_bed", True) and om_audio is not None:
+        try:
+            track = om_audio.build_track(scenes, total,
+                                         float(spec.get("audio_gain", 1.0)),
+                                         bool(spec.get("audio_drone", True)))
+            wav = out.with_suffix(".bed.wav")
+            om_audio.write_wav(wav, track)
+            st = om_audio.analyze(track)
+            audio_path = wav
+            audio_note = (f"generated bed · peak {st['peak_dbfs']} dBFS · "
+                          f"{st['speech_band_energy_pct']}% of energy in the "
+                          f"speech band")
+            print(f"  audio     {audio_note}")
+        except Exception as ex:
+            raise SpecError(f"audio generation failed: {ex}")
+    elif spec.get("audio_bed", True) and om_audio is None:
+        print("  audio     om_audio unavailable (numpy missing) — rendering silent")
+
+    if audio_path:
+        cmd = video_in + ["-i", str(audio_path)] + encode + \
+              ["-c:a", "aac", "-b:a", "192k", "-shortest"]
+        if audio_vol is not None:
+            cmd += ["-filter:a", f"volume={audio_vol}"]
+        cmd += [str(out)]
+    else:
+        cmd = video_in + encode + [str(out)]
     err = None if verbose else subprocess.PIPE
     proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=err)
 
@@ -886,7 +927,8 @@ def render(spec_path: Path, out: Path, force: bool, verbose: bool) -> dict:
         stderr = proc.stderr.read().decode(errors="replace") if proc.stderr else ""
         raise SpecError(f"ffmpeg exited {proc.returncode}.\n" + (stderr[-1500:] or "(run --verbose)"))
 
-    man = build_manifest(spec_path, spec, scenes, out, ctx, time.time() - t0)
+    man = build_manifest(spec_path, spec, scenes, out, ctx, time.time() - t0,
+                         audio_note)
     mp = out.with_suffix(".manifest.json")
     mp.write_text(json.dumps(man, indent=2) + "\n", encoding="utf-8")
     print(f"-> {out}\n-> {mp}")
