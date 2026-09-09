@@ -163,6 +163,19 @@ async function run() {
     /q=Sherrod/.test(fecUrl('Sherrod Brown')) && !/state=/.test(fecUrl('Sherrod Brown')));
   check('an office phrase is NOT silently treated as a filter',
     /q=Ohio/.test(fecUrl('Ohio Senate')));
+  // OH/S returned forty years of write-ins sorted by who filed most recently,
+  // with the incumbent nowhere near the top. A year is what separates "who has
+  // ever run" from "who is running".
+  check('a four-digit part is an election year, not a district',
+    /election_year=2026/.test(fecUrl('OH/S/2026'))
+    && !/district=2026/.test(fecUrl('OH/S/2026')));
+  check('a district and a year can both be given',
+    /district=15/.test(fecUrl('OH/H/15/2026'))
+    && /election_year=2026/.test(fecUrl('OH/H/15/2026')));
+  check('with no year, at least the retired candidates are dropped',
+    /is_active_candidate=true/.test(fecUrl('OH/S')));
+  check('with a year, active-only is not also applied',
+    !/is_active_candidate/.test(fecUrl('OH/S/2026')));
 
   console.log(`\n  ${fails ? 'FAIL' : 'PASS'} — ${ran - fails}/${ran} checks\n`);
   return fails ? 1 : 0;

@@ -532,14 +532,34 @@ const CONNECTORS = {
     // So a query of the shape "OH/S" or "OH/H/15" is translated into the
     // structured filters the endpoint actually has, and anything else is
     // still a name search. A delegation is a filter, not a name.
+    // A state and an office alone returns every person who ever filed for it.
+    // For OH/S that is forty years of write-ins and minor-party candidates
+    // sorted by who filed most recently, so the incumbent is nowhere near the
+    // top and the list reads as noise. An election year is what turns "who
+    // has ever run" into "who is running", so the grammar carries one:
+    //
+    //   OH/S            every Senate filer in Ohio, ever
+    //   OH/S/2026       Ohio Senate, that election
+    //   OH/H/15         Ohio 15th district, ever
+    //   OH/H/15/2026    Ohio 15th, that election
+    //
+    // Four digits is a year and one or two is a district, which is
+    // unambiguous because there is no 2026th congressional district.
     run: (q, key) => {
-      const m = /^([A-Za-z]{2})\s*\/\s*([HSPhsp])(?:\s*\/\s*(\d{1,2}))?$/.exec(String(q).trim());
+      const s = String(q).trim();
+      const m = /^([A-Za-z]{2})\s*\/\s*([HSPhsp])((?:\s*\/\s*\d{1,4})*)$/.exec(s);
       const base = 'https://api.open.fec.gov/v1/candidates/search/'
                  + `?api_key=${encodeURIComponent(key)}`
-                 + '&sort=-first_file_date&per_page=100&is_active_candidate=true';
+                 + '&sort=-first_file_date&per_page=100';
       if (m) {
         let u = base + `&state=${m[1].toUpperCase()}&office=${m[2].toUpperCase()}`;
-        if (m[3]) u += `&district=${m[3].padStart(2, '0')}`;
+        const parts = (m[3] || '').split('/').map((x) => x.trim()).filter(Boolean);
+        for (const part of parts) {
+          if (part.length === 4) u += `&election_year=${part}`;
+          else u += `&district=${part.padStart(2, '0')}`;
+        }
+        // Without a year, at least drop the people who have stopped running.
+        if (!parts.some((x) => x.length === 4)) u += '&is_active_candidate=true';
         return { method: 'GET', url: u, headers: {} };
       }
       return { method: 'GET', url: base + `&q=${encodeURIComponent(q)}`, headers: {} };
