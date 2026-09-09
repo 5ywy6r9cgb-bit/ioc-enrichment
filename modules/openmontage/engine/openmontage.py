@@ -61,12 +61,19 @@ REQUIRED = {
     "hash":   ["dur", "title", "hash", "cta"],
     "question": ["dur", "question"],
     "quote":  ["dur", "label", "quote", "source"],
-    "photo":  ["dur", "image", "caption", "source"],
+    "photo":  ["dur", "image", "caption", "source", "origin"],
 }
 
 
 class SpecError(Exception):
     """Raised for any invalid spec, asset, or data problem. Always fatal, always clear."""
+
+
+# What a photo scene may claim about itself. A generated image is allowed on
+# screen and is ALWAYS labelled — see scene_photo. It may never be presented as
+# a record of a real place or event, which is the one editorial rule the
+# renderer is able to enforce by itself.
+PHOTO_ORIGINS = {"camera", "licensed", "generated"}
 
 
 # ----------------------------------------------------------------- helpers
@@ -553,8 +560,12 @@ def scene_photo(t, s, ctx):
 
     d = ImageDraw.Draw(img)
     d.rectangle([0, 0, ctx.W, ctx.fs(10)], fill=ctx.t["accent"])
+    # the generated-image band occupies the top of the safe zone, so the kicker
+    # moves down to clear it rather than sitting on top of it
+    generated = str(s.get("origin", "")).strip() == "generated"
     if s.get("kick"):
-        ctx.kicker(d, s["kick"], ctx.fs(360), fill=ctx.t["paperwhite"])
+        ctx.kicker(d, s["kick"], ctx.fs(360) + (ctx.fs(70) if generated else 0),
+                   fill=ctx.t["paperwhite"])
 
     # measure from the bottom of the safe box upward, so nothing is ever
     # covered by the platform's caption bar
@@ -574,6 +585,21 @@ def scene_photo(t, s, ctx):
         d.text((ctx.fs(70), cap_top + i * lhc), ln, font=fc, fill=ctx.t["paperwhite"])
     for i, ln in enumerate(src_lines):
         d.text((ctx.fs(70), src_top + i * ctx.fs(38)), ln, font=fsrc, fill=ctx.t["cyan"])
+
+    # A generated image is labelled on the frame, in the accent colour, every
+    # time. Not a spec option — the caller cannot turn this off, because the
+    # whole point is that it survives a careless edit.
+    if generated:
+        fl = font("mono_b", ctx.fs(26))
+        label = "  ILLUSTRATION  ·  GENERATED IMAGE  ·  NOT A PHOTOGRAPH  "
+        tw = d.textlength(label, font=fl)
+        bh = ctx.fs(48)
+        by = ctx.safe["top"]
+        d.rectangle([(ctx.W - tw) / 2 - ctx.fs(6), by,
+                     (ctx.W + tw) / 2 + ctx.fs(6), by + bh],
+                    fill=ctx.t["accent"])
+        d.text(((ctx.W - tw) / 2, by + ctx.fs(12)), label, font=fl,
+               fill=(255, 255, 255))
     return img
 
 
@@ -665,6 +691,16 @@ def resolve_scene(scene: dict, base: Path, theme: dict, idx: int) -> dict:
         s["_image"] = Image.open(p).convert("RGB")   # loaded ONCE, not per frame
 
     if st == "photo":
+        # A photograph must say where it came from. The renderer cannot check
+        # a JPEG's honesty, but it can refuse to draw one that will not say.
+        origin = str(s.get("origin", "")).strip()
+        if origin not in PHOTO_ORIGINS:
+            raise SpecError(
+                f"{where}: 'origin' must be one of {sorted(PHOTO_ORIGINS)}.\n"
+                "    camera     you shot it\n"
+                "    licensed   someone else shot it and you can produce the licence\n"
+                "    generated  a model made it — it will be labelled on the frame\n"
+                "    A photograph with no stated origin does not render.")
         ip = (base / s["image"]).resolve()
         if not ip.is_file():
             raise SpecError(f"{where}: photo not found: {ip}")
@@ -1340,12 +1376,21 @@ def self_test() -> int:
                 return needle in str(e)
 
         check("photo scene catches a missing image file",
-              expect5({"type": "photo", "dur": 3, "image": "nope.jpg",
+              expect5({"type": "photo", "dur": 3, "image": "nope.jpg", "origin": "camera",
                        "caption": "c", "source": "Photo: X"}, "photo not found"))
         check("a photo must carry its credit",
-              expect5({"type": "photo", "dur": 3, "image": "shot.jpg",
+              expect5({"type": "photo", "dur": 3, "image": "shot.jpg", "origin": "camera",
                        "caption": "c", "source": "  "}, "carries its credit"))
+        check("a photo must state where it came from",
+              expect5({"type": "photo", "dur": 3, "image": "shot.jpg",
+                       "caption": "c", "source": "Photo: X"},
+                      "missing required field 'origin'"))
+        check("an invented origin is refused",
+              expect5({"type": "photo", "dur": 3, "image": "shot.jpg",
+                       "origin": "found_online", "caption": "c",
+                       "source": "Photo: X"}, "must be one of"))
         okp = resolve_scene({"type": "photo", "dur": 4, "image": "shot.jpg",
+                             "origin": "camera",
                              "kick": "GAHANNA", "caption": "The counter at the clerk's office.",
                              "source": "Photo: M. Rosenburg, 2026-09-08"}, b5, theme, 0)
         imgp = scene_photo(0.9, okp, ctxq)
@@ -1360,6 +1405,23 @@ def self_test() -> int:
               int(arr[int(ctxq.H * 0.20), ctxq.W // 2].mean()))
         check("a photo scene keeps caption and credit inside the safe box",
               safe_zone_report(ctxq, [okp]) == [])
+
+        # A generated image is labelled on the frame, always. The spec cannot
+        # switch it off — that is the point.
+        gen = resolve_scene({"type": "photo", "dur": 4, "image": "shot.jpg",
+                             "origin": "generated", "caption": "An illustration.",
+                             "source": "Generated: example-model, 2026-09-09"},
+                            b5, theme, 0)
+        img_gen = _np.array(scene_photo(0.9, gen, ctxq), dtype=_np.int16)
+        img_cam = _np.array(scene_photo(0.9, okp, ctxq), dtype=_np.int16)
+        band = img_gen[ctxq.safe["top"]:ctxq.safe["top"] + ctxq.fs(48)]
+        accent = _np.array(theme["accent"], dtype=_np.int16)
+        check("a generated photo is labelled on the frame",
+              bool((_np.abs(band - accent).sum(axis=2) < 40).any()))
+        check("a camera photo carries no such label",
+              not _np.array_equal(img_gen, img_cam))
+        check("the label sits inside the safe zone",
+              safe_zone_report(ctxq, [gen]) == [])
     with tempfile.TemporaryDirectory() as td6:
         b6 = Path(td6)
         (b6 / "s.json").write_text(json.dumps({

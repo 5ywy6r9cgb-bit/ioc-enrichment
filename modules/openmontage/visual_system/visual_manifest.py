@@ -90,6 +90,31 @@ OVERRIDES_NAME = "visual_editorial_overrides.json"
 SUPPORTED = {".jpg", ".jpeg", ".png", ".webp", ".tif", ".tiff", ".heic", ".heif"}
 DEFAULT_THRESHOLD = 5           # Hamming distance over a 64-bit perceptual hash
 REVIEW_STATES = {"unreviewed", "reviewed", "rejected"}
+POLICY_NAME = "visual_policy.json"
+
+# Where an image came from. This is the field that decides what it may be used
+# for, and it is the reason this tool exists rather than a folder of JPEGs.
+#
+#   own_camera      shot by you, on a device this library recognises
+#   own_screenshot  a capture you made of something on your own screen
+#   licensed        someone else's, with a licence you can produce on request
+#   generated       made by a model. NEVER documentary — see below.
+#   third_party     someone else's, no licence recorded
+#   unknown         no attribution at all
+#
+# THE RULE THAT MATTERS: only own_camera, own_screenshot and licensed may be
+# approved for documentary use. A generated image can be approved for
+# ILLUSTRATION only, and the montage engine stamps a visible label on it.
+#
+# This is not squeamishness. The entire claim of this newsroom is that every
+# frame traces to a record. One generated photograph of a real building,
+# presented as a photograph of that building, retires that claim permanently —
+# and it would be discovered, because generated images are detectable and
+# because someone always checks. So the rule is enforced here instead of
+# remembered at 2 a.m.
+ORIGINS = {"own_camera", "own_screenshot", "licensed",
+           "generated", "third_party", "unknown"}
+DOCUMENTARY_ORIGINS = {"own_camera", "own_screenshot", "licensed"}
 
 
 # ---------------------------------------------------------------- utilities
@@ -134,6 +159,52 @@ def visual_id(digest: str) -> str:
     """Stable id derived from content, so renaming a file does not orphan the
     editorial record attached to it."""
     return f"vis_{digest[:24]}"
+
+
+def default_policy() -> dict:
+    return {
+        "version": 1,
+        "_note": ("Devices you own. An image whose EXIF Make/Model matches one "
+                  "of these is classified own_camera automatically. Anything "
+                  "unattributed stays 'unknown' and cannot be approved for "
+                  "documentary use."),
+        "own_devices": [],
+        "_own_devices_example": ["Apple iPhone 15 Pro", "Apple iPhone SE"],
+    }
+
+
+def load_policy(path: Path) -> dict:
+    if not path.exists():
+        return default_policy()
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as e:
+        raise ValueError(f"{path} is not valid JSON: line {e.lineno}, {e.msg}") from e
+    if not isinstance(data.get("own_devices"), list):
+        raise ValueError(f"{path}: 'own_devices' must be a list of device names")
+    return data
+
+
+def classify_origin(exif: dict, override: dict, own_devices: list) -> str:
+    """Decide where an image came from.
+
+    A declared origin in the overrides file always wins — you know things EXIF
+    does not, and licensing in particular can only ever be asserted by a human.
+    Otherwise a device match makes it own_camera, and everything else is
+    unknown until someone says otherwise.
+    """
+    declared = str(override.get("origin", "") or "").strip()
+    if declared in ORIGINS and declared != "unknown":
+        return declared
+    make = str(exif.get("make", "")).strip()
+    model = str(exif.get("model", "")).strip()
+    if make or model:
+        label = f"{make} {model}".strip()
+        for own in own_devices:
+            o = str(own).strip().lower()
+            if o and (o == label.lower() or o in label.lower()):
+                return "own_camera"
+    return "unknown"
 
 
 # --------------------------------------------------------------------- exif
@@ -223,6 +294,11 @@ def default_override(vid: str) -> dict:
         "description": "",
         "location_label": "",
         "credit": "",
+        # blank means "work it out from EXIF". Set it explicitly to declare
+        # something the file cannot tell us — a licence, or a generated image.
+        "origin": "",
+        "license_ref": "",
+        "generation": {},
         "editorial_notes": "",
         "review_status": "unreviewed",
         "reviewed_at": None,
@@ -232,10 +308,17 @@ def default_override(vid: str) -> dict:
     }
 
 
+# fields added after the first release; an older overrides file is upgraded in
+# place rather than rejected
+OPTIONAL_FIELDS = {"origin", "license_ref", "generation"}
+
+
 def validate_override(record, where: str = "override") -> None:
     if not isinstance(record, dict):
         raise ValueError(f"{where}: must be an object")
-    missing = set(default_override("x")) - set(record)
+    for k in OPTIONAL_FIELDS:
+        record.setdefault(k, {} if k == "generation" else "")
+    missing = set(default_override("x")) - set(record) - OPTIONAL_FIELDS
     if missing:
         raise ValueError(f"{where}: missing field(s) {sorted(missing)}")
     for key in ("classification", "tags", "usage"):
@@ -243,6 +326,10 @@ def validate_override(record, where: str = "override") -> None:
             raise ValueError(f"{where}: '{key}' must be a list")
     if not isinstance(record["approved_for_documentary"], bool):
         raise ValueError(f"{where}: 'approved_for_documentary' must be true or false")
+    origin = str(record.get("origin", "") or "")
+    if origin and origin not in ORIGINS:
+        raise ValueError(f"{where}: origin {origin!r} is not one of "
+                         f"{sorted(ORIGINS)}")
     if record["review_status"] not in REVIEW_STATES:
         raise ValueError(f"{where}: review_status {record['review_status']!r} "
                          f"is not one of {sorted(REVIEW_STATES)}")
@@ -381,6 +468,7 @@ def inventory(root: Path, threshold: int = DEFAULT_THRESHOLD,
         raise NotADirectoryError(f"visual library does not exist: {root}")
 
     manifest_path = root / MANIFEST_NAME
+    policy_path = root / POLICY_NAME
     overrides_path = root / OVERRIDES_NAME
 
     previous = load_previous(manifest_path)
@@ -416,8 +504,37 @@ def inventory(root: Path, threshold: int = DEFAULT_THRESHOLD,
     similar = similarity_groups(records, threshold)
     low_detail = sorted(r["relative_path"] for r in records if r["low_detail"])
 
-    approved = sorted(vid for vid, rec in overrides["visuals"].items()
-                      if rec.get("approved_for_documentary") and vid in ids)
+    # --- origin. Stamp each record, then enforce what its origin permits.
+    policy = load_policy(policy_path)
+    own_devices = policy.get("own_devices", [])
+    for r in records:
+        ov = overrides["visuals"].get(r["visual_id"], {})
+        r["origin"] = classify_origin(r["exif"], ov, own_devices)
+        r["documentary_eligible"] = r["origin"] in DOCUMENTARY_ORIGINS
+    origin_of = {r["visual_id"]: r["origin"] for r in records}
+
+    # An approval flag on an image whose origin does not permit documentary use
+    # is REFUSED, not honoured. Ticking the box does not make a generated image
+    # a photograph, and the failure mode this prevents — a model's picture of a
+    # real building going out as a record of that building — is unrecoverable.
+    approved, blocked = [], []
+    for vid, rec in overrides["visuals"].items():
+        if vid not in ids or not rec.get("approved_for_documentary"):
+            continue
+        origin = origin_of.get(vid, "unknown")
+        if origin in DOCUMENTARY_ORIGINS:
+            approved.append(vid)
+        else:
+            blocked.append({"visual_id": vid, "origin": origin,
+                            "reason": ("generated imagery is never documentary"
+                                       if origin == "generated" else
+                                       f"origin '{origin}' carries no attribution")})
+    approved = sorted(approved)
+    blocked = sorted(blocked, key=lambda x: x["visual_id"])
+    illustration_only = sorted(
+        vid for vid, rec in overrides["visuals"].items()
+        if vid in ids and rec.get("approved_for_documentary")
+        and origin_of.get(vid) == "generated")
     reviewed = sum(1 for vid, rec in overrides["visuals"].items()
                    if vid in ids and rec.get("review_status") != "unreviewed")
 
@@ -437,6 +554,8 @@ def inventory(root: Path, threshold: int = DEFAULT_THRESHOLD,
             "orphan_editorial_records": len(orphans),
             "reviewed": reviewed,
             "approved_for_documentary": len(approved),
+            "approval_blocked_by_origin": len(blocked),
+            "unattributed": sum(1 for r in records if r["origin"] == "unknown"),
         },
         "visuals": records,
         "integrity": {
@@ -447,14 +566,21 @@ def inventory(root: Path, threshold: int = DEFAULT_THRESHOLD,
                   "phash": r["phash"]} for r in g] for g in similar],
             "orphan_editorial_records": orphans,
             "low_detail_excluded_from_similarity": low_detail,
+            "approval_blocked_by_origin": blocked,
             "unreadable": errors,
         },
         "approved_for_documentary": approved,
+        "illustration_only": illustration_only,
+        "origin_counts": {o: sum(1 for r in records if r["origin"] == o)
+                          for o in sorted(ORIGINS)
+                          if any(r["origin"] == o for r in records)},
     }
 
     if write:
         atomic_write_json(manifest_path, manifest)
         atomic_write_json(overrides_path, overrides)
+        if not policy_path.exists():
+            atomic_write_json(policy_path, policy)
     manifest["_paths"] = {"manifest": str(manifest_path),
                           "overrides": str(overrides_path), "new_records": added}
     return manifest
@@ -470,6 +596,12 @@ def print_summary(m: dict, check_only: bool) -> None:
     print()
     print(f"  reviewed                {c['reviewed']:>5} / {c['images']}")
     print(f"  approved for use        {c['approved_for_documentary']:>5}")
+    if c.get("unattributed"):
+        print(f"  UNATTRIBUTED            {c['unattributed']:>5}"
+              f"  (cannot be used until origin is declared)")
+    if m.get("origin_counts"):
+        print("  origin                  "
+              + ", ".join(f"{k} {v}" for k, v in m["origin_counts"].items()))
     print(f"  exact duplicate groups  {c['exact_duplicate_groups']:>5}")
     print(f"  near-duplicate groups   {c['similarity_groups']:>5}"
           f"  (pHash <= {m['similarity_engine']['threshold']})")
@@ -487,6 +619,12 @@ def print_summary(m: dict, check_only: bool) -> None:
         print(f"\n  NEAR-DUPLICATE — keep one:")
         for r in grp:
             print(f"    {r['relative_path']}")
+    for blk in m["integrity"].get("approval_blocked_by_origin", [])[:5]:
+        print(f"\n  APPROVAL REFUSED  {blk['visual_id']}")
+        print(f"    origin '{blk['origin']}' — {blk['reason']}")
+        print(f"    It stays out of the approved list until its origin says")
+        print(f"    otherwise. Generated images can be used as ILLUSTRATION")
+        print(f"    only, and the renderer labels them on the frame.")
     for e in m["integrity"]["unreadable"][:5]:
         print(f"\n  UNREADABLE  {e['relative_path']}\n    {e['error']}")
 
@@ -663,6 +801,7 @@ def self_test() -> int:
         vid = sorted(ov["visuals"])[0]
         ov["visuals"][vid].update(review_status="reviewed",
                                   approved_for_documentary=True,
+                                  origin="own_camera",
                                   credit="Photo: M. Rosenburg, 2026-09-08",
                                   description="the counter")
         atomic_write_json(root / OVERRIDES_NAME, ov)
@@ -678,6 +817,53 @@ def self_test() -> int:
         check("discovered_at is carried across rescans",
               {v["sha256"]: v["discovered_at"] for v in m["visuals"]} ==
               {v["sha256"]: v["discovered_at"] for v in m2["visuals"]})
+
+        # --- ORIGIN GATE. The rule the whole newsroom rests on.
+        other = sorted(v for v in ov2["visuals"] if v != vid)[0]
+        ov2["visuals"][other].update(review_status="reviewed",
+                                     approved_for_documentary=True,
+                                     origin="generated",
+                                     generation={"provider": "example",
+                                                 "model": "example-1",
+                                                 "prompt": "a courthouse"})
+        atomic_write_json(root / OVERRIDES_NAME, ov2)
+        mg = inventory(root)
+        check("a GENERATED image is refused documentary approval",
+              other not in mg["approved_for_documentary"])
+        check("the refusal is reported with its reason",
+              any(x["visual_id"] == other and x["origin"] == "generated"
+                  for x in mg["integrity"]["approval_blocked_by_origin"]))
+        check("a generated image is offered as illustration instead",
+              mg["illustration_only"] == [other])
+        check("a camera image is still approved alongside it",
+              vid in mg["approved_for_documentary"])
+
+        # unattributed is not the same as generated, and is also refused
+        third = sorted(v for v in ov2["visuals"] if v not in (vid, other))[0]
+        ov2["visuals"][third].update(review_status="reviewed",
+                                     approved_for_documentary=True)
+        atomic_write_json(root / OVERRIDES_NAME, ov2)
+        mu = inventory(root)
+        check("an UNATTRIBUTED image is refused documentary approval",
+              third not in mu["approved_for_documentary"])
+        check("unattributed images are counted",
+              mu["counts"]["unattributed"] >= 1)
+
+        # a device allowlist promotes matching EXIF to own_camera
+        check("classify_origin matches a device from the policy",
+              classify_origin({"make": "Apple", "model": "iPhone 15 Pro"}, {},
+                              ["Apple iPhone 15 Pro"]) == "own_camera")
+        check("classify_origin leaves an unknown device unattributed",
+              classify_origin({"make": "Canon", "model": "EOS R"}, {},
+                              ["Apple iPhone 15 Pro"]) == "unknown")
+        check("a declared origin overrides EXIF",
+              classify_origin({}, {"origin": "licensed"}, []) == "licensed")
+        check("an invalid origin is refused",
+              _raises_origin())
+
+        # a starter policy file is written so the allowlist is discoverable
+        check("a policy file is created on first run",
+              (root / POLICY_NAME).is_file())
 
         # --- an override for a deleted photo is reported, not silently dropped
         (root / "different.png").unlink()
@@ -743,6 +929,16 @@ def self_test() -> int:
 
     print(f"\nSelf-test: {ran - fails}/{ran} behaved correctly.")
     return 1 if fails else 0
+
+
+def _raises_origin() -> bool:
+    try:
+        rec = default_override("vis_x")
+        rec["origin"] = "borrowed_from_a_friend"
+        validate_override(rec)
+        return False
+    except ValueError as e:
+        return "is not one of" in str(e)
 
 
 # ---------------------------------------------------------------------- cli

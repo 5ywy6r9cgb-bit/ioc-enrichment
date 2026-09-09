@@ -66,8 +66,9 @@ wherever you happen to be:
 ```bash
 cd ~/sentinel/modules/openmontage/engine
 python3 openmontage.py --fonts       # every type role must say "ok"
-python3 openmontage.py --self-test   # 56 checks
+python3 openmontage.py --self-test   # 61 checks
 python3 om_audio.py --self-test      # 41 checks
+python3 ../visual_system/visual_manifest.py --self-test   # 34 checks
 ```
 
 If `--fonts` shows MISSING, install the face it names or add a path you do
@@ -211,13 +212,17 @@ A photo scene:
   "type": "photo",
   "dur": 4.0,
   "image": "assets/2026-09-08_fcmc-exterior_wide.jpg",
+  "origin": "camera",                 // camera | licensed | generated
   "kick": "FRANKLIN COUNTY",
   "caption": "Where the docket is filed.",
   "source": "Photo: M. Rosenburg, 2026-09-08"
 }
 ```
 
-`source` is required and the build refuses without it.
+`source` and `origin` are both required and the build refuses without them.
+`"origin": "generated"` draws an unremovable band across the top of the frame
+reading ILLUSTRATION · GENERATED IMAGE · NOT A PHOTOGRAPH. See
+[`VISUAL_POLICY.md`](VISUAL_POLICY.md).
 
 ---
 
@@ -297,7 +302,7 @@ at. Those are recorded in the manifest and never rendered into a frame.
 | `title` | `dur`, `title` | a claim, stated flatly |
 | `question` | `dur`, `question` | **you, on camera.** Near-black chapter break |
 | `quote` | `dur`, `label`, `quote`, `source` | a document exhibit |
-| `photo` | `dur`, `image`, `caption`, `source` | a photograph, full bleed |
+| `photo` | `dur`, `image`, `caption`, `source`, `origin` | a photograph, full bleed |
 | `bignum` | `dur`, `value`, `caption` | a figure the document produces |
 | `vchart` | `dur`, `data`, `caption` | a line over time |
 | `chart` | `dur`, `image`, `caption` | a chart image |
