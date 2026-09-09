@@ -88,6 +88,14 @@ MANIFEST_NAME = "visual_manifest.json"
 OVERRIDES_NAME = "visual_editorial_overrides.json"
 
 SUPPORTED = {".jpg", ".jpeg", ".png", ".webp", ".tif", ".tiff", ".heic", ".heif"}
+
+# Video is NOT inventoried. It is counted and reported, because a folder that
+# holds 400 clips and says nothing about them reads as "there is no video
+# here", and a silent omission in an evidence tool is the worst kind. Stills
+# and video need different machinery — no PIL, no perceptual hash, metadata
+# via ffprobe rather than EXIF — so until that exists these are named, not
+# quietly skipped.
+VIDEO = {".mov", ".mp4", ".m4v", ".avi", ".mkv", ".hevc", ".mts", ".m2ts", ".webm"}
 DEFAULT_THRESHOLD = 5           # Hamming distance over a 64-bit perceptual hash
 REVIEW_STATES = {"unreviewed", "reviewed", "rejected"}
 POLICY_NAME = "visual_policy.json"
@@ -365,6 +373,13 @@ def collect_images(root: Path) -> list[Path]:
                   and p.suffix.lower() in SUPPORTED)
 
 
+def collect_videos(root: Path) -> list[Path]:
+    """Video files present but not inventoried. Reported, never silently skipped."""
+    return sorted(p for p in root.rglob("*")
+                  if p.is_file() and not p.name.startswith(".")
+                  and p.suffix.lower() in VIDEO)
+
+
 LOW_DETAIL_STDDEV = 12.0        # grayscale standard deviation, 0-255 scale
 
 
@@ -475,6 +490,7 @@ def inventory(root: Path, threshold: int = DEFAULT_THRESHOLD,
     prev_by_sha = {v["sha256"]: v for v in previous.get("visuals", [])
                    if isinstance(v, dict) and isinstance(v.get("sha256"), str)}
 
+    videos = collect_videos(root)
     records, errors = [], []
     for p in collect_images(root):
         try:
@@ -546,6 +562,7 @@ def inventory(root: Path, threshold: int = DEFAULT_THRESHOLD,
                               "distance_metric": "hamming", "threshold": threshold},
         "counts": {
             "images": len(records),
+            "videos_not_inventoried": len(videos),
             "unreadable": len(errors),
             "exact_duplicate_groups": len(exact_dupes),
             "hard_link_groups": len(hard_links),
@@ -593,6 +610,11 @@ def print_summary(m: dict, check_only: bool) -> None:
     print(f"  VISUAL LIBRARY · {m['root']}")
     print(f"  {c['images']} image(s)"
           + (f" · {c['unreadable']} unreadable" if c["unreadable"] else ""))
+    if c.get("videos_not_inventoried"):
+        print(f"  {c['videos_not_inventoried']} video file(s) SEEN BUT NOT "
+              f"INVENTORIED — this tool handles stills only.")
+        print(f"  They are not duplicate-checked, not origin-classified, and "
+              f"not approvable.")
     print()
     print(f"  reviewed                {c['reviewed']:>5} / {c['images']}")
     print(f"  approved for use        {c['approved_for_documentary']:>5}")
@@ -767,9 +789,20 @@ def self_test() -> int:
                                                            quality=92)
         Image.new("RGB", (800, 1200), (240, 240, 235)).save(root / "different.png")
         (root / "notes.txt").write_text("not an image")
+        (root / "broll_courthouse.mov").write_bytes(b"not really a movie")
+        (root / "clip.mp4").write_bytes(b"nor is this")
 
         m = inventory(root)
         check("scans only supported image types", m["counts"]["images"] == 4)
+        # video is the thing most likely to be silently dropped, because a
+        # library of clips scans clean and reports nothing about them
+        check("video is counted, not silently ignored",
+              m["counts"]["videos_not_inventoried"] == 2)
+        check("video is not mixed into the image inventory",
+              not any(v["filename"].endswith((".mov", ".mp4"))
+                      for v in m["visuals"]))
+        check("a document is neither an image nor a video",
+              m["counts"]["images"] == 4 and m["counts"]["videos_not_inventoried"] == 2)
         check("an identical copy is caught by SHA-256",
               m["counts"]["exact_duplicate_groups"] == 1)
         check("a re-crop is caught as a near-duplicate",

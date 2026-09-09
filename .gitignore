@@ -39,6 +39,47 @@ tsr_env/
 .next/
 dist/
 
+# =====================================================================
+# Raw media. The photo library lives BESIDE this repo, never inside it.
+#
+# Two reasons, and the second is the one that bites:
+#
+#   1. Gigabytes of originals in git history make the repo unclonable and
+#      can never be made smaller. History is forever — that is the same
+#      argument docs/VISUAL_POLICY.md makes about private repos.
+#   2. A phone photo carries EXIF GPS. Committing one publishes the exact
+#      coordinates it was taken at to anyone who ever gets the repo,
+#      including a future public fork. The manifest records GPS on
+#      purpose and never renders it into a frame; git would do neither.
+#
+# The provenance does not depend on the bytes being here. Every build
+# manifest hashes each input it read, so an episode can be verified
+# against a library kept anywhere.
+#
+# To include one specific cleared image an episode genuinely needs:
+#   git add -f modules/openmontage/episodes/epNN/assets/that-one.jpg
+# =====================================================================
+modules/openmontage/episodes/*/assets/*
+!modules/openmontage/episodes/*/assets/.gitkeep
+visual_manifest.json
+*.photoslibrary/
+
+# Camera and screen-recording formats, wherever they land.
+*.heic
+*.heif
+*.mov
+*.mp4
+*.m4v
+*.avi
+*.mkv
+*.mts
+*.m2ts
+*.dng
+*.raw
+*.cr2
+*.nef
+*.arw
+
 # OS noise.
 .DS_Store
 Thumbs.db

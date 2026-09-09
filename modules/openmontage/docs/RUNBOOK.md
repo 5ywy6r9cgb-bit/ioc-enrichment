@@ -271,6 +271,23 @@ the DERIVATIVE problem the media intake tool warns about. Export first:
 "Export Movie" and plain "Export" re-encode and strip metadata. Always
 Unmodified Original for anything evidentiary.
 
+**Export destination.** Make the library outside the repo and point Photos at
+it:
+
+```bash
+mkdir -p ~/Pictures/TSR/2026-exports
+```
+
+Never export into `episodes/*/assets/`. That folder is for the handful of
+cleared images one episode uses, and `.gitignore` refuses raw media there —
+gigabytes in git history can never be removed, and a phone photo carries the
+GPS coordinates it was taken at.
+
+**Video.** This tool inventories stills only. Clips in the folder are counted
+and reported — `N video file(s) SEEN BUT NOT INVENTORIED` — so you know they
+are there, but they are not duplicate-checked, not origin-classified, and not
+approvable. Keep them; they are b-roll. They just are not covered yet.
+
 Then inventory the folder it names:
 
 ```bash
