@@ -1045,6 +1045,84 @@ async function resolveCommittee(nameOrId, key, fetchJson, cmd) {
  * and was asked anyway, of a super PAC with two candidates and one state.
  */
 /**
+ * connect control — what several committees SHARE, structurally.
+ *
+ * The honest answer to "who is behind this". No register contains motive.
+ * They contain a TREASURER — a named legal officer personally responsible
+ * for the filings — plus a custodian of records and an address.
+ *
+ * Committees independent on paper that share those are run from one place.
+ * That is a fact and it is checkable. It is also ROUTINELY INNOCENT, and
+ * the output says so before it says anything else.
+ */
+async function cmdControl(ids, opts = {}) {
+  const F = require('./fecpac.js');
+  const env = R.loadEnv();
+  const key = R.resolveKey(R.CONNECTORS.fec, env);
+  if (!key) { console.error(`\n  ${C.r('FEC_API_KEY is not set.')}\n`); process.exit(2); }
+  const fetchJson = fecFetcher();
+
+  console.log(`\n  ${C.b('Shared control')}  ${C.dim(`${ids.length} committee(s)`)}`);
+  if (opts.dryRun) { console.log(C.dim('\n  DRY RUN — nothing requested.\n')); return; }
+
+  const cmts = [];
+  for (const raw of ids) {
+    const id = await resolveCommittee(raw, key, fetchJson, 'control');
+    const got = F.parseCommittees(await fetchJson(
+      `${F.API}/committees/?api_key=${encodeURIComponent(key)}`
+      + `&committee_id=${encodeURIComponent(id)}&per_page=1`));
+    if (got.length) cmts.push(got[0]);
+    else console.log(C.y(`    ${id} — not found`));
+  }
+  if (cmts.length < 2) {
+    console.log(`\n  ${C.y('Two or more committees are needed to compare.')}\n`);
+    return;
+  }
+
+  console.log('');
+  for (const c of cmts) {
+    console.log(`  ${C.g(c.committee_id)}  ${c.name}`);
+    console.log(C.dim(`  ${' '.repeat(12)}${c.type}${c.designation ? ' · ' + c.designation : ''}`));
+    if (c.treasurer) console.log(`  ${' '.repeat(12)}treasurer  ${C.b(c.treasurer)}`);
+    if (c.custodian && c.custodian !== c.treasurer) {
+      console.log(C.dim(`  ${' '.repeat(12)}custodian  ${c.custodian}`));
+    }
+    if (c.address) console.log(C.dim(`  ${' '.repeat(12)}${c.address}`));
+    // Silence is silence: an unstated field is not an absent officer.
+    if (!c.treasurer) console.log(C.y(`  ${' '.repeat(12)}no treasurer stated in the register`));
+  }
+
+  const shared = F.sharedControl(cmts);
+  if (!shared.length) {
+    console.log(`\n  ${C.g('NOTHING SHARED')} — no treasurer, custodian, address, email,`);
+    console.log(`  website or connected organisation appears on more than one.`);
+    console.log(C.dim('\n  That is a real finding and the more common one. Separate officers'));
+    console.log(C.dim('  and separate addresses is what unrelated committees look like.\n'));
+    return;
+  }
+
+  console.log(`\n  ${C.r('SHARED')}`);
+  for (const s2 of shared) {
+    console.log(`\n    ${C.b(s2.label)}  ${s2.value}`);
+    for (const c of s2.committees) console.log(C.dim(`      ${c.id}  ${c.name}`));
+  }
+
+  console.log(`\n  ${C.y('BEFORE THIS MEANS ANYTHING:')}`);
+  for (const line of wrap(
+    'A shared treasurer is routinely innocent. Compliance firms supply '
+    + 'treasurers to dozens of unrelated committees as a service — that is '
+    + 'their business. These committees pay BROGHAMER COMPLIANCE for '
+    + '"COMPLIANCE CONSULTING", so a shared officer may mean nothing more '
+    + 'than a shared vendor. A shared address may be that vendor\'s office, '
+    + 'or a registered-agent mail drop serving thousands of unrelated '
+    + 'entities.', 68)) console.log(C.dim(`    ${line}`));
+  console.log(C.dim('\n    What this establishes: these committees are administered from'));
+  console.log(C.dim('    one place. What it does NOT establish: who decided anything,'));
+  console.log(C.dim('    why, or that any rule was broken. Control is not motive, and'));
+  console.log(C.dim('    no register contains motive.\n'));
+}
+
+/**
  * connect filings — the documents, not the numbers derived from them.
  *
  * docquery.fec.gov/cgi-bin/forms/<id>/ answers 403: it is a browser path,
@@ -2608,6 +2686,22 @@ async function main() {
       limit: li >= 0 && argv[li + 1] ? parseInt(argv[li + 1], 10) : undefined,
       dryRun: opts.dryRun,
     });
+  }
+  if (action === 'control') {
+    const ids = args.slice(1).filter((a) => a && !a.startsWith('--'));
+    if (ids.length < 2) {
+      console.error('\n  usage: sentinel connect control C00… C00… [C00… …]');
+      console.error('\n  What several committees SHARE: treasurer, custodian of records,');
+      console.error('  address, email, website, connected organisation.');
+      console.error('\n  A treasurer is a named legal officer personally responsible for a');
+      console.error('  committee\'s filings. Committees independent on paper that share one');
+      console.error('  are administered from one place.');
+      console.error('\n  It is ROUTINELY INNOCENT — compliance firms supply treasurers to');
+      console.error('  dozens of committees as a service. The command reports the overlap');
+      console.error('  and refuses to characterise it. Control is not motive.\n');
+      process.exit(2);
+    }
+    return cmdControl(ids, { dryRun: opts.dryRun });
   }
   if (action === 'filings') {
     const committee = flagVal(argv, '--committee')

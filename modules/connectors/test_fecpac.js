@@ -645,6 +645,69 @@ async function run() {
   }
 
 
+  // ══ WHAT SEVERAL COMMITTEES SHARE ═════════════════════════════════════
+  // The honest answer to "who is behind this". No register contains motive.
+  // They contain a TREASURER — a named legal officer personally responsible
+  // for the filings — plus a custodian and an address. Committees
+  // independent on paper that share those are administered from one place.
+  {
+    const cs = F.parseCommittees({ results: [
+      { committee_id: 'C00000031', name: 'ALPHA PAC', treasurer_name: 'DOE, JANE',
+        street_1: '1 Main St', city: 'Columbus', state: 'OH', zip: '43215' },
+      { committee_id: 'C00000032', name: 'BETA PAC', treasurer_name: 'DOE, JANE',
+        street_1: '1 Main St', city: 'Columbus', state: 'OH', zip: '43215' },
+      { committee_id: 'C00000033', name: 'GAMMA PAC', treasurer_name: 'ROE, RICHARD',
+        street_1: '9 Other Rd', city: 'Cleveland', state: 'OH' },
+    ] });
+
+    eq('the treasurer is read from the register', cs[0].treasurer, 'DOE, JANE');
+    eq('and the address is assembled', cs[0].address, '1 Main St, Columbus, OH, 43215');
+
+    const sh = F.sharedControl(cs);
+    const t = sh.find((x) => x.field === 'treasurer');
+    check('a treasurer on two committees is reported', Boolean(t));
+    eq('naming both', t.committees.length, 2);
+    check('and not the third', !t.committees.some((c) => c.name === 'GAMMA PAC'));
+
+    const a = sh.find((x) => x.field === 'address');
+    check('a shared address is reported too', Boolean(a));
+
+    // A field only one committee has is NOT a shared thing.
+    check('a unique treasurer creates no overlap row',
+      !sh.some((x) => String(x.value).includes('ROE, RICHARD')));
+
+    // EMPTY IS NOT SHARED. Two committees with no treasurer stated must not
+    // be reported as sharing one — that would manufacture a link out of a
+    // gap in the register, which is the worst version of this command.
+    const blank = F.sharedControl(F.parseCommittees({ results: [
+      { committee_id: 'C00000034', name: 'X' },
+      { committee_id: 'C00000035', name: 'Y' },
+    ] }));
+    eq('two committees with nothing stated share NOTHING', blank.length, 0);
+
+    // Case must not split one person into two.
+    const cased = F.sharedControl(F.parseCommittees({ results: [
+      { committee_id: 'C00000036', name: 'X', treasurer_name: 'doe, jane' },
+      { committee_id: 'C00000037', name: 'Y', treasurer_name: 'DOE, JANE' },
+    ] }));
+    eq('the same name in different case is one treasurer', cased.length, 1);
+
+    // Nothing shared is a real answer, not an empty one.
+    eq('unrelated committees produce no overlap',
+      F.sharedControl([cs[2]]).length, 0);
+
+    // The caveat has to be in the OUTPUT.
+    check('the command says a shared treasurer is routinely innocent',
+      /routinely innocent/i.test(cliSrc2));
+    check('and names the reason — compliance firms supply them',
+      /Compliance firms supply/i.test(cliSrc2));
+    check('and states plainly that control is not motive',
+      /Control is not motive/.test(cliSrc2));
+    check('and that no register contains motive',
+      /no register contains motive/.test(cliSrc2));
+  }
+
+
   console.log(`\n  ${fails ? 'FAIL' : 'PASS'} — ${ran - fails}/${ran} checks\n`);
   return fails ? 1 : 0;
 }

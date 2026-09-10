@@ -289,6 +289,28 @@ bin/sentinel doc get "<pdf url it printed>"
 `docquery.fec.gov/cgi-bin/forms/<id>/` answers **403** — it is a browser
 path, not a document path. The URLs `filings` prints are the ones that work.
 
+### `control` — the honest answer to "who is behind this"
+
+```bash
+bin/sentinel connect control C00896928 C00912865 C00937797 C00896688
+```
+
+**No register contains motive.** What they contain is CONTROL: a **treasurer**
+is a named legal officer personally responsible for a committee's filings,
+and the custodian of records and street address are published too.
+
+Committees that are independent on paper and share those are **administered
+from one place**. That is a structural fact and it is checkable.
+
+**AND IT IS ROUTINELY INNOCENT.** Compliance firms supply treasurers to
+dozens of unrelated committees as a service — that is their business. A
+shared address may be that firm's office, or a registered-agent mail drop
+serving thousands of entities. The command reports the overlap and refuses
+to characterise it.
+
+**"Nothing shared" is a real result and the more common one.** Separate
+officers and separate addresses is what unrelated committees look like.
+
 **Amendments supersede.** A committee that files and then amends has two
 documents saying different things. `filings` separates current from
 superseded and keeps both, because knowing a figure *changed* is often the

@@ -107,6 +107,21 @@ function parseCommittees(json) {
     candidate_ids: Array.isArray(r.candidate_ids) ? r.candidate_ids : [],
     // For a connected PAC, the corporation or union behind it.
     connected_org: r.connected_organization_name || '',
+    // WHO RUNS IT. The closest thing to "who is behind this committee" that
+    // any register actually contains. A treasurer is a named legal officer,
+    // personally responsible for the filings, and the FEC publishes the name.
+    //
+    // Committees that are independent on paper and share a treasurer, an
+    // address or a custodian are run from one place — which is a structural
+    // fact, not a motive, and not by itself improper. See `control` in cli.js
+    // for the caveat that must travel with it.
+    treasurer: r.treasurer_name || '',
+    custodian: r.custodian_name_full || '',
+    address: [r.street_1, r.street_2, r.city, r.state, r.zip]
+      .filter(Boolean).join(', '),
+    email: r.email || '',
+    website: r.website || '',
+    org_type: r.organization_type_full || r.organization_type || '',
     url: r.committee_id ? `https://www.fec.gov/data/committee/${r.committee_id}/` : '',
   })).filter((r) => r.committee_id);
 }
@@ -147,6 +162,54 @@ function affiliationOf(c) {
   if (c.candidate_ids && c.candidate_ids.length) bits.push(`candidate: ${c.candidate_ids.join(', ')}`);
   if (c.connected_org) bits.push(`connected to: ${c.connected_org}`);
   return bits.join(' · ');
+}
+
+
+/**
+ * WHAT SEVERAL COMMITTEES SHARE — the honest version of "who is behind it".
+ *
+ * No register contains motive. What they contain is CONTROL: a treasurer is
+ * a named legal officer personally responsible for a committee's filings,
+ * and a custodian of records and a street address are published too.
+ *
+ * Committees that are independent on paper and share those are run from one
+ * place. That is a structural fact and it is checkable.
+ *
+ * AND IT IS ROUTINELY INNOCENT. Compliance firms supply treasurers to
+ * dozens of unrelated committees as a service — that is their business, and
+ * this very file has already established that these committees pay
+ * BROGHAMER COMPLIANCE for "COMPLIANCE CONSULTING". A shared treasurer may
+ * mean nothing more than a shared vendor, and a shared address may be that
+ * vendor's office or a registered-agent mail drop.
+ *
+ * So this reports the overlap and refuses to characterise it.
+ */
+function sharedControl(committees) {
+  const fields = [
+    ['treasurer', 'treasurer'],
+    ['custodian', 'custodian of records'],
+    ['address', 'street address'],
+    ['email', 'email'],
+    ['website', 'website'],
+    ['connected_org', 'connected organisation'],
+  ];
+  const out = [];
+  for (const [key, label] of fields) {
+    const m = new Map();
+    for (const c of committees) {
+      const v = String(c[key] || '').trim();
+      if (!v) continue;
+      const k = v.toUpperCase();
+      if (!m.has(k)) m.set(k, { value: v, committees: [] });
+      m.get(k).committees.push({ id: c.committee_id, name: c.name });
+    }
+    for (const entry of m.values()) {
+      if (entry.committees.length > 1) {
+        out.push({ field: key, label, value: entry.value, committees: entry.committees });
+      }
+    }
+  }
+  return out.sort((a, b) => b.committees.length - a.committees.length);
 }
 
 /**
@@ -593,5 +656,6 @@ module.exports = {
   disbursementsUrl, parseDisbursements, isContribution, CONTRIBUTION_TYPES,
   independentUrl, parseIndependent,
   byRecipient, totals, collect, residual, byPayee, affiliationOf, resolveSponsors,
+  sharedControl,
   CANDIDATE_ID_RE,
 };
