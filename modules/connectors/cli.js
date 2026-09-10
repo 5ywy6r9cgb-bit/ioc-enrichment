@@ -1088,6 +1088,9 @@ async function cmdControl(ids, opts = {}) {
       console.log(C.dim(`  ${' '.repeat(12)}custodian  ${c.custodian}`));
     }
     if (c.address) console.log(C.dim(`  ${' '.repeat(12)}${c.address}`));
+    else if (c.state_only) {
+      console.log(C.dim(`  ${' '.repeat(12)}${c.state_only} ${C.y('(state only — no street address in the register)')}`));
+    }
     // Silence is silence: an unstated field is not an absent officer.
     if (!c.treasurer) console.log(C.y(`  ${' '.repeat(12)}no treasurer stated in the register`));
   }

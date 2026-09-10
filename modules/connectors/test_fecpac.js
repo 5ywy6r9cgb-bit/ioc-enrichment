@@ -672,6 +672,38 @@ async function run() {
     const a = sh.find((x) => x.field === 'address');
     check('a shared address is reported too', Boolean(a));
 
+    // A STATE IS NOT AN ADDRESS.
+    // A live run printed "street address  OH" and named two Ohio
+    // committees as sharing it — because street_1 and city were absent and
+    // the join collapsed to the state code. That is a link manufactured out
+    // of a gap in the register, which is precisely what the empty-field
+    // guard exists to prevent; it just did not cover NEARLY empty.
+    const stateOnly = F.parseCommittees({ results: [
+      { committee_id: 'C00000041', name: 'OH ONE', state: 'OH' },
+      { committee_id: 'C00000042', name: 'OH TWO', state: 'OH' },
+    ] });
+    eq('a state with no street or city is not an address', stateOnly[0].address, '');
+    eq('it is kept separately, because it is still worth seeing',
+      stateOnly[0].state_only, 'OH');
+    eq('and two committees in one state share NO address',
+      F.sharedControl(stateOnly).length, 0);
+
+    // A real street address still counts.
+    const realAddr = F.parseCommittees({ results: [
+      { committee_id: 'C00000043', name: 'X', street_1: '1 Main St', city: 'Columbus', state: 'OH' },
+      { committee_id: 'C00000044', name: 'Y', street_1: '1 Main St', city: 'Columbus', state: 'OH' },
+    ] });
+    eq('a street address is still an address',
+      realAddr[0].address, '1 Main St, Columbus, OH');
+    eq('and a shared one is still reported', F.sharedControl(realAddr).length, 1);
+    eq('with no state_only set when there is a real address',
+      realAddr[0].state_only, '');
+
+    // A city with no street is enough — it names a place.
+    eq('a city without a street still counts as an address',
+      F.parseCommittees({ results: [{ committee_id: 'C00000045', name: 'Z',
+        city: 'Newport', state: 'KY' }] })[0].address, 'Newport, KY');
+
     // A field only one committee has is NOT a shared thing.
     check('a unique treasurer creates no overlap row',
       !sh.some((x) => String(x.value).includes('ROE, RICHARD')));

@@ -117,8 +117,17 @@ function parseCommittees(json) {
     // for the caveat that must travel with it.
     treasurer: r.treasurer_name || '',
     custodian: r.custodian_name_full || '',
-    address: [r.street_1, r.street_2, r.city, r.state, r.zip]
-      .filter(Boolean).join(', '),
+    // A STATE IS NOT AN ADDRESS. When street_1 and city are absent the join
+    // produced "OH", and two Ohio committees were then reported as SHARING
+    // AN ADDRESS — a link manufactured out of a gap in the register, which
+    // is the exact failure the empty-field guard exists to prevent. It only
+    // counts as an address if it names a place more specific than a state.
+    address: (r.street_1 || r.city)
+      ? [r.street_1, r.street_2, r.city, r.state, r.zip].filter(Boolean).join(', ')
+      : '',
+    // Kept separately, because "both are in Ohio" is worth seeing and is
+    // never worth calling a shared address.
+    state_only: (!r.street_1 && !r.city && r.state) ? String(r.state) : '',
     email: r.email || '',
     website: r.website || '',
     org_type: r.organization_type_full || r.organization_type || '',
