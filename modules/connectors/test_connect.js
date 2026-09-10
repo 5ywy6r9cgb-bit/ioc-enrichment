@@ -551,6 +551,26 @@ module.exports = function run() {
         .test(branch.slice(0, 900)));
     check('and its usage line offers the name form first',
       /usage: sentinel connect asymmetry "COMMITTEE NAME"/.test(branch.slice(0, 1400)));
+
+    // ── A PASTED PLACEHOLDER IS NOT A SEARCH ────────────────────────────
+    // `--committee C00XXXXXXX` was pasted verbatim from an example and the
+    // resolver answered "No committee of that name is registered with the
+    // FEC." True of the string, and it reads as a fact about the register
+    // rather than a typo. Placeholders are recognised and cost no call.
+    const isPlaceholder = (q) =>
+      /^C0{0,2}[X?#*_]{3,}$/i.test(q) || /^C\d*[X?#*]+\d*$/i.test(q);
+    for (const p of ['C00XXXXXXX', 'CXXXXXXXX', 'C00??????', 'C00######']) {
+      check(`"${p}" is caught as a placeholder`, isPlaceholder(p));
+    }
+    for (const id of ['C00687103', 'C00865444', 'C00707844']) {
+      check(`a real id (${id}) is NOT mistaken for one`, !isPlaceholder(id));
+    }
+    for (const n of ['WinSenate', 'EDF Action Votes', 'CVA ACTION']) {
+      check(`nor is a real name ("${n}")`, !isPlaceholder(n));
+    }
+    check('and the guard runs before any request is made',
+      cliSrc.indexOf('is a placeholder, not a committee id')
+        < cliSrc.indexOf('parseCommittees(await fetchJson(F.committeeSearchUrl(q, key)))'));
   }
 
   console.log(`\n  ${FAIL === 0 ? 'PASS' : 'FAIL'} — ${PASS}/${PASS + FAIL} checks\n`);

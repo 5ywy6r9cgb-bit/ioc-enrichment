@@ -63,18 +63,29 @@
  * Returns null when there is nothing to measure — never zero, because zero
  * is a claim about a distribution and no distribution exists.
  */
-function concentrate(rows, key, { minRows = 5, minTotal = 1000 } = {}) {
+function concentrate(rows, key, { minRows = 5, minTotal = 1000, side = null } = {}) {
   if (!rows.length) return null;
   const byTarget = new Map();
   let total = 0;
+  let forTotal = 0, againstTotal = 0;
   for (const r of rows) {
     const k = key(r) || '(unnamed)';
     const amt = Number(r.amount) || 0;
-    byTarget.set(k, (byTarget.get(k) || 0) + amt);
+    const cur = byTarget.get(k) || { amount: 0, for: 0, against: 0 };
+    cur.amount += amt;
+    // WHICH WAY THE MONEY POINTED. Two committees that both appear at one
+    // seat look like a pair until you read this field, and then one of them
+    // is attacking the candidate the other is defending. Merging them into
+    // "spent at this seat" manufactures a coalition out of an argument.
+    if (side) {
+      if (side(r) === 'O') { cur.against += amt; againstTotal += amt; }
+      else { cur.for += amt; forTotal += amt; }
+    }
+    byTarget.set(k, cur);
     total += amt;
   }
   const targets = [...byTarget.entries()]
-    .map(([name, amount]) => ({ name, amount }))
+    .map(([name, v]) => ({ name, amount: v.amount, for: v.for, against: v.against }))
     .sort((a, b) => b.amount - a.amount);
 
   if (total <= 0) {
@@ -108,6 +119,19 @@ function concentrate(rows, key, { minRows = 5, minTotal = 1000 } = {}) {
     verdict,
     min_rows: minRows,
     min_total: minTotal,
+    // Present only when a side accessor was supplied. Absent means NOT
+    // MEASURED, which is why it is undefined rather than zero.
+    sides: side
+      ? { for: Math.round(forTotal * 100) / 100,
+        against: Math.round(againstTotal * 100) / 100,
+        // A committee that only ever attacks is a different instrument from
+        // one that only ever defends, and the mix is the plainest statement
+        // of which it is.
+        posture: againstTotal === 0 ? 'support_only'
+          : forTotal === 0 ? 'opposition_only'
+            : againstTotal / (forTotal + againstTotal) >= 0.5 ? 'mostly_opposition'
+              : 'mostly_support' }
+      : undefined,
     breakdown: targets.slice(0, 10),
     _caution: verdict === 'too_small'
       ? `${rows.length} row(s) and $${Math.round(total)} — below the floor of `

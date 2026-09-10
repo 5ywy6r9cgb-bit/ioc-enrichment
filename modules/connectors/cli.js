@@ -931,9 +931,24 @@ function subjectFrom(positional, argv, flagNames) {
  */
 async function resolveCommittee(nameOrId, key, fetchJson, cmd) {
   const F = require('./fecpac.js');
-  if (/^C\d{8}$/i.test(nameOrId.trim())) return nameOrId.trim().toUpperCase();
+  const q = nameOrId.trim();
+  if (/^C\d{8}$/i.test(q)) return q.toUpperCase();
 
-  const cmts = F.parseCommittees(await fetchJson(F.committeeSearchUrl(nameOrId, key)));
+  // A PLACEHOLDER, NOT A NAME. C00XXXXXXX is what documentation writes when
+  // it means "the id you actually have", and it gets pasted verbatim. Sent
+  // to the name search it returns "No committee of that name is registered
+  // with the FEC" -- which is true of the string and useless to the reader,
+  // because the answer to a typo should not look like a fact about the
+  // register.
+  if (/^C0{0,2}[X?#*_]{3,}$/i.test(q) || /^C\d*[X?#*]+\d*$/i.test(q)) {
+    console.log(`\n  ${C.y(`"${q}" is a placeholder, not a committee id.`)}`);
+    console.log(C.dim('  Nothing was searched. Committee ids are C followed by 8 digits.'));
+    console.log(C.dim('  You can skip the id entirely and type the name:\n'));
+    console.log(C.dim(`    sentinel connect ${cmd} "AMERICANS FOR PROSPERITY ACTION"\n`));
+    process.exit(2);
+  }
+
+  const cmts = F.parseCommittees(await fetchJson(F.committeeSearchUrl(q, key)));
   if (!cmts.length) {
     console.log(`\n  ${C.y('No committee of that name is registered with the FEC.')}`);
     console.log(C.dim('  That is a fact about the register, not a failed search.\n'));
@@ -1020,8 +1035,12 @@ async function cmdAsymmetry(opts = {}) {
       .map((r) => ({ ...r, by: name, by_committee_id: opts.committee }));
   }
 
-  const c = A.concentrate(rows, dim.target,
-    opts.minRows ? { minRows: opts.minRows } : undefined);
+  // Schedule E rows carry a stance; Schedule B (vendor) rows do not, and
+  // inventing one there would be worse than leaving it unmeasured.
+  const c = A.concentrate(rows, dim.target, {
+    ...(opts.minRows ? { minRows: opts.minRows } : {}),
+    ...(opts.dimension === 'vendor' ? {} : { side: (r) => r.stance }),
+  });
   if (!c) {
     console.log(`\n  ${C.y('Nothing filed on this dimension for that cycle.')}`);
     console.log(C.dim('  An empty result is one source saying nothing.\n'));
@@ -1046,11 +1065,30 @@ async function cmdAsymmetry(opts = {}) {
   console.log('');
   for (const line of wrap(c._caution, 70)) console.log(C.dim(`    ${line}`));
 
+  if (c.sides) {
+    const P = { support_only: 'every dollar SUPPORTED a candidate',
+      opposition_only: 'every dollar was spent AGAINST a candidate',
+      mostly_opposition: 'more against than for',
+      mostly_support: 'more for than against' }[c.sides.posture];
+    console.log(`\n  ${C.b('Which way it pointed')}   ${C.dim(P)}`);
+    console.log(`    for      ${usd(c.sides.for).padStart(13)}`);
+    console.log(`    against  ${usd(c.sides.against).padStart(13)}`);
+  }
+
   if (c.breakdown && c.breakdown.length > 1) {
     console.log(`\n  ${C.b('Where it went')}`);
+    const hasSides = !!c.sides;
+    if (hasSides) console.log(C.dim('    share            total           for        against  candidate'));
     for (const b of c.breakdown) {
       const share = ((b.amount / c.total) * 100).toFixed(1);
-      console.log(`    ${String(share).padStart(5)}%  ${usd(b.amount).padStart(13)}  ${b.name}`);
+      let line = `    ${String(share).padStart(5)}%  ${usd(b.amount).padStart(13)}`;
+      if (hasSides) {
+        // A blank, not a $0, where a side has nothing: zero is a measurement
+        // and most of these rows are one-sided.
+        line += `  ${(b.for ? usd(b.for) : '—').padStart(12)}`
+          + `  ${(b.against ? C.r(usd(b.against)) : '—').padStart(b.against ? 21 : 13)}`;
+      }
+      console.log(`${line}  ${b.name}`);
     }
   }
   console.log(`\n  ${C.dim('Verify:')} https://www.fec.gov/data/committee/${opts.committee}/\n`);

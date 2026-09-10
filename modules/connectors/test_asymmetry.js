@@ -114,6 +114,54 @@ async function run() {
   check('and a real finding carries the innocent explanations with it',
     /formed late|single-issue|lost early/.test(real._caution));
 
+  // ── WHICH WAY THE MONEY POINTED ──────────────────────────────────────
+  // The live run that forced this: AFP ACTION and WINSENATE both showed
+  // HUSTED, JON high in their breakdowns. Read as "both spent at Husted"
+  // they look like a pair. AFP spent $7.8m FOR him; WinSenate spent $3.2m
+  // AGAINST him. They are opponents, and the merged view made them allies.
+  // fecpac.byRecipient already refused to merge sides. asymmetry did not.
+  const S = (r) => r.stance;
+  const husted = [
+    { amount: 7802141, t: 'HUSTED, JON', stance: 'S' },
+    { amount: 3237241, t: 'HUSTED, JON', stance: 'O' },
+    { amount: 2503666, t: 'HUSTED, JON', stance: 'O' },
+    { amount: 1000000, t: 'ROGERS, MICHAEL J', stance: 'O' },
+    { amount: 500000, t: 'ROGERS, MICHAEL J', stance: 'S' },
+  ];
+  const sided = A.concentrate(husted, T, { side: S });
+  eq('the two directions are totalled apart', sided.sides.for, 8302141);
+  eq('and not merged into one number', sided.sides.against, 6740907);
+  eq('the total still reconciles to both',
+    sided.sides.for + sided.sides.against, sided.total);
+  const h = sided.breakdown.find((b) => b.name === 'HUSTED, JON');
+  eq('each target carries its own split — for', h.for, 7802141);
+  eq('and against', h.against, 5740907);
+  check('so one candidate cannot read as a coalition',
+    h.for > 0 && h.against > 0);
+
+  // posture — what kind of instrument this committee is
+  eq('a committee that only attacks says so',
+    A.concentrate(rows(10, 'X').map((r) => ({ ...r, stance: 'O' })), T, { side: S })
+      .sides.posture, 'opposition_only');
+  eq('a committee that only defends says so',
+    A.concentrate(rows(10, 'X').map((r) => ({ ...r, stance: 'S' })), T, { side: S })
+      .sides.posture, 'support_only');
+  eq('and a mixed one is named by its majority',
+    sided.sides.posture, 'mostly_support');
+
+  // NOT MEASURED is not the same as zero.
+  const unsided = A.concentrate(rows(10, 'X'), T);
+  eq('without a side accessor the split is absent, not zero',
+    unsided.sides, undefined);
+  check('which is what Schedule B rows get, because they carry no stance',
+    unsided.sides === undefined && unsided.total > 0);
+
+  // A missing indicator must not silently become "against".
+  const blank = A.concentrate(
+    rows(10, 'X').map((r) => ({ ...r, stance: '' })), T, { side: S });
+  eq('a blank indicator counts as support, never as opposition',
+    blank.sides.against, 0);
+
   console.log(`\n  ${fails ? 'FAIL' : 'PASS'} — ${ran - fails}/${ran} checks\n`);
   return fails ? 1 : 0;
 }
