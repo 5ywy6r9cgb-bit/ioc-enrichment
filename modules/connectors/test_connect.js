@@ -573,6 +573,52 @@ module.exports = function run() {
         < cliSrc.indexOf('parseCommittees(await fetchJson(F.committeeSearchUrl(q, key)))'));
   }
 
+  // ══ A DROPPED CONNECTION IS NOT AN ANSWER ═════════════════════════════
+  // Sherrod Brown's Schedule A died at page 21 of 25, 2,100 rows in:
+  //     Error: FEC returned 0 —
+  // status 0 is registry.request's own marker for a timeout or socket
+  // error. It never reached the FEC. All four retry lists excluded it, so
+  // the single most retryable failure was the one treated as permanent, and
+  // the empty half of the message was res.body — which a socket error does
+  // not have. What it knew was in res.error and was never printed.
+  {
+    const CLI = require('./cli.js');
+
+    check('a timeout (status 0) is retried',
+      CLI.fecRetryable({ status: 0, error: 'timed out' }));
+    check('so is a socket reset',
+      CLI.fecRetryable({ status: 0, error: 'ECONNRESET' }));
+    check('and a gateway error, which is the proxy talking',
+      CLI.fecRetryable({ status: 502 }));
+    for (const s of [429, 500, 503, 504]) {
+      check(`${s} is retried`, CLI.fecRetryable({ status: s }));
+    }
+    check('a 404 is NOT retried — it is an answer',
+      !CLI.fecRetryable({ status: 404 }));
+    check('nor is a 403, which means the key',
+      !CLI.fecRetryable({ status: 403 }));
+    check('nor a 400',
+      !CLI.fecRetryable({ status: 400 }));
+
+    // The message must carry what actually went wrong.
+    check('a transport failure reports its cause, not an empty body',
+      /timed out/.test(CLI.fecError({ status: 0, error: 'timed out' })));
+    check('and does not claim the FEC "returned" anything',
+      !/returned 0/.test(CLI.fecError({ status: 0, error: 'timed out' })));
+    check('a status 0 with no error field still says something useful',
+      /before any response|before a reply/.test(CLI.fecError({ status: 0 })));
+    check('an HTTP error still shows the body',
+      /rate limit/.test(CLI.fecError({ status: 429, body: 'rate limit exceeded' })));
+
+    // One fetcher, not four that drifted.
+    check('every command uses the shared fetcher',
+      (cliSrc.match(/const fetchJson = fecFetcher\(\);/g) || []).length === 4);
+    check('and no inline retry list survives',
+      !/\[429, 503, 504\]\.includes/.test(cliSrc));
+    check('the shared fetcher exists and is callable',
+      typeof CLI.fecFetcher() === 'function');
+  }
+
   console.log(`\n  ${FAIL === 0 ? 'PASS' : 'FAIL'} — ${PASS}/${PASS + FAIL} checks\n`);
   return FAIL;
 };

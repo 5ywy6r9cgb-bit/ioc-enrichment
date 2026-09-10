@@ -929,6 +929,65 @@ function subjectFrom(positional, argv, flagNames) {
  * covers a connected PAC and a super PAC, governed by different rules, and
  * picking the first row would be picking the answer.
  */
+/**
+ * Is this response worth trying again?
+ *
+ * STATUS 0 IS THE IMPORTANT ONE. registry.request resolves {status: 0} for a
+ * timeout or a socket error — it is not an HTTP code and it never reached
+ * the FEC at all. Every retry list here excluded it, so a dropped connection
+ * was treated as a permanent answer:
+ *
+ *     in  page 21/25 · 2100 rows
+ *     Error: FEC returned 0 —
+ *
+ * Twenty-one pages of a candidate's Schedule A, thrown away on the one class
+ * of failure that would almost certainly have succeeded on the next attempt.
+ * The empty half of that message is res.body, because a socket error has no
+ * body; what it actually knew was in res.error and was never printed.
+ *
+ * A transport failure is the MOST retryable thing that can happen, not the
+ * least. 502 is here for the same reason: a gateway error is the proxy
+ * talking, not the API.
+ */
+function fecRetryable(res) {
+  return res.status === 0 || [429, 500, 502, 503, 504].includes(res.status);
+}
+
+/** What went wrong, from whichever field actually holds it. */
+function fecError(res) {
+  const detail = res.status === 0
+    ? (res.error || 'connection failed before any response')
+    : String(res.body || '').slice(0, 160);
+  return res.status === 0
+    ? `FEC request failed before a reply — ${detail}`
+    : `FEC returned ${res.status} — ${detail}`;
+}
+
+/**
+ * One retrying fetcher, instead of four that drifted apart.
+ *
+ * They had three different retry predicates between them and only one
+ * printed anything while waiting, so whether a pull survived a hiccup
+ * depended on which command you happened to run.
+ */
+function fecFetcher({ quiet = false } = {}) {
+  return async function fetchJson(url) {
+    let wait = 1500;
+    for (let attempt = 1; attempt <= 5; attempt++) {
+      const res = await R.request('GET', url, {});
+      if (res.status === 200) return JSON.parse(res.body);
+      if (!fecRetryable(res) || attempt === 5) throw new Error(fecError(res));
+      if (!quiet) {
+        const what = res.status === 0 ? (res.error || 'connection failed') : String(res.status);
+        console.log(C.dim(`\n    ${what} — retrying in ${wait / 1000}s (${attempt}/4)`));
+      }
+      await new Promise((r) => setTimeout(r, wait));
+      wait *= 2;
+    }
+    return null;
+  };
+}
+
 async function resolveCommittee(nameOrId, key, fetchJson, cmd) {
   const F = require('./fecpac.js');
   const q = nameOrId.trim();
@@ -989,17 +1048,7 @@ async function cmdAsymmetry(opts = {}) {
     process.exit(2);
   }
 
-  const fetchJson = async (url) => {
-    let wait = 1500;
-    for (let attempt = 1; attempt <= 4; attempt++) {
-      const res = await R.request('GET', url, {});
-      if (res.status === 200) return JSON.parse(res.body);
-      if (![429, 503, 504].includes(res.status) || attempt === 4) {
-        throw new Error(`FEC returned ${res.status} — ${String(res.body || '').slice(0, 160)}`);
-      }
-      await new Promise((r) => setTimeout(r, wait)); wait *= 2;
-    }
-  };
+  const fetchJson = fecFetcher();
 
   // A name is allowed here. It resolves to exactly one id or the command
   // stops -- see resolveCommittee.
@@ -1106,17 +1155,7 @@ async function cmdMember(name, opts = {}) {
   const now = new Date().getFullYear();
   const cycle = opts.cycle || (now % 2 === 0 ? now : now - 1);
 
-  const fetchJson = async (url) => {
-    let wait = 1500;
-    for (let attempt = 1; attempt <= 4; attempt++) {
-      const res = await R.request('GET', url, {});
-      if (res.status === 200) return JSON.parse(res.body);
-      if (![429, 503, 504].includes(res.status) || attempt === 4) {
-        throw new Error(`FEC returned ${res.status} — ${String(res.body || '').slice(0, 160)}`);
-      }
-      await new Promise((r) => setTimeout(r, wait)); wait *= 2;
-    }
-  };
+  const fetchJson = fecFetcher();
 
   // ---- who, exactly. A name is not an identity.
   let picked = null;
@@ -1310,19 +1349,7 @@ async function cmdDelegation(state, opts = {}) {
     return;
   }
 
-  const fetchJson = async (url) => {
-    let wait = 1500;
-    for (let attempt = 1; attempt <= 4; attempt++) {
-      const res = await R.request('GET', url, {});
-      if (res.status === 200) return JSON.parse(res.body);
-      const retryable = [429, 503, 504].includes(res.status);
-      if (!retryable || attempt === 4) {
-        throw new Error(`FEC returned ${res.status} — ${String(res.body || '').slice(0, 160)}`);
-      }
-      await new Promise((r) => setTimeout(r, wait));
-      wait *= 2;
-    }
-  };
+  const fetchJson = fecFetcher();
 
   console.log(`\n  ${C.b(state)} federal delegation · cycle ${cycle} · `
     + opts.offices.map((o) => D.OFFICES[o]).join(' + '));
@@ -1477,20 +1504,7 @@ async function cmdFecPac(name, opts = {}) {
   // The FEC times out on wide schedule queries and answers 504 with a JSON
   // body saying so. Crashing on it loses every page already fetched and reads
   // as a bug in this tool rather than a slow query upstream.
-  const fetchJson = async (url) => {
-    let wait = 1500;
-    for (let attempt = 1; attempt <= 4; attempt++) {
-      const res = await R.request('GET', url, {});
-      if (res.status === 200) return JSON.parse(res.body);
-      const retryable = res.status === 504 || res.status === 503 || res.status === 429;
-      if (!retryable || attempt === 4) {
-        throw new Error(`FEC returned ${res.status} — ${String(res.body || '').slice(0, 160)}`);
-      }
-      console.log(C.dim(`    ${res.status} from the FEC — retrying in ${wait / 1000}s (${attempt}/3)`));
-      await new Promise((r) => setTimeout(r, wait));
-      wait *= 2;
-    }
-  };
+  const fetchJson = fecFetcher();
 
   // ---- step one: which committee, exactly
   console.log(`\n  ${C.b('Committees matching')} "${name}"`);
@@ -2390,4 +2404,4 @@ if (require.main === module) {
   main().catch((e) => { console.error(e); process.exit(1); });
 }
 
-module.exports = { verdictFor, cmdTest, wrap, parseAllArgs, cmdLobby, cmdGraph, cmdRegistrant, cmdExpand, cmdSweep, cmdBrief, flagVal, flagNum, subjectFrom, resolveCommittee };
+module.exports = { verdictFor, cmdTest, wrap, parseAllArgs, cmdLobby, cmdGraph, cmdRegistrant, cmdExpand, cmdSweep, cmdBrief, flagVal, flagNum, subjectFrom, resolveCommittee, fecRetryable, fecError, fecFetcher };
