@@ -184,6 +184,28 @@
       "command": "bin/sentinel connect asymmetry --committee C00912865 --cycle 2026",
       "verify": "https://www.fec.gov/data/committee/C00912865/",
       "complete": true
+    },
+    {
+      "id": "CONTROL-01",
+      "status": "GREEN",
+      "subject": "Who runs the committees",
+      "line": "Both sides hired a compliance professional and made him treasurer. They hired different ones.",
+      "detail": "TEAM HUSTED, HUSTED VICTORY and JOBS OPPORTUNITY NOW all name KEVIN BROGHAMER as treasurer \u2014 and pay BROGHAMER COMPLIANCE $49,334 for 'COMPLIANCE CONSULTING'. OHIO FLYER PAC names CHRIS MARSTON and pays ELECTION CFO $15,117. Separate treasurers, separate compliance vendors, separate media firms.",
+      "caveat": "A shared treasurer is routinely innocent \u2014 compliance firms supply them as a service. This result CONFIRMS separation rather than showing coordination. It does not answer whether a super PAC may participate in a candidate's joint fundraiser, which is a question of FEC rules. Nothing asserts a violation.",
+      "command": "bin/sentinel connect control C00896928 C00912865 C00937797 C00896688",
+      "verify": "https://www.fec.gov/data/committee/C00896928/",
+      "complete": true
+    },
+    {
+      "id": "METHOD-02",
+      "status": "GREEN",
+      "subject": "method",
+      "line": "We spent the day trying to break our own best finding, and succeeded five times.",
+      "detail": "40.19x became 1.35x. Three 'converging' committees turned out to be on opposite sides of all eight candidates they shared. Half a surveillance sweep was an unquoted query, not noise. Two bills did not exist. And the shared-vendor table was weakened by the payee table, then by the treasurer table.",
+      "caveat": "Every one was caught by dividing, or by reading the same figure from another register. None was caught by looking harder at the original number.",
+      "command": "bin/sentinel connect control C00896928 C00912865 C00937797 C00896688",
+      "verify": "docs/FINDINGS_2026-09-09.md \u00a78, \u00a79, \u00a713, \u00a716, \u00a723, \u00a724",
+      "complete": true
     }
   ],
   "open_questions": [
@@ -228,13 +250,11 @@
       ]
     },
     {
-      "id": "Q-VENDORS",
-      "q": "What do SOCKO STRATEGIES, QUINTUS LLC and IRONCLAD CONSULTING actually do?",
-      "blocks": [
-        "VENDOR-01"
-      ],
-      "command": "bin/sentinel connect opencorporates \"Socko Strategies\"",
-      "note": "Socko is paid by all four committees; Quintus by three, including $451,788 from TEAM HUSTED and $90,152 from the super PAC. If they are back-office the separation is clean; if any does strategy or messaging the picture changes. Guessing from a name is the error corrected four times on 2026-09-10."
+      "id": "Q-NEWPORT",
+      "q": "Four Senate victory committees file from NEWPORT, KENTUCKY. One compliance firm, or something else?",
+      "blocks": [],
+      "command": "bin/sentinel connect control C00937797 <other ids>",
+      "note": "HUSTED VICTORY, SUSAN COLLINS FOR MAINE, ASHLEY MOODY VICTORY COMMITTEE and PUT ALASKA FIRST all appear at Newport KY in the NRSC donor rows. Almost certainly one compliance firm's address \u2014 the Broghamer/Marston pattern at scale. Checkable."
     }
   ]
 }
