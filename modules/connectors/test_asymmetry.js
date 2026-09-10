@@ -162,6 +162,61 @@ async function run() {
   eq('a blank indicator counts as support, never as opposition',
     blank.sides.against, 0);
 
+  // ── A NAME IS NOT AN IDENTITY ────────────────────────────────────────
+  // Two views of the same money disagreed by $121,461:
+  //   SLF PAC against BROWN, SHERROD
+  //     from the CANDIDATE side (keyed on S6OH00163)  $4,508,418
+  //     from the COMMITTEE side (keyed on the NAME)   $4,629,879
+  // Neither run was truncated. The register holds TWO Sherrod Browns, and
+  // grouping by the name string added them together — inventing a person
+  // who is both. `member` refuses to choose between them; this module was
+  // quietly merging them.
+  const T2 = A.DIMENSIONS.candidate.target;
+  const twoBrowns = [
+    { candidate: 'BROWN, SHERROD', candidate_id: 'S6OH00163', amount: 4508418 },
+    { candidate: 'BROWN, SHERROD', candidate_id: 'H2OH13033', amount: 121461 },
+  ];
+  const split = A.concentrate(twoBrowns, T2, { minRows: 1, minTotal: 1 });
+  eq('two candidates sharing a name stay two targets', split.targets, 2);
+  eq('and the larger keeps its own figure', split.breakdown[0].amount, 4508418);
+  eq('rather than the sum of both', split.total, 4629879);
+
+  eq('the reader still sees a name, not a key',
+    A.displayName(split.breakdown[0].name), 'BROWN, SHERROD');
+  eq('with the id available beside it',
+    A.keyId(split.breakdown[0].name), 'S6OH00163');
+
+  // One person filing under one id must still be ONE target.
+  const oneBrown = A.concentrate([
+    { candidate: 'BROWN, SHERROD', candidate_id: 'S6OH00163', amount: 100 },
+    { candidate: 'BROWN, SHERROD', candidate_id: 'S6OH00163', amount: 200 },
+  ], T2, { minRows: 1, minTotal: 1 });
+  eq('the same candidate twice is one target', oneBrown.targets, 1);
+  eq('with the amounts summed', oneBrown.total, 300);
+
+  // No id at all: fall back to the name rather than dropping the row.
+  const noId = A.concentrate([{ candidate: 'DOE, JANE', amount: 500 }],
+    T2, { minRows: 1, minTotal: 1 });
+  eq('a row with no candidate id still groups by name',
+    A.displayName(noId.breakdown[0].name), 'DOE, JANE');
+  eq('and carries no id to display', A.keyId(noId.breakdown[0].name), '');
+  eq('an unidentified row is labelled, not blank',
+    A.displayName(A.concentrate([{ amount: 1 }], T2,
+      { minRows: 1, minTotal: 1 }).breakdown[0].name), '(unnamed candidate)');
+
+  // The committee dimension has the same trap in reverse.
+  const CT = A.DIMENSIONS.committee.target;
+  const twoPacs = A.concentrate([
+    { by: 'AMERICA PAC', by_committee_id: 'C00111111', amount: 1000 },
+    { by: 'AMERICA PAC', by_committee_id: 'C00222222', amount: 2000 },
+  ], CT, { minRows: 1, minTotal: 1 });
+  eq('two committees sharing a name stay two targets', twoPacs.targets, 2);
+
+  // displayName must be safe on anything.
+  eq('displayName passes an ordinary string through', A.displayName('PLAIN'), 'PLAIN');
+  eq('and keyId returns empty for one', A.keyId('PLAIN'), '');
+
+
   console.log(`\n  ${fails ? 'FAIL' : 'PASS'} — ${ran - fails}/${ran} checks\n`);
   return fails ? 1 : 0;
 }

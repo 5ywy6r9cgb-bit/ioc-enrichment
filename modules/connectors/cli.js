@@ -1341,7 +1341,8 @@ async function cmdAsymmetry(opts = {}) {
   console.log(`    total             ${usd(c.total)}`);
   console.log(`    distinct targets  ${c.targets}`);
   if (c.top) {
-    console.log(`    largest           ${c.top_share}%  ${usd(c.top.amount)}  ${c.top.name}`);
+    console.log(`    largest           ${c.top_share}%  ${usd(c.top.amount)}  ${A.displayName(c.top.name)}`
+      + (A.keyId(c.top.name) ? C.dim(`  ${A.keyId(c.top.name)}`) : ''));
     console.log(`    HHI               ${c.hhi}   `
       + C.dim(`≈ ${c.effective_targets} effective target(s)`));
   }
@@ -1371,7 +1372,10 @@ async function cmdAsymmetry(opts = {}) {
         line += `  ${(b.for ? usd(b.for) : '—').padStart(12)}`
           + `  ${(b.against ? C.r(usd(b.against)) : '—').padStart(b.against ? 21 : 13)}`;
       }
-      console.log(`${line}  ${b.name}`);
+      // The key carries the ID so two people with one name stay two people;
+      // the reader sees the name, with the id beside it.
+      console.log(`${line}  ${A.displayName(b.name)}`
+        + (A.keyId(b.name) ? C.dim(`  ${A.keyId(b.name)}`) : ''));
     }
   }
   console.log(`\n  ${C.dim('Verify:')} https://www.fec.gov/data/committee/${opts.committee}/\n`);

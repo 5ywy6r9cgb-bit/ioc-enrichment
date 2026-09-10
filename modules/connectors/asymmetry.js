@@ -181,20 +181,53 @@ function groupBy(rows, actorKey) {
 // The dimensions this can measure. Each is (actor, target) over a row set —
 // the arithmetic is identical and only the two accessors change, which is
 // why a fifth dimension costs two lines rather than a new module.
+// A NAME IS NOT AN IDENTITY, AND THIS FILE WAS THE LAST PLACE IGNORING IT.
+//
+// Two views of the same money disagreed by $121,461:
+//
+//   SLF PAC against BROWN, SHERROD
+//     read from the CANDIDATE (member, keyed on S6OH00163)   $4,508,418
+//     read from the COMMITTEE (asymmetry, keyed on the NAME) $4,629,879
+//
+// Both runs completed under the page cap, so neither was truncated. The
+// register holds TWO Sherrod Browns — S6OH00163 (Senate) and H2OH13033
+// (House) — and grouping by the name string merged them into one target.
+//
+// `member` refuses to choose between them and makes the operator pass an
+// id. This module quietly added them together, which is the same error
+// wearing the opposite face: not picking the wrong person, but inventing
+// a person who is both.
+//
+// The id is the key. The NAME is what gets printed, because an id on
+// screen is unreadable — see `label` below, which carries both.
+const idFirst = (id, name, fallback) => (id ? `${name || id}\u0000${id}` : (name || fallback));
+
+/** Split a composite key back into what a reader should see. */
+function displayName(key) {
+  const i = String(key).indexOf('\u0000');
+  return i === -1 ? String(key) : String(key).slice(0, i);
+}
+
+/** The identifier behind a key, when there was one. */
+function keyId(key) {
+  const i = String(key).indexOf('\u0000');
+  return i === -1 ? '' : String(key).slice(i + 1);
+}
+
 const DIMENSIONS = {
   // one committee's independent spending, across the candidates it named
   candidate: {
     label: 'a committee\'s spending, across the candidates it named',
     actor: (r) => r.by_committee_id || r.by,
     actorName: (r) => r.by,
-    target: (r) => r.candidate || r.candidate_id || '(unnamed candidate)',
+    target: (r) => idFirst(r.candidate_id, r.candidate, '(unnamed candidate)'),
   },
   // one candidate's incoming outside money, across the committees spending it
   committee: {
     label: 'outside money at one candidate, across the committees spending it',
-    actor: (r) => r.candidate || r.candidate_id,
+    actor: (r) => r.candidate_id || r.candidate,
     actorName: (r) => r.candidate,
-    target: (r) => r.by || r.by_committee_id || '(unnamed committee)',
+    target: (r) => idFirst(r.by_committee_id, r.by, '(unnamed committee)'),
   },
   // one committee's payments, across the vendors it paid
   vendor: {
@@ -205,4 +238,5 @@ const DIMENSIONS = {
   },
 };
 
-module.exports = { concentrate, rank, groupBy, VERDICTS, DIMENSIONS };
+module.exports = { concentrate, rank, groupBy, VERDICTS, DIMENSIONS,
+  displayName, keyId };
