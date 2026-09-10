@@ -88,12 +88,12 @@
     },
     {
       "id": "HUSTED-01",
-      "status": "GREEN",
+      "status": "RETRACTED",
       "subject": "Jon Husted 2026",
-      "line": "$19.1 million moved at a seat with $476,000 in the candidate's own account.",
-      "detail": "$11,854,529 FOR (113 expenditures) and $7,270,291 AGAINST (22), against $376,438 + $99,435 raised into his own committee.",
-      "caveat": "OUTSIDE PRESSURE 40.19x is a CEILING, not a floor. His Schedule A hit the 25-page cap, so the denominator is understated and the true multiple is LOWER. DO NOT USE THE MULTIPLE until that pull completes.",
-      "command": "bin/sentinel connect member \"HUSTED, JON\" --cycle 2026",
+      "line": "WITHDRAWN \u2014 40.19x was wrong by a factor of 18 to 30.",
+      "detail": "The published figure divided $19.1m of outside money by $475,873 \u2014 a TRUNCATED Schedule A sample, not the committee total. His committee reported $14,350,624 in receipts. Corrected: OUTSIDE PRESSURE 1.35x on receipts, 2.24x excluding the $5,675,891 of transfers in.",
+      "caveat": "DO NOT USE. Kept as a retraction, not a fact. The correct figure is in DELEG-01. This is what a ceiling looks like when it is not checked.",
+      "command": "bin/sentinel connect delegation OH --cycle 2026 --outside",
       "verify": "https://www.fec.gov/data/candidate/S6OH00304/",
       "complete": false
     },
@@ -139,6 +139,28 @@
       "caveat": "The wrong reading is kept in the file with the retraction attached. Correcting it in place would hide the method that caught it.",
       "command": "bin/sentinel connect asymmetry \"Americans for Prosperity Action\" --cycle 2026",
       "verify": "docs/FINDINGS_2026-09-09.md \u00a79, \u00a719",
+      "complete": true
+    },
+    {
+      "id": "DELEG-01",
+      "status": "GREEN",
+      "subject": "Ohio's federal delegation, 2026",
+      "line": "Sixteen members raised $47.4 million. Two in five dollars came from PACs.",
+      "detail": "$47,405,708 raised across 16 seats; $14,582,896 \u2014 39.5% \u2014 from political committees. PAC share ranges from 13.9% (Jordan) to 74.2% (Beatty), a five-fold spread that does not sort by party.",
+      "caveat": "PAC share is measured against CONTRIBUTIONS \u2014 individuals plus committees plus party \u2014 never against receipts, which include loans and transfers and would flatter anyone who lent their campaign money. Delegation totals are a sum of separate committees; nobody controls them jointly.",
+      "command": "bin/sentinel connect delegation OH --cycle 2026 --outside",
+      "verify": "https://www.fec.gov/data/",
+      "complete": true
+    },
+    {
+      "id": "DELEG-02",
+      "status": "GREEN",
+      "subject": "Contested Ohio seats, 2026",
+      "line": "Three of sixteen Ohio seats had money spent against them. One was attacked with nothing spent in its defence.",
+      "detail": "HUSTED $12,146,701 for / $7,270,291 against (1.67). KAPTUR $222,240 for / $706,277 against (0.31). MILLER $0 for / $423,010 against (0.00) \u2014 attacked and undefended. The other thirteen had nothing spent against them at all.",
+      "caveat": "A dot is not a safe seat \u2014 it means nobody spent against them, which is a different fact. Ratio is for-money over against-money.",
+      "command": "bin/sentinel connect delegation OH --cycle 2026 --outside",
+      "verify": "https://www.fec.gov/data/",
       "complete": true
     }
   ],
