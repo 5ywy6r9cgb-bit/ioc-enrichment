@@ -916,6 +916,48 @@ function subjectFrom(positional, argv, flagNames) {
  * beside a committee with forty-four manufactures findings out of small
  * numbers.
  */
+/**
+ * Turn a typed name into ONE committee id, or refuse.
+ *
+ * `asymmetry` used to demand --committee C00…, which meant every run began
+ * with a separate lookup and a copy-paste. Every other command in this file
+ * takes a name. The inconsistency was mine and it cost three commands that
+ * could not run.
+ *
+ * Resolving is not the same as choosing. One match resolves and says which.
+ * Several matches PRINT and STOP -- a name like "Americans for Prosperity"
+ * covers a connected PAC and a super PAC, governed by different rules, and
+ * picking the first row would be picking the answer.
+ */
+async function resolveCommittee(nameOrId, key, fetchJson, cmd) {
+  const F = require('./fecpac.js');
+  if (/^C\d{8}$/i.test(nameOrId.trim())) return nameOrId.trim().toUpperCase();
+
+  const cmts = F.parseCommittees(await fetchJson(F.committeeSearchUrl(nameOrId, key)));
+  if (!cmts.length) {
+    console.log(`\n  ${C.y('No committee of that name is registered with the FEC.')}`);
+    console.log(C.dim('  That is a fact about the register, not a failed search.\n'));
+    process.exit(2);
+  }
+  if (cmts.length === 1) {
+    console.log(C.dim(`\n  "${nameOrId}" → ${cmts[0].committee_id}  ${cmts[0].name}`));
+    return cmts[0].committee_id;
+  }
+  console.log(`\n  ${C.b(`${cmts.length} committees match`)} "${nameOrId}"\n`);
+  for (const c of cmts.slice(0, 12)) {
+    console.log(`  ${C.g(c.committee_id)}  ${c.name}`);
+    console.log(C.dim(`  ${' '.repeat(12)}${c.type}${c.designation ? ' · ' + c.designation : ''}`
+      + `${c.first_file_date ? ' · first filed ' + c.first_file_date.slice(0, 10) : ''}`));
+  }
+  if (cmts.length > 12) console.log(C.dim(`\n  …and ${cmts.length - 12} more.`));
+  console.log(`\n  ${C.b('Nothing was measured.')} ${C.dim('Pick one:')}`);
+  console.log(C.dim(`    sentinel connect ${cmd} --committee ${cmts[0].committee_id}`));
+  console.log(C.dim('\n  A connected PAC and a super PAC under one name are governed by'));
+  console.log(C.dim('  different rules and their money means different things.'));
+  console.log(C.dim('  Choosing for you would be choosing the story.\n'));
+  process.exit(2);
+}
+
 async function cmdAsymmetry(opts = {}) {
   const A = require('./asymmetry.js');
   const F = require('./fecpac.js');
@@ -943,6 +985,10 @@ async function cmdAsymmetry(opts = {}) {
       await new Promise((r) => setTimeout(r, wait)); wait *= 2;
     }
   };
+
+  // A name is allowed here. It resolves to exactly one id or the command
+  // stops -- see resolveCommittee.
+  opts = { ...opts, committee: await resolveCommittee(opts.committee, key, fetchJson, 'asymmetry') };
 
   const cmts = F.parseCommittees(await fetchJson(
     `${F.API}/committees/?api_key=${encodeURIComponent(key)}`
@@ -2153,12 +2199,19 @@ async function main() {
   }
   if (action === 'asymmetry') {
     const cycle = flagNum(argv, '--cycle');
-    const committee = flagVal(argv, '--committee');
     const dim = flagVal(argv, '--dimension') || 'candidate';
+    // A NAME or an id, positionally or behind --committee. Requiring the id
+    // meant every run started with a lookup somewhere else.
+    const committee = flagVal(argv, '--committee')
+      || subjectFrom(args.slice(1), argv, ['--cycle', '--dimension', '--min-rows']);
     if (!committee) {
-      console.error('\n  usage: sentinel connect asymmetry --committee C00… [--cycle 2024]');
+      console.error('\n  usage: sentinel connect asymmetry "COMMITTEE NAME" [--cycle 2024]');
+      console.error('     or: sentinel connect asymmetry --committee C00… [--cycle 2024]');
       console.error('                                      [--dimension candidate|vendor]');
-      console.error('\n  How concentrated is this committee\'s spending, and on what.\n');
+      console.error('\n  How concentrated is this committee\'s spending, and on what.');
+      console.error('\n  A name resolves to one committee or the command stops and lists');
+      console.error('  the matches. It will not pick between a connected PAC and a');
+      console.error('  super PAC for you.\n');
       process.exit(2);
     }
     return cmdAsymmetry({ committee, cycle, dimension: dim,
@@ -2272,4 +2325,4 @@ if (require.main === module) {
   main().catch((e) => { console.error(e); process.exit(1); });
 }
 
-module.exports = { verdictFor, cmdTest, wrap, parseAllArgs, cmdLobby, cmdGraph, cmdRegistrant, cmdExpand, cmdSweep, cmdBrief, flagVal, flagNum, subjectFrom };
+module.exports = { verdictFor, cmdTest, wrap, parseAllArgs, cmdLobby, cmdGraph, cmdRegistrant, cmdExpand, cmdSweep, cmdBrief, flagVal, flagNum, subjectFrom, resolveCommittee };

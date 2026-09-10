@@ -500,6 +500,59 @@ module.exports = function run() {
       P(['x', '--into', 'Data Centers!']).error);
   }
 
+  // ══ ASYMMETRY MUST TAKE A NAME ════════════════════════════════════════
+  // Three commands were handed to the operator as
+  //   connect asymmetry "Americans for Prosperity Action" --cycle 2026
+  // and all three printed the usage block and exited 2, because the command
+  // read ONLY --committee C00… and ignored the positional argument. Every
+  // other command in this file takes a name. Nothing was measured and the
+  // failure was silent about why.
+  {
+    const CLI = require('./cli.js');
+    const parseAsym = (argv) => {
+      const args = argv.filter((a) => !a.startsWith('--'));
+      return CLI.flagVal(argv, '--committee')
+        || CLI.subjectFrom(args.slice(1), argv, ['--cycle', '--dimension', '--min-rows']);
+    };
+
+    check('a bare committee NAME reaches the command',
+      parseAsym(['asymmetry', 'Americans for Prosperity Action', '--cycle', '2026'])
+        === 'Americans for Prosperity Action',
+      parseAsym(['asymmetry', 'Americans for Prosperity Action', '--cycle', '2026']));
+    check('a one-word name reaches it too',
+      parseAsym(['asymmetry', 'WinSenate', '--cycle', '2026']) === 'WinSenate');
+    check('--committee still works and still wins',
+      parseAsym(['asymmetry', 'Some Name', '--committee', 'C00694323']) === 'C00694323');
+
+    // The bug next door: a flag's VALUE joining the name. --cycle 2026 with
+    // the 2026 landing in the search string is how "vadata center" happened.
+    check('a flag value does not become part of the name',
+      !parseAsym(['asymmetry', 'WinSenate', '--cycle', '2026']).includes('2026'));
+    check('nor does --dimension\'s',
+      !parseAsym(['asymmetry', 'WinSenate', '--dimension', 'vendor']).includes('vendor'));
+    check('no name and no --committee is still refused',
+      parseAsym(['asymmetry', '--cycle', '2026']) === '');
+
+    // An id typed where a name goes must not cost a search.
+    check('an id is recognised without a lookup',
+      /\^C\\d\{8\}\$/.test(cliSrc) || /C\\d\{8\}/.test(cliSrc));
+    check('several matches STOP rather than picking the first',
+      /Choosing for you would be choosing the story/.test(cliSrc)
+      && /Nothing was measured/.test(cliSrc));
+    check('and the resolver is what asymmetry calls',
+      /committee: await resolveCommittee\(/.test(cliSrc));
+
+    // The checks above run a COPY of the parse. They would stay green if the
+    // dispatcher itself reverted to --committee-only, so pin the real branch
+    // in source: the fallback to subjectFrom must be in it.
+    const branch = cliSrc.slice(cliSrc.indexOf("if (action === 'asymmetry')"));
+    check('the dispatcher branch itself falls back to a positional name',
+      /flagVal\(argv, '--committee'\)\s*\n?\s*\|\|\s*subjectFrom\(/
+        .test(branch.slice(0, 900)));
+    check('and its usage line offers the name form first',
+      /usage: sentinel connect asymmetry "COMMITTEE NAME"/.test(branch.slice(0, 1400)));
+  }
+
   console.log(`\n  ${FAIL === 0 ? 'PASS' : 'FAIL'} — ${PASS}/${PASS + FAIL} checks\n`);
   return FAIL;
 };
