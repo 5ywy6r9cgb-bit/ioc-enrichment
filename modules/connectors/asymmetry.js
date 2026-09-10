@@ -71,8 +71,10 @@ function concentrate(rows, key, { minRows = 5, minTotal = 1000, side = null } = 
   for (const r of rows) {
     const k = key(r) || '(unnamed)';
     const amt = Number(r.amount) || 0;
-    const cur = byTarget.get(k) || { amount: 0, for: 0, against: 0 };
+    const cur = byTarget.get(k) || { amount: 0, for: 0, against: 0, purposes: new Map() };
     cur.amount += amt;
+    const why = String(r.purpose || '').trim();
+    if (why) cur.purposes.set(why, (cur.purposes.get(why) || 0) + amt);
     // WHICH WAY THE MONEY POINTED. Two committees that both appear at one
     // seat look like a pair until you read this field, and then one of them
     // is attacking the candidate the other is defending. Merging them into
@@ -85,7 +87,20 @@ function concentrate(rows, key, { minRows = 5, minTotal = 1000, side = null } = 
     total += amt;
   }
   const targets = [...byTarget.entries()]
-    .map(([name, v]) => ({ name, amount: v.amount, for: v.for, against: v.against }))
+    .map(([name, v]) => ({
+      name, amount: v.amount, for: v.for, against: v.against,
+      // WHAT THE COMMITTEE SAID IT WAS BUYING.
+      // Three shared vendors were "unidentified" and a corporate registry
+      // could not fix that — a registry records incorporation, not what a
+      // firm does. The committees had already told the FEC, in the
+      // disbursement description, and this file was discarding it.
+      // Purposes are ranked BY MONEY so a $5 line does not label a
+      // six-figure relationship.
+      purposes: [...(v.purposes || new Map()).entries()]
+        .map(([text, amount]) => ({ text, amount }))
+        .sort((a, b) => b.amount - a.amount)
+        .slice(0, 3),
+    }))
     .sort((a, b) => b.amount - a.amount);
 
   if (total <= 0) {

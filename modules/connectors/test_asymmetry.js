@@ -217,6 +217,49 @@ async function run() {
   eq('and keyId returns empty for one', A.keyId('PLAIN'), '');
 
 
+  // ── WHAT THE COMMITTEE SAID IT WAS BUYING ────────────────────────────
+  // SOCKO STRATEGIES, QUINTUS LLC and IRONCLAD CONSULTING were paid by
+  // three and four Husted-adjacent committees and this desk called them
+  // "unidentified". OpenCorporates could not fix that — a registry records
+  // INCORPORATION, not what a firm does. The committees had already told
+  // the FEC in the disbursement description, and this module was throwing
+  // it away.
+  const VT = A.DIMENSIONS.vendor.target;
+  const withWhy = A.concentrate([
+    { recipient: 'SOCKO STRATEGIES', amount: 200000, purpose: 'DIGITAL ADVERTISING' },
+    { recipient: 'SOCKO STRATEGIES', amount: 73043, purpose: 'CONSULTING' },
+    { recipient: 'SOCKO STRATEGIES', amount: 5, purpose: 'POSTAGE' },
+    { recipient: 'BROGHAMER COMPLIANCE', amount: 13639, purpose: 'COMPLIANCE SERVICES' },
+  ], VT, { minRows: 1, minTotal: 1 });
+
+  const socko = withWhy.breakdown.find((b) => b.name === 'SOCKO STRATEGIES');
+  eq('a vendor carries what it was paid FOR', socko.purposes[0].text, 'DIGITAL ADVERTISING');
+  eq('with the money behind that description', socko.purposes[0].amount, 200000);
+  eq('and the second purpose too', socko.purposes[1].text, 'CONSULTING');
+
+  // RANKED BY MONEY, not by row order. A $5 postage line must not become
+  // the label on a six-figure relationship.
+  check('a trivial line does not label a large relationship',
+    socko.purposes[0].amount > socko.purposes[2].amount * 1000);
+  eq('at most three purposes are kept', socko.purposes.length, 3);
+
+  // Repeat descriptions are summed, not listed twice.
+  const repeated = A.concentrate([
+    { recipient: 'V', amount: 100, purpose: 'MEDIA' },
+    { recipient: 'V', amount: 900, purpose: 'MEDIA' },
+  ], VT, { minRows: 1, minTotal: 1 }).breakdown[0];
+  eq('one description across two rows is one entry', repeated.purposes.length, 1);
+  eq('with the amounts added', repeated.purposes[0].amount, 1000);
+
+  // A row with no purpose must not create a blank entry.
+  const noWhy = A.concentrate([
+    { recipient: 'V', amount: 500 },
+    { recipient: 'V', amount: 500, purpose: '   ' },
+  ], VT, { minRows: 1, minTotal: 1 }).breakdown[0];
+  eq('an empty purpose creates no entry', noWhy.purposes.length, 0);
+  eq('and the amount is still counted', noWhy.amount, 1000);
+
+
   console.log(`\n  ${fails ? 'FAIL' : 'PASS'} — ${ran - fails}/${ran} checks\n`);
   return fails ? 1 : 0;
 }

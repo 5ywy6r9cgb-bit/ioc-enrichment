@@ -1376,6 +1376,13 @@ async function cmdAsymmetry(opts = {}) {
       // the reader sees the name, with the id beside it.
       console.log(`${line}  ${A.displayName(b.name)}`
         + (A.keyId(b.name) ? C.dim(`  ${A.keyId(b.name)}`) : ''));
+      // WHAT THE COMMITTEE SAID IT WAS BUYING. Three shared vendors were
+      // "unidentified" and a corporate registry could not fix it — a
+      // registry records incorporation, not what a firm does. The filer
+      // had already told the FEC, in the disbursement description.
+      for (const w of (b.purposes || []).slice(0, 2)) {
+        console.log(C.dim(`      ${usd(w.amount).padStart(13)}  ${w.text.slice(0, 54)}`));
+      }
     }
   }
   // WHO WAS PAID TO DO IT. On the candidate dimension the rows are
