@@ -451,8 +451,35 @@ function parseIndependent(json) {
     // S = for the candidate, O = against. The whole meaning of the row.
     stance: (r.support_oppose_indicator || '').toUpperCase(),
     purpose: r.expenditure_description || '',
+    // WHO WAS PAID. A super PAC's ad money is on Schedule E, not
+    // Schedule B, so the vendor view read its overheads and missed its
+    // actual spending — OHIO FLYER PAC showed $185,773 of vendors while
+    // spending $4,459,869 on advertising. The firm that placed the ads was
+    // never on screen.
+    payee: r.payee_name || '',
     image: r.image_number || '',
   }));
+}
+
+/**
+ * Who a committee PAID to run its independent expenditures.
+ *
+ * Separate from `residual` because these rows are Schedule E, and separate
+ * from the candidates named because the payee is the vendor, not the target.
+ * Sides are kept apart: a firm paid to attack is doing different work from
+ * one paid to support, and merging them describes neither.
+ */
+function byPayee(independents) {
+  const m = new Map();
+  for (const r of independents) {
+    const k = r.payee || '(payee not stated)';
+    const cur = m.get(k) || { name: k, total: 0, for: 0, against: 0, rows: 0 };
+    cur.total += r.amount;
+    if (r.stance === 'O') cur.against += r.amount; else cur.for += r.amount;
+    cur.rows += 1;
+    m.set(k, cur);
+  }
+  return [...m.values()].sort((a, b) => b.total - a.total);
 }
 
 /**
@@ -565,6 +592,6 @@ module.exports = {
   PAC_PER_ELECTION_CAP_USD, IMPLAUSIBLE_PER_RECIPIENT_USD,
   disbursementsUrl, parseDisbursements, isContribution, CONTRIBUTION_TYPES,
   independentUrl, parseIndependent,
-  byRecipient, totals, collect, residual, affiliationOf, resolveSponsors,
+  byRecipient, totals, collect, residual, byPayee, affiliationOf, resolveSponsors,
   CANDIDATE_ID_RE,
 };

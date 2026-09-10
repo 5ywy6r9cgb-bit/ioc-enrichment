@@ -1378,6 +1378,24 @@ async function cmdAsymmetry(opts = {}) {
         + (A.keyId(b.name) ? C.dim(`  ${A.keyId(b.name)}`) : ''));
     }
   }
+  // WHO WAS PAID TO DO IT. On the candidate dimension the rows are
+  // Schedule E, which names a payee — and for a super PAC that is where
+  // the real money is. The vendor dimension reads Schedule B and sees only
+  // overheads.
+  if (opts.dimension !== 'vendor' && rows.length && rows.some((r) => r.payee)) {
+    const payees = F.byPayee(rows);
+    console.log(`\n  ${C.b('Who it PAID to run that spending')}  ${C.dim(`${payees.length} payee(s), Schedule E`)}`);
+    console.log(C.dim('       total           for        against  payee'));
+    for (const p of payees.slice(0, 12)) {
+      console.log(`    ${usd(p.total).padStart(12)}  ${(p.for ? usd(p.for) : '—').padStart(12)}`
+        + `  ${(p.against ? C.r(usd(p.against)) : '—').padStart(p.against ? 21 : 13)}  ${p.name}`);
+    }
+    console.log(C.dim('\n    A vendor relationship is a CONTRACT, which makes it a stronger'));
+    console.log(C.dim('    link than a shared bill. It is not evidence of coordination:'));
+    console.log(C.dim('    common vendors are ordinary, and FEC rules address them'));
+    console.log(C.dim('    directly, including a firewall safe harbour at 11 CFR 109.21(h).'));
+  }
+
   console.log(`\n  ${C.dim('Verify:')} https://www.fec.gov/data/committee/${opts.committee}/\n`);
 }
 

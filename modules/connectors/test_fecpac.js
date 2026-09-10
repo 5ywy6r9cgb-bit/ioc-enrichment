@@ -603,6 +603,48 @@ async function run() {
   }
 
 
+  // ══ A SUPER PAC'S REAL VENDOR IS ON SCHEDULE E ════════════════════════
+  // `asymmetry --dimension vendor` reads Schedule B, so OHIO FLYER PAC
+  // showed $185,773 of vendors while spending $4,459,869 on advertising.
+  // The firm that placed the ads was never on screen, because a super
+  // PAC's spending is Schedule E and Schedule E names a PAYEE that this
+  // module was throwing away.
+  {
+    const ie = F.parseIndependent({ results: [
+      { payee_name: 'BIG MEDIA LLC', expenditure_amount: 3000000,
+        support_oppose_indicator: 'O', candidate_name: 'BROWN' },
+      { payee_name: 'BIG MEDIA LLC', expenditure_amount: 1000000,
+        support_oppose_indicator: 'S', candidate_name: 'HUSTED' },
+      { payee_name: 'SMALL SHOP', expenditure_amount: 50000,
+        support_oppose_indicator: 'O', candidate_name: 'BROWN' },
+      { expenditure_amount: 500, support_oppose_indicator: 'O' },
+    ] });
+
+    eq('the payee is read off Schedule E', ie[0].payee, 'BIG MEDIA LLC');
+    const p = F.byPayee(ie);
+    eq('payees are grouped', p.length, 3);
+    eq('largest first', p[0].name, 'BIG MEDIA LLC');
+    eq('with its rows summed', p[0].total, 4000000);
+
+    // SIDES STAY APART. A firm paid to attack is doing different work from
+    // one paid to support, and one total describes neither.
+    eq('money it was paid to spend AGAINST', p[0].against, 3000000);
+    eq('and FOR, separately', p[0].for, 1000000);
+    check('so a payee cannot read as one-sided when it is not',
+      p[0].for > 0 && p[0].against > 0);
+
+    // A missing payee is labelled, never merged into the largest one.
+    check('a row with no payee is labelled, not silently attached to another',
+      p.some((x) => x.name === '(payee not stated)' && x.total === 500));
+
+    // The caveat has to be in the output, not just in a commit message.
+    check('the output says a vendor link is a CONTRACT, stronger than a bill',
+      /vendor relationship is a CONTRACT/.test(cliSrc2));
+    check('and that common vendors are ordinary, with the FEC rule named',
+      /109\.21\(h\)/.test(cliSrc2) && /not evidence of coordination/.test(cliSrc2));
+  }
+
+
   console.log(`\n  ${fails ? 'FAIL' : 'PASS'} — ${ran - fails}/${ran} checks\n`);
   return fails ? 1 : 0;
 }
