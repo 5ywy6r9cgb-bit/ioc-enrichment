@@ -471,6 +471,49 @@ async function run() {
   }
 
 
+  const cliSrc2 = require('fs').readFileSync(require.resolve('./cli.js'), 'utf8');
+  // ══ AN ID ALONE IS ENOUGH ═════════════════════════════════════════════
+  // `asymmetry` and `donors` were fixed to take a name OR --committee, and
+  // fecpac was left behind. So
+  //     connect fecpac --committee C00896688 --cycle 2026
+  // printed the usage block — immediately after two other commands had
+  // handed the operator that exact id. The name only exists to FIND the
+  // committee; with the id there is nothing left to search for.
+  {
+    const parseFec = (argv) => {
+      const a = argv.filter((x) => !x.startsWith('--'));
+      const committee = flagVal(argv, '--committee');
+      const q = subjectFrom(a.slice(1), argv, ['--cycle', '--committee']);
+      return { q, committee, refused: !q && !committee };
+    };
+
+    const idOnly = parseFec(['fecpac', '--committee', 'C00896688', '--cycle', '2026']);
+    check('an id with no name is accepted', !idOnly.refused);
+    eq('and is what gets looked up', idOnly.committee, 'C00896688');
+    eq('with no name invented for it', idOnly.q, '');
+
+    const nameOnly = parseFec(['fecpac', 'Team Husted']);
+    check('a name with no id is still accepted', !nameOnly.refused);
+    eq('and survives intact', nameOnly.q, 'Team Husted');
+
+    const both = parseFec(['fecpac', 'Team Husted', '--committee', 'C00896928']);
+    eq('given both, the name is kept', both.q, 'Team Husted');
+    eq('and so is the id', both.committee, 'C00896928');
+
+    check('neither one is refused, because nothing could be looked up',
+      parseFec(['fecpac', '--cycle', '2026']).refused);
+
+    // The id-only path must not ask the NAME endpoint for an id.
+    check('an id-only run queries committee_id, not the name search',
+      /byIdOnly[\s\S]{0,400}committee_id=\$\{encodeURIComponent\(opts\.committee\)\}/
+        .test(cliSrc2));
+    check('and does not announce "Committees matching <id>"',
+      /if \(!byIdOnly\) console\.log\(`\\n  \$\{C\.b\('Committees matching'\)/.test(cliSrc2));
+    check('the designation and sponsor still print on an id-only run',
+      /const affP = F\.affiliationOf\(await F\.resolveSponsors\(picked/.test(cliSrc2));
+  }
+
+
   console.log(`\n  ${fails ? 'FAIL' : 'PASS'} — ${ran - fails}/${ran} checks\n`);
   return fails ? 1 : 0;
 }

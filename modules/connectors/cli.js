@@ -1666,8 +1666,15 @@ async function cmdFecPac(name, opts = {}) {
   const fetchJson = fecFetcher();
 
   // ---- step one: which committee, exactly
-  console.log(`\n  ${C.b('Committees matching')} "${name}"`);
-  const cmts = F.parseCommittees(await fetchJson(F.committeeSearchUrl(name, key)));
+  // When only an id was given there is nothing to search FOR — asking the
+  // name endpoint for "C00896688" finds nothing and would report the
+  // committee as unregistered, which is the opposite of true.
+  const byIdOnly = !!opts.committee && name === opts.committee;
+  if (!byIdOnly) console.log(`\n  ${C.b('Committees matching')} "${name}"`);
+  const cmts = F.parseCommittees(await fetchJson(byIdOnly
+    ? `${F.API}/committees/?api_key=${encodeURIComponent(key)}`
+      + `&committee_id=${encodeURIComponent(opts.committee)}&per_page=1`
+    : F.committeeSearchUrl(name, key)));
   if (!cmts.length) {
     console.log(`\n  ${C.y('No committee of that name is registered with the FEC.')}`);
     console.log(C.dim('  That is a fact about the register, not a failed search: an'));
@@ -1676,16 +1683,18 @@ async function cmdFecPac(name, opts = {}) {
     console.log(C.dim(`    sentinel connect senatelda --registrant "${name}"\n`));
     return;
   }
-  console.log('');
-  for (const c of cmts) {
-    console.log(`  ${C.g(c.committee_id)}  ${c.name}`);
-    console.log(C.dim(`  ${' '.repeat(12)}${c.type}${c.designation ? ' · ' + c.designation : ''}`
-      + `${c.first_file_date ? ' · first filed ' + c.first_file_date.slice(0, 10) : ''}`));
-    // WHOSE it is, when the register says. "Leadership PAC" names a category,
-    // not a person, and the obvious guess from the committee's name is the
-    // inference this desk refuses everywhere else.
-    const aff = require('./fecpac.js').affiliationOf(c);
-    if (aff) console.log(`  ${' '.repeat(12)}${C.b(aff)}`);
+  if (!byIdOnly) {
+    console.log('');
+    for (const c of cmts) {
+      console.log(`  ${C.g(c.committee_id)}  ${c.name}`);
+      console.log(C.dim(`  ${' '.repeat(12)}${c.type}${c.designation ? ' · ' + c.designation : ''}`
+        + `${c.first_file_date ? ' · first filed ' + c.first_file_date.slice(0, 10) : ''}`));
+      // WHOSE it is, when the register says. "Leadership PAC" names a
+      // category, not a person, and the obvious guess from the committee's
+      // name is the inference this desk refuses everywhere else.
+      const aff = F.affiliationOf(await F.resolveSponsors(c, key, fetchJson));
+      if (aff) console.log(`  ${' '.repeat(12)}${C.b(aff)}`);
+    }
   }
 
   if (!opts.committee) {
@@ -1714,6 +1723,13 @@ async function cmdFecPac(name, opts = {}) {
 
   // ---- step two: the money, by category
   console.log(`\n  ${C.b(picked.name)}  ${C.dim(picked.committee_id)}  cycle ${cycle}`);
+  // Print the designation and sponsor here too — an id-only run never saw
+  // the matching list, and "Leadership PAC · sponsor: X" is the line that
+  // says whose money this is.
+  console.log(C.dim(`  ${picked.type}${picked.designation ? ' · ' + picked.designation : ''}`
+    + `${picked.first_file_date ? ' · first filed ' + picked.first_file_date.slice(0, 10) : ''}`));
+  const affP = F.affiliationOf(await F.resolveSponsors(picked, key, fetchJson));
+  if (affP) console.log(`  ${C.b(affP)}`);
   console.log(C.dim('  reading Schedule B (money out) …'));
   const b = await F.collect(fetchJson,
     (li, ld) => F.disbursementsUrl(picked.committee_id, cycle, key, li, ld),
@@ -2549,13 +2565,21 @@ async function main() {
     // `--into`, reintroduced here because I read the fix and not the reason.
     const cycle = flagNum(argv, '--cycle');
     const committee = flagVal(argv, '--committee');
+    // An id ALONE is enough. `asymmetry` and `donors` were fixed to take
+    // either form and this was left behind, so
+    //   connect fecpac --committee C00896688 --cycle 2026
+    // printed the usage block — after the operator had just been handed that
+    // exact id by two other commands. The name is only needed to FIND the
+    // committee; with the id there is nothing left to search for.
     const q = subjectFrom(args.slice(1), argv, ['--cycle', '--committee']);
-    if (!q) {
+    if (!q && !committee) {
       console.error('\n  usage: sentinel connect fecpac "ORGANISATION" [--committee C00… --cycle 2024]');
-      console.error('  Without --committee it only resolves the name and stops.\n');
+      console.error('     or: sentinel connect fecpac --committee C00… [--cycle 2024]');
+      console.error('\n  Without either, there is nothing to look up. With a name and no');
+      console.error('  --committee it resolves the name, lists the matches, and stops.\n');
       process.exit(2);
     }
-    return cmdFecPac(q, { cycle, committee, dryRun: opts.dryRun });
+    return cmdFecPac(q || committee, { cycle, committee, dryRun: opts.dryRun });
   }
   if (argv.includes('--registrant')) {
     const i = argv.indexOf('--registrant');
