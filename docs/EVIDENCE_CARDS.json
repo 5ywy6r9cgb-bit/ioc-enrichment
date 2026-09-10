@@ -162,6 +162,17 @@
       "command": "bin/sentinel connect delegation OH --cycle 2026 --outside",
       "verify": "https://www.fec.gov/data/",
       "complete": true
+    },
+    {
+      "id": "VENDOR-01",
+      "status": "GREEN",
+      "subject": "Shared vendors, Husted-adjacent committees",
+      "line": "Four committees. The same small firms paid by all of them.",
+      "detail": "SOCKO STRATEGIES is paid by all four ($479,017). QUINTUS LLC by three ($596,562). IRONCLAD CONSULTING by two ($225,127). Ohio Flyer PAC \u2014 the independent-expenditure-only committee \u2014 shares three vendors with TEAM HUSTED, the candidate's own joint fundraiser.",
+      "caveat": "A shared vendor is a CONTRACT, which makes it a stronger link than a shared bill. It is NOT evidence of coordination. Common vendors are ordinary and FEC rules address them directly, including a firewall safe harbour at 11 CFR 109.21(h). NOTHING here establishes that a firewall was absent, breached, or required. The two largest media relationships are NOT shared.",
+      "command": "bin/sentinel connect asymmetry --committee C00896928 --dimension vendor --cycle 2026",
+      "verify": "https://www.fec.gov/data/committee/C00896928/",
+      "complete": true
     }
   ],
   "open_questions": [
@@ -204,6 +215,15 @@
         "HUSTED-01",
         "BROWN-01"
       ]
+    },
+    {
+      "id": "Q-PAYEE",
+      "q": "Who did Ohio Flyer PAC pay to place $3,342,670 of advertising against Sherrod Brown?",
+      "blocks": [
+        "VENDOR-01"
+      ],
+      "command": "bin/sentinel connect asymmetry --committee C00912865 --cycle 2026",
+      "note": "Its Schedule B vendor total is $185,773 against $4,459,869 of advertising. The ad money is on Schedule E, whose payee field was being discarded until now. If the payee is a firm already in the shared table, that is a materially different fact."
     }
   ]
 }
