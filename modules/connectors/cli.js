@@ -1844,7 +1844,15 @@ async function cmdFecPac(name, opts = {}) {
     console.log('');
     for (const t2 of res.by_type.slice(0, 12)) {
       console.log(`    ${usd(t2.amount).padStart(14)}  ${String(t2.rows).padStart(4)} row(s)  ${C.b(t2.type)}`
-        + (t2.example ? C.dim(`  e.g. ${t2.example.slice(0, 44)}`) : ''));
+        + (t2.example ? C.dim(`  largest: ${t2.example.slice(0, 40)}`) : ''));
+      // The payees, because a bucket of 57 uncoded rows worth $2.9m told the
+      // operator nothing about where the money went.
+      if (t2.rows > 1 && t2.top && t2.top.length > 1) {
+        for (const pay of t2.top.slice(0, 3)) {
+          console.log(C.dim(`      ${usd(pay.amount).padStart(14)}  ${pay.name.slice(0, 46)}`));
+        }
+        if (t2.top.length > 3) console.log(C.dim('      …'));
+      }
     }
     if (res.to_committees.length) {
       console.log(`\n  ${C.b('…of which, paid to other COMMITTEES')} `

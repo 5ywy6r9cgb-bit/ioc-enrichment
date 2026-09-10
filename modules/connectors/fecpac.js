@@ -350,9 +350,21 @@ function residual(rows) {
   for (const r of rows) {
     if (isEarmarked(r) || isContribution(r)) continue;
     const t = String(r.type || '').toUpperCase() || '(no type coded)';
-    const cur = byType.get(t) || { type: t, amount: 0, rows: 0, example: '' };
+    // THE EXAMPLE MUST COME FROM THE MONEY, NOT FROM ROW ORDER.
+    // A live run labelled a $2,909,506 bucket "e.g. CREDIT CARD MERCHANT
+    // FEE" — true of one small row and wildly untrue of the bucket. Taking
+    // the FIRST row with a purpose means the label is decided by sort order,
+    // and a trivial example under a seven-figure total reads as an
+    // explanation of it.
+    const cur = byType.get(t)
+      || { type: t, amount: 0, rows: 0, example: '', example_usd: 0, top: new Map() };
     cur.amount += r.amount; cur.rows += 1;
-    if (!cur.example && r.purpose) cur.example = r.purpose;
+    if (r.purpose && r.amount > cur.example_usd) {
+      cur.example = r.purpose; cur.example_usd = r.amount;
+    }
+    // Where the bucket's money actually went, by payee.
+    const payee = r.recipient || '(unnamed)';
+    cur.top.set(payee, (cur.top.get(payee) || 0) + r.amount);
     byType.set(t, cur);
     total += r.amount;
     // A payment to another COMMITTEE is the row that names a participant,
@@ -372,7 +384,15 @@ function residual(rows) {
   return {
     total: Math.round(total * 100) / 100,
     rows: [...byType.values()].reduce((a, t) => a + t.rows, 0),
-    by_type: [...byType.values()].sort((a, b) => b.amount - a.amount),
+    by_type: [...byType.values()]
+      .map((t) => ({
+        ...t,
+        top: [...t.top.entries()]
+          .map(([name, amount]) => ({ name, amount }))
+          .sort((a, b) => b.amount - a.amount)
+          .slice(0, 5),
+      }))
+      .sort((a, b) => b.amount - a.amount),
     to_committees: [...byRecipient.values()].sort((a, b) => b.amount - a.amount),
   };
 }

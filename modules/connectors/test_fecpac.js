@@ -558,6 +558,51 @@ async function run() {
   }
 
 
+  // ══ A TRIVIAL EXAMPLE UNDER A SEVEN-FIGURE TOTAL ══════════════════════
+  // A live run on a joint fundraising committee printed:
+  //     $2,909,506  57 row(s)  (no type coded)  e.g. CREDIT CARD MERCHANT FEE
+  // True of one small row and wildly untrue of the bucket. The example was
+  // whichever row happened to come first, so a $2.9m total was labelled by
+  // sort order — and a merchant fee under seven figures reads as an
+  // explanation of them.
+  {
+    const r = F.residual([
+      { recipient: 'A BANK', amount: 85, purpose: 'CREDIT CARD MERCHANT FEE', type: '' },
+      { recipient: 'BIG VENDOR LLC', amount: 2909421, purpose: 'MEDIA PLACEMENT', type: '' },
+    ]);
+    const bucket = r.by_type[0];
+    eq('the example comes from the LARGEST row', bucket.example, 'MEDIA PLACEMENT');
+    eq('and its amount is carried so the label can be judged',
+      bucket.example_usd, 2909421);
+    check('not from whichever row was first',
+      bucket.example !== 'CREDIT CARD MERCHANT FEE');
+
+    // Where a bucket's money went, since a code alone says nothing.
+    eq('the bucket names its payees', bucket.top.length, 2);
+    eq('largest first', bucket.top[0].name, 'BIG VENDOR LLC');
+    eq('at the summed amount', bucket.top[0].amount, 2909421);
+    check('and the small one is still there rather than swept away',
+      bucket.top.some((t) => t.name === 'A BANK' && t.amount === 85));
+
+    // Repeat payees inside one bucket are summed, not listed twice.
+    const rep = F.residual([
+      { recipient: 'SAME VENDOR', amount: 1000, purpose: 'A', type: 'X' },
+      { recipient: 'SAME VENDOR', amount: 2000, purpose: 'B', type: 'X' },
+    ]).by_type[0];
+    eq('one payee across two rows is one entry', rep.top.length, 1);
+    eq('with the amounts added', rep.top[0].amount, 3000);
+    eq('and the example still from the larger row', rep.example, 'B');
+
+    // A row with no purpose must not blank an example already found.
+    const noPurpose = F.residual([
+      { recipient: 'V', amount: 10, purpose: 'SMALL THING', type: 'X' },
+      { recipient: 'W', amount: 5000, purpose: '', type: 'X' },
+    ]).by_type[0];
+    eq('a larger row with no purpose does not erase the example',
+      noPurpose.example, 'SMALL THING');
+  }
+
+
   console.log(`\n  ${fails ? 'FAIL' : 'PASS'} — ${ran - fails}/${ran} checks\n`);
   return fails ? 1 : 0;
 }
