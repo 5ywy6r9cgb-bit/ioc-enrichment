@@ -67,6 +67,37 @@ async function run() {
   check('an earmark named only in the text is caught too',
     D.isEarmarked({ memo_text: 'Earmarked for the committee' }));
 
+  // ── THE 119.2% BUG ──────────────────────────────────────────────────
+  // The first live run on OHIO FLYER PAC printed
+  //     NEAR COMPLETE  119.2% of reported receipts
+  //     receipts reported  $2,834,231
+  //     itemised here      $3,379,539
+  // You cannot see more of the money than exists. An earmarked gift is in
+  // Schedule A TWICE — the conduit's receipt and the memo row naming the
+  // original giver — and summing both counted it twice. Subtracting the
+  // $545,310 of memo rows gave $2,834,229, within $2 of reported receipts.
+  const live = D.summarise([
+    { from: 'BIG CO', kind: 'ORG', amount: 2834229, date: '2025-08-01' },
+    { from: 'A PERSON', kind: 'IND', amount: 545310, date: '2025-08-02',
+      memo_code: 'X' },
+  ], { receipts: 2834231 }, false);
+  eq('coverage is measured on DIRECT money only', live.coverage.itemised, 2834229);
+  eq('which lands where the committee says it should', live.coverage.share, 100);
+  eq('and reads as near complete, honestly this time',
+    live.coverage.verdict, 'near_complete');
+  check('the forwarded money is still reported, just not double-counted',
+    live.forwarded_total === 545310);
+
+  // The guard, for any other cause of the same impossibility.
+  const impossible = D.coverage(3379539, { receipts: 2834231 }, false);
+  eq('a share above 100% is never called near complete',
+    impossible.verdict, 'over_reported');
+  check('it is called what it is', /cannot be true/.test(impossible.note));
+  check('and no share may be stated from it',
+    !D.canStateShareOfWhole(impossible));
+  eq('101% is tolerated as rounding, not flagged',
+    D.coverage(101000, { receipts: 100000 }, false).verdict, 'near_complete');
+
   const s = D.summarise(rows, { receipts: 400000 }, false);
   eq('direct money is totalled apart from forwarded', s.direct_total, 262000);
   eq('and forwarded money is kept separate', s.forwarded_total, 100000);

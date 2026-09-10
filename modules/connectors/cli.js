@@ -1099,7 +1099,7 @@ async function cmdDonors(opts = {}) {
   // already formed the conclusion the coverage line is meant to qualify.
   const cv = s.coverage;
   const cColour = { near_complete: C.g, partial: C.y, thin: C.r,
-    truncated: C.r, unknown: C.r }[cv.verdict] || C.dim;
+    truncated: C.r, unknown: C.r, over_reported: C.r }[cv.verdict] || C.dim;
   console.log(`\n  ${C.b('How much of the money this can see')}`);
   console.log(`    ${cColour(cv.verdict.toUpperCase().replace('_', ' '))}`
     + (cv.share !== null ? `  ${cv.share}% of reported receipts` : ''));
@@ -1142,9 +1142,12 @@ async function cmdDonors(opts = {}) {
       console.log(`  ${C.b('Largest donor')}  ${share}% of this committee's reported receipts`);
       console.log(C.dim(`    ${t.name} — ${usd(t.direct + t.forwarded)} of ${usd(cv.receipts)}`));
     } else {
-      const share = ((t.direct + t.forwarded) / (s.direct_total + s.forwarded_total) * 100).toFixed(1);
+      // Denominator is DIRECT itemised money. Adding the forwarded total
+      // would count earmarked dollars twice and shrink every share.
+      const share = cv.itemised > 0
+        ? ((t.direct + t.forwarded) / cv.itemised * 100).toFixed(1) : '—';
       console.log(`  ${C.b('Largest donor')}  ${share}% ${C.y('OF THE ITEMISED MONEY ONLY')}`);
-      console.log(C.dim(`    ${t.name} — ${usd(t.direct + t.forwarded)} of ${usd(s.direct_total + s.forwarded_total)} itemised.`));
+      console.log(C.dim(`    ${t.name} — ${usd(t.direct + t.forwarded)} of ${usd(cv.itemised)} itemised.`));
       console.log(C.dim('    NOT a share of the committee. The rest of its money is not in'));
       console.log(C.dim('    these rows and could change this number in either direction.'));
     }

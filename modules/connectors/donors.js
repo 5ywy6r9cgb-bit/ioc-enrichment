@@ -165,7 +165,19 @@ function coverage(itemisedTotal, totals, truncated) {
   }
   const share = Math.round((itemisedTotal / totals.receipts) * 1000) / 10;
   let verdict;
-  if (truncated) verdict = 'truncated';
+  // OVER 100% IS NOT "VERY COMPLETE", IT IS A BROKEN DENOMINATOR.
+  // The first live run printed "NEAR COMPLETE 119.2% of reported receipts",
+  // which is not a coverage figure at all -- you cannot see more of the
+  // money than exists. The cause was memo rows: an earmarked contribution
+  // appears TWICE in Schedule A, once as the conduit's receipt and once as
+  // the memo row naming the original giver. Summing both counted that money
+  // twice. Subtracting the memo total landed within $2 of reported receipts.
+  //
+  // The rule stands even now that the caller passes direct-only: any share
+  // materially above 100% means the denominator does not match the rows, and
+  // a number that cannot be true must never be dressed as the best case.
+  if (share > 105) verdict = 'over_reported';
+  else if (truncated) verdict = 'truncated';
   else if (share >= 90) verdict = 'near_complete';
   else if (share >= 60) verdict = 'partial';
   else verdict = 'thin';
@@ -173,6 +185,11 @@ function coverage(itemisedTotal, totals, truncated) {
     share, receipts: totals.receipts, itemised: itemisedTotal, truncated,
     verdict,
     note: {
+      over_reported: 'These rows sum to MORE than the committee reported '
+        + 'receiving, which cannot be true and means the two numbers are not '
+        + 'measuring the same thing. Usual cause: earmarked money counted '
+        + 'twice, or rows from outside the summary\'s coverage period. No '
+        + 'share below should be read until it is resolved.',
       truncated: 'A page cap was reached. These rows are a SAMPLE, not the '
         + 'itemised total, and no share below should be read as a share of '
         + 'anything.',
@@ -204,7 +221,12 @@ function summarise(rows, totals, truncated) {
   const directTotal = direct.reduce((a, r) => a + r.amount, 0);
   const forwardedTotal = forwarded.reduce((a, r) => a + r.amount, 0);
   const donors = byDonor(rows);
-  const cov = coverage(directTotal + forwardedTotal, totals, truncated);
+  // DIRECT ONLY. An earmarked contribution is in Schedule A twice — the
+  // conduit's receipt AND the memo row naming who it came from — and only
+  // one of those is a dollar the committee received. Summing both put
+  // coverage at 119.2% on the first live run; direct-only landed within $2
+  // of the committee's own reported receipts.
+  const cov = coverage(directTotal, totals, truncated);
   return {
     rows: rows.length,
     direct_total: Math.round(directTotal * 100) / 100,
