@@ -111,6 +111,35 @@ function parseCommittees(json) {
   })).filter((r) => r.committee_id);
 }
 
+/** An FEC candidate id: office letter, cycle digit, state, serial. */
+const CANDIDATE_ID_RE = /^[HSP]\d[A-Z]{2}\d{5}$/;
+
+/**
+ * Turn sponsor CANDIDATE IDS into names, by asking the register.
+ *
+ * A live run printed `sponsor: S6OH00304` — correct, disclosed, and
+ * useless. An id sitting four rows below a named committee invites the
+ * reader to assume whose it is, which is the one thing this desk does not
+ * do. Resolving costs one call and removes the guess entirely.
+ *
+ * An id that will not resolve stays an id. It is still the truth.
+ */
+async function resolveSponsors(committee, key, fetchJson) {
+  const ids = (committee.sponsors || []).filter((s) => CANDIDATE_ID_RE.test(s));
+  if (!ids.length) return committee;
+  const named = [];
+  for (const id of ids) {
+    try {
+      const j = await fetchJson(`${API}/candidates/search/?api_key=${encodeURIComponent(key)}`
+        + `&candidate_id=${encodeURIComponent(id)}&per_page=1`);
+      const r = (j.results || [])[0];
+      named.push(r && r.name ? `${r.name} (${id})` : id);
+    } catch { named.push(id); }
+  }
+  const kept = (committee.sponsors || []).filter((s) => !CANDIDATE_ID_RE.test(s));
+  return { ...committee, sponsors: [...kept, ...named] };
+}
+
 /** One line naming who stands behind a committee, or nothing if unstated. */
 function affiliationOf(c) {
   const bits = [];
@@ -487,5 +516,6 @@ module.exports = {
   PAC_PER_ELECTION_CAP_USD, IMPLAUSIBLE_PER_RECIPIENT_USD,
   disbursementsUrl, parseDisbursements, isContribution, CONTRIBUTION_TYPES,
   independentUrl, parseIndependent,
-  byRecipient, totals, collect, residual, affiliationOf,
+  byRecipient, totals, collect, residual, affiliationOf, resolveSponsors,
+  CANDIDATE_ID_RE,
 };

@@ -134,17 +134,47 @@ function byDonor(rows) {
   return [...out.values()].sort((a, b) => (b.direct + b.forwarded) - (a.direct + a.forwarded));
 }
 
-/** Totals by the FEC's own entity classification. */
+/**
+ * Totals by the FEC's own entity classification.
+ *
+ * NEGATIVE ROWS ARE REFUNDS, AND THEY ARE COUNTED SEPARATELY.
+ *
+ * A live run printed:
+ *
+ *     -0.4%   $-4,351   candidate committees
+ *
+ * which is not a category of giving. Schedule A carries returned and
+ * redesignated contributions as negative amounts, and netting them into a
+ * donor's or a category's total makes money that came in and went back out
+ * simply disappear — a donor whose gift was refunded can net to zero and
+ * drop off a "top donors" list entirely, which is the quietest way for this
+ * tool to hide a name.
+ */
 function byKind(rows) {
   const out = new Map();
   for (const r of rows) {
     if (isEarmarked(r)) continue;
     const k = kindOf(r);
-    out.set(k, (out.get(k) || 0) + r.amount);
+    const cur = out.get(k) || { kind: k, amount: 0, refunded: 0 };
+    if (r.amount < 0) cur.refunded += Math.abs(r.amount);
+    else cur.amount += r.amount;
+    out.set(k, cur);
   }
-  return [...out.entries()]
-    .map(([kind, amount]) => ({ kind, amount }))
-    .sort((a, b) => b.amount - a.amount);
+  return [...out.values()].sort((a, b) => b.amount - a.amount);
+}
+
+/** Every negative row, which is money that went back out. */
+function refunds(rows) {
+  const neg = rows.filter((r) => !isEarmarked(r) && r.amount < 0);
+  return {
+    rows: neg.length,
+    total: Math.round(neg.reduce((a, r) => a + Math.abs(r.amount), 0) * 100) / 100,
+    to: [...neg.reduce((m, r) => {
+      const k = r.from || '(unnamed)';
+      m.set(k, (m.get(k) || 0) + Math.abs(r.amount)); return m;
+    }, new Map())].map(([name, amount]) => ({ name, amount }))
+      .sort((a, b) => b.amount - a.amount),
+  };
 }
 
 /**
@@ -234,6 +264,7 @@ function summarise(rows, totals, truncated) {
     forwarded_rows: forwarded.length,
     distinct_donors: donors.length,
     by_kind: byKind(rows),
+    refunds: refunds(rows),
     coverage: cov,
     can_state_share_of_whole: canStateShareOfWhole(cov),
     donors,
@@ -262,5 +293,5 @@ async function collect(fetchJson, urlFor, parse, maxPages, hardCap, onPage) {
 
 module.exports = {
   API, receiptsUrl, parseReceipts, isEarmarked, kindOf, KINDS,
-  byDonor, byKind, coverage, canStateShareOfWhole, summarise, collect,
+  byDonor, byKind, refunds, coverage, canStateShareOfWhole, summarise, collect,
 };

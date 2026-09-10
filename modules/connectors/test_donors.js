@@ -193,6 +193,43 @@ async function run() {
   eq('a page cap stops the pull', capped.pages, 3);
   check('and says so, so coverage can refuse to divide', capped.truncated === true);
 
+  // ── A NEGATIVE ROW IS A REFUND, NOT A CATEGORY OF GIVING ────────────
+  // A live run printed:
+  //     -0.4%   $-4,351   candidate committees
+  // Schedule A carries returned and redesignated contributions as negative
+  // amounts. Netting them makes money that came in and went back out
+  // disappear — and a donor whose gift was refunded can net to zero and
+  // drop off the top-donor list, which is the quietest way to hide a name.
+  const withRefund = [
+    { from: 'GAVE PAC', kind: 'PAC', amount: 10000, date: '2025-03-01' },
+    { from: 'REFUNDED PAC', kind: 'CCM', amount: 4351, date: '2025-04-01' },
+    { from: 'REFUNDED PAC', kind: 'CCM', amount: -4351, date: '2025-09-01' },
+  ];
+  const rk = D.byKind(withRefund);
+  const ccm = rk.find((k) => k.kind === 'candidate committees');
+  eq('the positive side of a refunded gift is still counted', ccm.amount, 4351);
+  eq('and the refund is reported apart from it', ccm.refunded, 4351);
+  check('so no category shows a negative total',
+    rk.every((k) => k.amount >= 0));
+
+  const rf = D.refunds(withRefund);
+  eq('every negative row is collected', rf.rows, 1);
+  eq('as a positive amount, because it is a fact not a subtraction', rf.total, 4351);
+  eq('and the name it went back to is kept', rf.to[0].name, 'REFUNDED PAC');
+
+  const sr = D.summarise(withRefund, { receipts: 10000 }, false);
+  check('a refunded donor still appears in the donor list',
+    sr.donors.some((d) => d.name === 'REFUNDED PAC'));
+  check('and the summary carries the refunds',
+    sr.refunds.rows === 1 && sr.refunds.total === 4351);
+  eq('a committee with no refunds reports none',
+    D.refunds([{ from: 'X', amount: 100 }]).rows, 0);
+
+  // An earmarked negative is still someone else's money, not a refund here.
+  eq('a memo-coded negative is not counted as this committee\'s refund',
+    D.refunds([{ from: 'CONDUIT', amount: -50, memo_code: 'X' }]).rows, 0);
+
+
   console.log(`\n  ${fails ? 'FAIL' : 'PASS'} — ${ran - fails}/${ran} checks\n`);
   return fails ? 1 : 0;
 }

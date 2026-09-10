@@ -1064,7 +1064,7 @@ async function cmdDonors(opts = {}) {
   if (cmts.length) {
     console.log(C.dim(`  ${cmts[0].type}${cmts[0].designation ? ' · ' + cmts[0].designation : ''}`
       + `${cmts[0].first_file_date ? ' · first filed ' + cmts[0].first_file_date.slice(0, 10) : ''}`));
-    const aff0 = F.affiliationOf(cmts[0]);
+    const aff0 = F.affiliationOf(await F.resolveSponsors(cmts[0], key, fetchJson));
     if (aff0) console.log(`  ${C.b(aff0)}`);
   }
   if (opts.dryRun) { console.log(C.dim('\n  DRY RUN — nothing requested.\n')); return; }
@@ -1123,10 +1123,24 @@ async function cmdDonors(opts = {}) {
   }
 
   console.log(`\n  ${C.b('Where the itemised money came from')}`);
+  const givenTotal = s.by_kind.reduce((a, k) => a + k.amount, 0);
   for (const k of s.by_kind) {
-    const share = s.direct_total > 0
-      ? ((k.amount / s.direct_total) * 100).toFixed(1) : '—';
-    console.log(`    ${String(share).padStart(5)}%  ${usd(k.amount).padStart(15)}  ${k.kind}`);
+    const share = givenTotal > 0 ? ((k.amount / givenTotal) * 100).toFixed(1) : '—';
+    console.log(`    ${String(share).padStart(5)}%  ${usd(k.amount).padStart(15)}  ${k.kind}`
+      + (k.refunded ? C.y(`   (${usd(k.refunded)} refunded)`) : ''));
+  }
+  // Refunds are money that came in and went back out. Netting them into a
+  // category printed "-0.4%  $-4,351  candidate committees", which is not a
+  // kind of giving, and could drop a refunded donor off the list entirely.
+  if (s.refunds && s.refunds.rows) {
+    console.log(`\n  ${C.y('Returned or redesignated')}  ${usd(s.refunds.total)}`
+      + C.dim(`  in ${s.refunds.rows} negative row(s)`));
+    for (const r of s.refunds.to.slice(0, 5)) {
+      console.log(C.dim(`    ${usd(r.amount).padStart(12)}  ${r.name}`));
+    }
+    console.log(C.dim('    Counted apart from the totals above, not subtracted from'));
+    console.log(C.dim('    them — money refunded still arrived, and a donor whose gift'));
+    console.log(C.dim('    was returned must not vanish by netting to zero.'));
   }
 
   const top = s.donors.slice(0, opts.limit || 25);
@@ -1226,7 +1240,18 @@ async function cmdAsymmetry(opts = {}) {
   });
   if (!c) {
     console.log(`\n  ${C.y('Nothing filed on this dimension for that cycle.')}`);
-    console.log(C.dim('  An empty result is one source saying nothing.\n'));
+    console.log(C.dim('  An empty result is one source saying nothing.'));
+    // A Leadership PAC gives money; it does not usually spend independently.
+    // Schedule E being empty is the CORRECT answer for it, and leaving the
+    // reader there implies the committee did nothing.
+    if (opts.dimension !== 'vendor') {
+      console.log(C.dim('\n  This reads Schedule E — INDEPENDENT EXPENDITURES. A committee'));
+      console.log(C.dim('  that gives to candidates rather than advertising at them files'));
+      console.log(C.dim('  none, and an empty Schedule E is the right answer for it:'));
+      console.log(C.dim(`    sentinel connect fecpac --committee ${opts.committee} --cycle ${cycle}   # what it GAVE`));
+      console.log(C.dim(`    sentinel connect donors --committee ${opts.committee} --cycle ${cycle}   # who funded it`));
+    }
+    console.log('');
     return;
   }
 

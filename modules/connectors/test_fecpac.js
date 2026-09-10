@@ -422,6 +422,55 @@ async function run() {
   }
 
 
+  // ══ AN ID IS NOT A NAME ═══════════════════════════════════════════════
+  // A live run printed `sponsor: S6OH00304` — correct, disclosed, and
+  // useless. An id sitting four rows below a named committee invites the
+  // reader to assume whose it is, which is the one inference this desk
+  // never makes. Resolving costs one call.
+  {
+    const asked = [];
+    const fake = async (url) => {
+      asked.push(url);
+      return { results: [{ candidate_id: 'S6OH00304', name: 'PUBLIC, JOHN Q' }] };
+    };
+    const c = F.parseCommittees({ results: [{
+      committee_id: 'C00000021', name: 'A LEADERSHIP PAC',
+      sponsor_candidate_ids: ['S6OH00304'],
+    }] })[0];
+
+    const r = await F.resolveSponsors(c, 'KEY', fake);
+    check('a sponsor id is resolved to a name', /PUBLIC, JOHN Q/.test(F.affiliationOf(r)));
+    check('and the id is kept beside it, so the row stays checkable',
+      /S6OH00304/.test(F.affiliationOf(r)));
+    check('the lookup asks the candidate register', /candidates\/search/.test(asked[0]));
+    check('for that id specifically', /candidate_id=S6OH00304/.test(asked[0]));
+
+    // A failure must leave the truth in place, not blank it.
+    const boom = async () => { throw new Error('network'); };
+    const failed = await F.resolveSponsors(c, 'KEY', boom);
+    eq('an unresolvable id stays an id rather than vanishing',
+      failed.sponsors[0], 'S6OH00304');
+
+    // Nothing to resolve must cost nothing.
+    let calls = 0;
+    const counted = async () => { calls += 1; return { results: [] }; };
+    await F.resolveSponsors(
+      F.parseCommittees({ results: [{ committee_id: 'C00000022', name: 'X' }] })[0],
+      'KEY', counted);
+    eq('a committee with no sponsor makes no call', calls, 0);
+
+    // A name already present is not re-fetched or mangled.
+    const named = F.parseCommittees({ results: [{
+      committee_id: 'C00000023', name: 'Y',
+      sponsor_candidate_list: [{ name: 'ALREADY, NAMED' }],
+    }] })[0];
+    calls = 0;
+    const kept = await F.resolveSponsors(named, 'KEY', counted);
+    eq('a sponsor already named is left alone', kept.sponsors[0], 'ALREADY, NAMED');
+    eq('and costs no call either', calls, 0);
+  }
+
+
   console.log(`\n  ${fails ? 'FAIL' : 'PASS'} — ${ran - fails}/${ran} checks\n`);
   return fails ? 1 : 0;
 }
