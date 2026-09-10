@@ -238,6 +238,60 @@ function isContribution(row) {
   return !row.type && Boolean(row.recipient_committee_id);
 }
 
+/**
+ * EVERYTHING THE CONTRIBUTION FILTER DROPPED, ACCOUNTED FOR BY TYPE.
+ *
+ * A live run on a JOINT FUNDRAISING COMMITTEE read 390 Schedule B rows and
+ * printed:
+ *
+ *     $0  in 0 DIRECT CONTRIBUTION(S) to other committees
+ *
+ * Which is true of contributions and false about the committee. A joint
+ * fundraiser's whole purpose is to collect money and TRANSFER it to its
+ * participants, and transfers are not coded as contributions — so the one
+ * question worth asking of a JFC ("who are the participants?") was answered
+ * with a zero, and 390 rows of real money vanished without a line of
+ * explanation.
+ *
+ * A tool may filter. It may not read rows and then not say what they were.
+ * This returns the residue grouped by the FEC's own disbursement type, so
+ * whatever the money is, it is on screen and the operator can see the codes
+ * rather than trusting mine.
+ */
+function residual(rows) {
+  const byType = new Map();
+  const byRecipient = new Map();
+  let total = 0;
+  for (const r of rows) {
+    if (isEarmarked(r) || isContribution(r)) continue;
+    const t = String(r.type || '').toUpperCase() || '(no type coded)';
+    const cur = byType.get(t) || { type: t, amount: 0, rows: 0, example: '' };
+    cur.amount += r.amount; cur.rows += 1;
+    if (!cur.example && r.purpose) cur.example = r.purpose;
+    byType.set(t, cur);
+    total += r.amount;
+    // A payment to another COMMITTEE is the row that names a participant,
+    // an affiliate, or a vendor that is itself a committee. Payroll and rent
+    // have no committee id, so this separates structure from housekeeping.
+    if (r.recipient_committee_id) {
+      // parseDisbursements emits `recipient`, not `recipient_name`. Reading
+      // the raw API field here made every row fall back to its committee id,
+      // so the participant list printed ids where names belong.
+      const k = r.recipient || r.recipient_committee_id;
+      const c = byRecipient.get(k)
+        || { name: k, committee_id: r.recipient_committee_id, amount: 0, rows: 0 };
+      c.amount += r.amount; c.rows += 1;
+      byRecipient.set(k, c);
+    }
+  }
+  return {
+    total: Math.round(total * 100) / 100,
+    rows: [...byType.values()].reduce((a, t) => a + t.rows, 0),
+    by_type: [...byType.values()].sort((a, b) => b.amount - a.amount),
+    to_committees: [...byRecipient.values()].sort((a, b) => b.amount - a.amount),
+  };
+}
+
 /** Schedule E — independent expenditures. Not donations. */
 function cycleWindow(cycle) {
   return [`${Number(cycle) - 1}-01-01`, `${Number(cycle)}-12-31`];
@@ -406,5 +460,5 @@ module.exports = {
   PAC_PER_ELECTION_CAP_USD, IMPLAUSIBLE_PER_RECIPIENT_USD,
   disbursementsUrl, parseDisbursements, isContribution, CONTRIBUTION_TYPES,
   independentUrl, parseIndependent,
-  byRecipient, totals, collect,
+  byRecipient, totals, collect, residual,
 };

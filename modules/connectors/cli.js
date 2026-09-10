@@ -1767,6 +1767,38 @@ async function cmdFecPac(name, opts = {}) {
   console.log(C.dim('  expenditure are different events; one total describing both'));
   console.log(C.dim('  describes neither.'));
 
+  // EVERY ROW READ MUST BE ACCOUNTED FOR.
+  // TEAM HUSTED, a joint fundraising committee, returned 390 Schedule B rows
+  // and this command printed "$0 in 0 DIRECT CONTRIBUTION(S)" — true of
+  // contributions, false about the committee, and silent about 390 rows of
+  // real money. A JFC's whole function is transferring to its participants,
+  // and transfers are not coded as contributions.
+  const res = F.residual(b.rows);
+  if (res.rows) {
+    console.log(`\n  ${C.b('The rest of Schedule B')}  ${C.dim(`${res.rows} row(s), ${usd(res.total)}`)}`);
+    console.log(C.dim('    Not contributions and not earmarked pass-throughs. Grouped by'));
+    console.log(C.dim('    the FEC\'s own disbursement code so you can read the codes'));
+    console.log(C.dim('    rather than trust this tool\'s names for them.'));
+    console.log('');
+    for (const t2 of res.by_type.slice(0, 12)) {
+      console.log(`    ${usd(t2.amount).padStart(14)}  ${String(t2.rows).padStart(4)} row(s)  ${C.b(t2.type)}`
+        + (t2.example ? C.dim(`  e.g. ${t2.example.slice(0, 44)}`) : ''));
+    }
+    if (res.to_committees.length) {
+      console.log(`\n  ${C.b('…of which, paid to other COMMITTEES')} `
+        + C.dim('(top 15) — rent and payroll have no committee id,'));
+      console.log(C.dim('    so these are the rows that name affiliates, participants or'));
+      console.log(C.dim('    committee vendors. For a joint fundraiser, its PARTICIPANTS.'));
+      for (const c2 of res.to_committees.slice(0, 15)) {
+        console.log(`    ${usd(c2.amount).padStart(14)}  ${String(c2.rows).padStart(4)}  `
+          + `${C.dim(c2.committee_id)}  ${c2.name}`);
+      }
+      console.log(C.dim('\n    A transfer is not a gift and not an endorsement. It is money'));
+      console.log(C.dim('    moving between committees, and what it MEANS depends on the'));
+      console.log(C.dim('    relationship the filings declare — read the Form 1.'));
+    }
+  }
+
   const rows = F.byRecipient(contribs, e.rows).slice(0, 25);
   if (rows.length) {
     console.log(`\n  ${C.b('By recipient')} ${C.dim('(top 25)')}`);

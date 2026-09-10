@@ -301,6 +301,71 @@ async function run() {
   eq('and own funds come out alone', s2.own_usd, 5000);
   eq('with forwarded money beside it, not inside it', s2.forwarded_usd, 900);
 
+  // ══ 390 ROWS AND A ZERO ═══════════════════════════════════════════════
+  // TEAM HUSTED (C00896928) is a JOINT FUNDRAISING COMMITTEE. A live run
+  // read 390 Schedule B rows and printed:
+  //
+  //     $0  in 0 DIRECT CONTRIBUTION(S) to other committees
+  //
+  // True of contributions, false about the committee, and silent about 390
+  // rows of real money. A JFC exists to transfer to its PARTICIPANTS, and a
+  // transfer is not coded as a contribution — so the only question worth
+  // asking of a JFC was answered with a zero.
+  //
+  // A tool may filter. It may not read rows and then not say what they were.
+  {
+    const jfc = [
+      { recipient: 'FRIENDS OF SOMEONE', recipient_committee_id: 'C00111111',
+        amount: 250000, type: '18J', purpose: 'TRANSFER TO PARTICIPANT' },
+      { recipient: 'A SUPER PAC', recipient_committee_id: 'C00222222',
+        amount: 513230, type: '18J', purpose: 'TRANSFER TO PARTICIPANT' },
+      { recipient: 'PRINTER LLC', recipient_committee_id: '',
+        amount: 4000, type: '001', purpose: 'PRINTING' },
+      { recipient: 'A DONOR', recipient_committee_id: '',
+        amount: 1000, type: '20Y', purpose: 'REFUND' },
+      // Must be excluded — already reported as a contribution.
+      { recipient: 'A CAMPAIGN', recipient_committee_id: 'C00333333',
+        amount: 5000, type: '24K', purpose: '' },
+      // Must be excluded — someone else's money passing through.
+      { recipient: 'A CAMPAIGN', recipient_committee_id: 'C00333333',
+        amount: 9000, type: '18J', memo_code: 'X', purpose: 'EARMARK' },
+    ];
+    const r = F.residual(jfc);
+
+    eq('rows the contribution filter dropped are counted, not lost', r.rows, 4);
+    eq('and their money is totalled', r.total, 768230);
+    check('a contribution is NOT double-counted into the residue',
+      !r.by_type.some((t) => t.type === '24K'));
+    check('nor is an earmarked pass-through',
+      r.total === 768230 && !JSON.stringify(r.by_type).includes('9000'));
+
+    eq('the largest residual type leads', r.by_type[0].type, '18J');
+    eq('with both of its rows', r.by_type[0].rows, 2);
+    eq('and an example of what the code meant',
+      r.by_type[0].example, 'TRANSFER TO PARTICIPANT');
+    check('the housekeeping codes are present too, not swept up',
+      r.by_type.some((t) => t.type === '001') && r.by_type.some((t) => t.type === '20Y'));
+
+    // The rows that answer "who are the participants".
+    eq('payments to COMMITTEES are separated out', r.to_committees.length, 2);
+    eq('largest first', r.to_committees[0].name, 'A SUPER PAC');
+    eq('at the filed amount', r.to_committees[0].amount, 513230);
+    eq('carrying the committee id so it can be looked up',
+      r.to_committees[0].committee_id, 'C00222222');
+    check('and rent/payroll, which have no committee id, are not in that list',
+      !r.to_committees.some((c) => c.name === 'PRINTER LLC'));
+
+    // An uncoded row must not vanish into a blank key.
+    const untyped = F.residual([{ recipient: 'X', amount: 100, type: '' }]);
+    eq('a row with no type is labelled, not blank',
+      untyped.by_type[0].type, '(no type coded)');
+
+    eq('a committee with nothing left over reports nothing left over',
+      F.residual([{ recipient: 'Y', recipient_committee_id: 'C1',
+        amount: 5000, type: '24K' }]).rows, 0);
+  }
+
+
   console.log(`\n  ${fails ? 'FAIL' : 'PASS'} — ${ran - fails}/${ran} checks\n`);
   return fails ? 1 : 0;
 }
