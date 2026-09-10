@@ -321,6 +321,48 @@ async function request(method, url, headers, body) {
  * The response body is untrusted remote text: it is trimmed hard, stripped of
  * control characters, and never interpreted — only shown.
  */
+/**
+ * A MULTI-WORD SUBJECT IS A PHRASE, NOT A BAG OF WORDS.
+ *
+ * Three full-text connectors sent the subject unquoted, so the APIs matched
+ * the words INDEPENDENTLY. The results were not near-misses; they were
+ * documents about entirely different things that happened to contain one
+ * common word:
+ *
+ *   "Axon Enterprise"  → IRIS Toxicological Review of Formaldehyde,
+ *                        Tox Profile for Carbon Disulfide
+ *                        AXON is an anatomical term. Carbon disulfide is a
+ *                        classic AXONAL neurotoxin.
+ *
+ *   "Flock Safety"     → migratory bird hunting regulations,
+ *                        National Poultry Improvement Plan
+ *                        FLOCK is an ornithological term.
+ *
+ *   "Peregrine Technologies" → FWS migratory bird notices. A falcon.
+ *   "Fusus"                  → 1990s Colombian cut-flower dumping notices.
+ *
+ * This was STRUCTURAL: it corrupted every multi-word subject in every sweep,
+ * on every connector that takes free text. Roughly half of a 1,600-lead
+ * surveillance sweep was this, and it was reported as leads requiring
+ * verification rather than as an artifact of how the query was built.
+ *
+ * Quoting is not a filter on the results. It is the difference between
+ * asking the right question and the wrong one.
+ *
+ * A SINGLE WORD IS LEFT ALONE. Quoting it changes nothing and some APIs
+ * treat a quoted single term differently from a bare one.
+ */
+function phrase(q) {
+  const t = String(q == null ? '' : q).trim();
+  if (!t) return t;
+  // Already quoted by the operator: respect it rather than double-quoting.
+  if (/^".*"$/.test(t)) return t;
+  // A quote inside the subject would break the phrase syntax. Drop it — a
+  // company name with an embedded double quote is rarer than a broken query.
+  const clean = t.replace(/"/g, '');
+  return /\s/.test(clean) ? `"${clean}"` : clean;
+}
+
 function explainHttpError(res) {
   const base = `HTTP ${res.status}`;
   const raw = res.body ? res.body.toString('utf8').slice(0, 2000) : '';
@@ -449,7 +491,7 @@ const CONNECTORS = {
     }),
     run: (q, key) => ({
       method: 'GET',
-      url: `https://www.courtlistener.com/api/rest/v4/search/?q=${encodeURIComponent(q)}&type=o&order_by=score%20desc`,
+      url: `https://www.courtlistener.com/api/rest/v4/search/?q=${encodeURIComponent(phrase(q))}&type=o&order_by=score%20desc`,
       headers: key ? { Authorization: `Token ${key}` } : {},
     }),
     parse: (json) => (json.results || []).map((r) => ({
@@ -482,7 +524,7 @@ const CONNECTORS = {
     run: (q) => ({
       method: 'GET',
       url: 'https://www.federalregister.gov/api/v1/documents.json'
-         + `?per_page=25&order=newest&conditions%5Bterm%5D=${encodeURIComponent(q)}`,
+         + `?per_page=25&order=newest&conditions%5Bterm%5D=${encodeURIComponent(phrase(q))}`,
       headers: {},
     }),
     parse: (json) => (json.results || []).map((r) => ({
@@ -663,7 +705,7 @@ const CONNECTORS = {
     keyVar: 'DATA_GOV_API_KEY',
     keyRequired: true,   // free at api.data.gov/signup; DEMO_KEY works for a trial
     calls: 1,
-    describe: (q) => `GET https://api.regulations.gov/v4/documents  (searchTerm: ${q})`,
+    describe: (q) => `GET https://api.regulations.gov/v4/documents  (searchTerm: ${phrase(q)})`,
     probe: (key) => ({
       method: 'GET',
       url: 'https://api.regulations.gov/v4/documents?page[size]=5',
@@ -672,7 +714,7 @@ const CONNECTORS = {
     run: (q, key) => ({
       method: 'GET',
       url: 'https://api.regulations.gov/v4/documents'
-         + `?filter[searchTerm]=${encodeURIComponent(q)}`
+         + `?filter[searchTerm]=${encodeURIComponent(phrase(q))}`
          + '&sort=-postedDate&page[size]=25',
       headers: { 'X-Api-Key': key },
     }),
@@ -944,7 +986,7 @@ async function runConnector(name, query, opts = {}) {
   return { ok: true, status: res.status, capturePath, captureHash, results, parseError, record };
 }
 
-module.exports = {
+module.exports = { phrase,
   explainHttpError, looksLikeSubstringMatch,
   checkKeyShape, KEY_SHAPES,
   stripAuth, AUTH_HEADERS, MAX_REDIRECTS,

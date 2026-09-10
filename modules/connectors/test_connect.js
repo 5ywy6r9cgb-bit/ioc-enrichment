@@ -645,6 +645,57 @@ module.exports = function run() {
       /if \(action === 'filings'\)/.test(cliSrc));
   }
 
+  // ══ A MULTI-WORD SUBJECT IS A PHRASE, NOT A BAG OF WORDS ══════════════
+  // The surveillance sweep returned, as leads requiring verification:
+  //
+  //   "Axon Enterprise" → IRIS Toxicological Review of Formaldehyde
+  //                       Tox Profile for Carbon Disulfide
+  //   "Flock Safety"    → migratory bird hunting regs, poultry standards
+  //
+  // Not near-misses. AXON is an anatomical term and carbon disulfide is a
+  // classic AXONAL neurotoxin; FLOCK is an ornithological one. The subject
+  // was sent UNQUOTED, so three full-text APIs matched the words
+  // independently — structurally corrupting every multi-word subject in
+  // every sweep, and reporting the wreckage as leads.
+  {
+    // This file uses check(); a local eq keeps the failure messages useful.
+    const eq = (label, got, want) => check(
+      `${label}${got === want ? '' : `  (got ${JSON.stringify(got)}, want ${JSON.stringify(want)})`}`,
+      got === want);
+
+    eq('a multi-word subject is quoted', R.phrase('Axon Enterprise'), '"Axon Enterprise"');
+    eq('so is a three-word one', R.phrase('Ohio Department of Public Safety'),
+      '"Ohio Department of Public Safety"');
+    eq('a single word is left alone', R.phrase('Cellebrite'), 'Cellebrite');
+    eq('an already-quoted subject is not double-quoted',
+      R.phrase('"United Democracy Project"'), '"United Democracy Project"');
+    eq('surrounding whitespace is trimmed before the decision',
+      R.phrase('  Flock Safety  '), '"Flock Safety"');
+    eq('an embedded quote is dropped rather than breaking the syntax',
+      R.phrase('A "Public" Voice'), '"A Public Voice"');
+    eq('an empty subject stays empty', R.phrase(''), '');
+    eq('and null does not throw', R.phrase(null), '');
+
+    // All three text connectors must send the phrase.
+    const rg = R.CONNECTORS.regulationsgov.run('Axon Enterprise', 'K').url;
+    check('regulations.gov sends the quoted phrase', rg.includes('%22Axon%20Enterprise%22'), rg);
+    const fr = R.CONNECTORS.federalregister.run('Flock Safety', 'K').url;
+    check('the federal register sends it too', fr.includes('%22Flock%20Safety%22'), fr);
+    const cl = R.CONNECTORS.courtlistener.run('Babel Street', 'K').url;
+    check('and courtlistener', cl.includes('%22Babel%20Street%22'), cl);
+
+    // A single-word subject must NOT acquire quotes — some APIs treat a
+    // quoted single term differently from a bare one.
+    check('a one-word subject is sent bare',
+      !R.CONNECTORS.regulationsgov.run('Cellebrite', 'K').url.includes('%22'));
+
+    // The announcement must show what is actually sent, or the operator is
+    // reading a different query from the one that ran.
+    check('the describe line shows the quoted form',
+      /"Axon Enterprise"/.test(R.CONNECTORS.regulationsgov.describe('Axon Enterprise')));
+  }
+
+
   console.log(`\n  ${FAIL === 0 ? 'PASS' : 'FAIL'} — ${PASS}/${PASS + FAIL} checks\n`);
   return FAIL;
 };
