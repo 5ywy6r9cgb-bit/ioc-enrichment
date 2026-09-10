@@ -89,8 +89,35 @@ function parseCommittees(json) {
     party: r.party_full || r.party || '',
     first_file_date: r.first_file_date || '',
     last_file_date: r.last_file_date || '',
+    // WHOSE COMMITTEE IS THIS. A Leadership PAC is established by a
+    // candidate or officeholder and is separate from their campaign
+    // committee -- so "Leadership PAC" alone says a politician sponsors it
+    // WITHOUT saying which, and the obvious guess from the name is exactly
+    // the inference this desk refuses everywhere else. The FEC discloses the
+    // sponsor; it simply was not being read.
+    //
+    // Empty means the register did not say, NOT that nobody sponsors it.
+    sponsors: [
+      ...(Array.isArray(r.sponsor_candidate_list)
+        ? r.sponsor_candidate_list.map((c) => (c && (c.name || c.candidate_id)) || '')
+        : []),
+      ...(Array.isArray(r.sponsor_candidate_ids) ? r.sponsor_candidate_ids : []),
+    ].filter(Boolean),
+    // For an authorised committee, the candidate it belongs to.
+    candidate_ids: Array.isArray(r.candidate_ids) ? r.candidate_ids : [],
+    // For a connected PAC, the corporation or union behind it.
+    connected_org: r.connected_organization_name || '',
     url: r.committee_id ? `https://www.fec.gov/data/committee/${r.committee_id}/` : '',
   })).filter((r) => r.committee_id);
+}
+
+/** One line naming who stands behind a committee, or nothing if unstated. */
+function affiliationOf(c) {
+  const bits = [];
+  if (c.sponsors && c.sponsors.length) bits.push(`sponsor: ${[...new Set(c.sponsors)].join(', ')}`);
+  if (c.candidate_ids && c.candidate_ids.length) bits.push(`candidate: ${c.candidate_ids.join(', ')}`);
+  if (c.connected_org) bits.push(`connected to: ${c.connected_org}`);
+  return bits.join(' · ');
 }
 
 /**
@@ -460,5 +487,5 @@ module.exports = {
   PAC_PER_ELECTION_CAP_USD, IMPLAUSIBLE_PER_RECIPIENT_USD,
   disbursementsUrl, parseDisbursements, isContribution, CONTRIBUTION_TYPES,
   independentUrl, parseIndependent,
-  byRecipient, totals, collect, residual,
+  byRecipient, totals, collect, residual, affiliationOf,
 };

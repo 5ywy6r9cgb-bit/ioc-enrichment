@@ -366,6 +366,62 @@ async function run() {
   }
 
 
+  // ══ "LEADERSHIP PAC" NAMES A CATEGORY, NOT A PERSON ═══════════════════
+  // A live lookup returned:
+  //   JOBS OPPORTUNITY NOW POLITICAL ACTION COMMITTEE
+  //     PAC - Qualified · Leadership PAC · first filed 2025-01-27
+  // A leadership PAC is established BY a candidate or officeholder, so that
+  // designation says a politician stands behind it without saying which —
+  // and the obvious guess from the surrounding context is exactly the
+  // inference refused everywhere else in this repo. The FEC discloses the
+  // sponsor. It simply was not being read.
+  {
+    const withSponsor = F.parseCommittees({ results: [{
+      committee_id: 'C00000009', name: 'SOME LEADERSHIP PAC',
+      designation_full: 'Leadership PAC',
+      sponsor_candidate_list: [{ candidate_id: 'S6XX00001', name: 'DOE, JANE' }],
+    }] })[0];
+    eq('a sponsor is read from the register', withSponsor.sponsors[0], 'DOE, JANE');
+    check('and reported in words', /sponsor: DOE, JANE/.test(F.affiliationOf(withSponsor)));
+
+    const idsOnly = F.parseCommittees({ results: [{
+      committee_id: 'C00000010', name: 'X', sponsor_candidate_ids: ['S6XX00002'],
+    }] })[0];
+    check('a sponsor given only as an id is still surfaced',
+      /S6XX00002/.test(F.affiliationOf(idsOnly)));
+
+    const conn = F.parseCommittees({ results: [{
+      committee_id: 'C00000011', name: 'Y',
+      connected_organization_name: 'SOME CORPORATION',
+    }] })[0];
+    check('a connected PAC names its corporation',
+      /connected to: SOME CORPORATION/.test(F.affiliationOf(conn)));
+
+    const auth = F.parseCommittees({ results: [{
+      committee_id: 'C00000012', name: 'Z', candidate_ids: ['S6OH00999'],
+    }] })[0];
+    check('an authorised committee names its candidate',
+      /candidate: S6OH00999/.test(F.affiliationOf(auth)));
+
+    // SILENCE IS SILENCE. An unstated sponsor must produce no line at all,
+    // never an empty "sponsor:" that reads as "nobody".
+    const bare = F.parseCommittees({ results: [{ committee_id: 'C00000013', name: 'Q' }] })[0];
+    eq('a committee with no stated affiliation yields no claim',
+      F.affiliationOf(bare), '');
+    eq('and its sponsor list is empty rather than undefined',
+      bare.sponsors.length, 0);
+
+    // Malformed shapes must not throw mid-lookup.
+    const junk = F.parseCommittees({ results: [{
+      committee_id: 'C00000014', name: 'R',
+      sponsor_candidate_list: 'not an array', candidate_ids: null,
+    }] })[0];
+    eq('a non-array sponsor field is ignored, not crashed on',
+      junk.sponsors.length, 0);
+    eq('and so is a null candidate list', junk.candidate_ids.length, 0);
+  }
+
+
   console.log(`\n  ${fails ? 'FAIL' : 'PASS'} — ${ran - fails}/${ran} checks\n`);
   return fails ? 1 : 0;
 }

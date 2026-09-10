@@ -1022,6 +1022,11 @@ async function resolveCommittee(nameOrId, key, fetchJson, cmd) {
     console.log(`  ${C.g(c.committee_id)}  ${c.name}`);
     console.log(C.dim(`  ${' '.repeat(12)}${c.type}${c.designation ? ' · ' + c.designation : ''}`
       + `${c.first_file_date ? ' · first filed ' + c.first_file_date.slice(0, 10) : ''}`));
+    // WHOSE it is, when the register says. "Leadership PAC" names a category,
+    // not a person, and the obvious guess from the committee's name is the
+    // inference this desk refuses everywhere else.
+    const aff = require('./fecpac.js').affiliationOf(c);
+    if (aff) console.log(`  ${' '.repeat(12)}${C.b(aff)}`);
   }
   if (cmts.length > 12) console.log(C.dim(`\n  …and ${cmts.length - 12} more.`));
   console.log(`\n  ${C.b('Nothing was measured.')} ${C.dim('Pick one:')}`);
@@ -1059,6 +1064,8 @@ async function cmdDonors(opts = {}) {
   if (cmts.length) {
     console.log(C.dim(`  ${cmts[0].type}${cmts[0].designation ? ' · ' + cmts[0].designation : ''}`
       + `${cmts[0].first_file_date ? ' · first filed ' + cmts[0].first_file_date.slice(0, 10) : ''}`));
+    const aff0 = F.affiliationOf(cmts[0]);
+    if (aff0) console.log(`  ${C.b(aff0)}`);
   }
   if (opts.dryRun) { console.log(C.dim('\n  DRY RUN — nothing requested.\n')); return; }
 
@@ -1649,6 +1656,11 @@ async function cmdFecPac(name, opts = {}) {
     console.log(`  ${C.g(c.committee_id)}  ${c.name}`);
     console.log(C.dim(`  ${' '.repeat(12)}${c.type}${c.designation ? ' · ' + c.designation : ''}`
       + `${c.first_file_date ? ' · first filed ' + c.first_file_date.slice(0, 10) : ''}`));
+    // WHOSE it is, when the register says. "Leadership PAC" names a category,
+    // not a person, and the obvious guess from the committee's name is the
+    // inference this desk refuses everywhere else.
+    const aff = require('./fecpac.js').affiliationOf(c);
+    if (aff) console.log(`  ${' '.repeat(12)}${C.b(aff)}`);
   }
 
   if (!opts.committee) {
