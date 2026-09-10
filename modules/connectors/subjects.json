@@ -1,5 +1,5 @@
 {
-  "//": "Named subject sets for `sentinel connect sweep <set>`. Edit this file as you learn names — every abatement agreement and utility filing names the actual contracting entity, and that name is the one worth searching. A subject here is a SEARCH STRING, not a claim that the entity is involved in anything.",
+  "//": "Named subject sets for `sentinel connect sweep <set>`. Edit this file as you learn names \u2014 every abatement agreement and utility filing names the actual contracting entity, and that name is the one worth searching. A subject here is a SEARCH STRING, not a claim that the entity is involved in anything.",
   "datacenters": {
     "into": "datacenters",
     "note": "Operators and the single-purpose entities they file under.",
@@ -139,6 +139,61 @@
       "Juan Cespedes",
       "Neil Clark",
       "Jeff Longstreth"
+    ]
+  },
+  "outside_oh_senate": {
+    "into": "oh-senate-2026",
+    "note": "Committees that spent independently at the Ohio Senate seat, cycle 2026. Support and opposition are listed together because the SET is the subject \u2014 which committees showed up at all \u2014 and separating them here would bake a side into the search. $19.1m moved at this seat against $476k into the candidate's own account: OUTSIDE PRESSURE 40.19x. NOTE: 'The Sentinel Action Fund' is an unrelated national super PAC and has nothing to do with this desk.",
+    "subjects": [
+      "Americans for Prosperity Action",
+      "WinSenate",
+      "EDF Action Votes",
+      "LCV Victory Fund",
+      "SLF PAC",
+      "Ohio Flyer PAC",
+      "The Sentinel Action Fund",
+      "Win It Back PAC",
+      "ClearPath Action Fund",
+      "America PAC",
+      "Indivisible Action",
+      "Forward Blue",
+      "Working America",
+      "Team Husted"
+    ]
+  },
+  "outside_oh_house": {
+    "into": "oh-house-2024",
+    "note": "Committees spending independently at Ohio House seats, cycle 2024, and the candidate-adjacent vehicles beside them. A victory fund is the member's own joint committee, not an outside group \u2014 it is here to be recognised, not conflated.",
+    "subjects": [
+      "Jobs & Prosperity PAC",
+      "MAHA Alliance",
+      "Republican Jewish Coalition PAC",
+      "NORPAC",
+      "Max Miller Victory",
+      "2024 Miller Victory Fund",
+      "Democratic Future Leadership Fund",
+      "SKDKnickerbocker"
+    ]
+  },
+  "single_target_pacs": {
+    "into": "single-target",
+    "note": "Committees found spending against ONE named member. Concentration is a measured fact and not intent \u2014 see `connect asymmetry`. United for Common Sense is here as the counter-example: 94.9% of its money went against a different candidate entirely, so it is NOT single-target and the set exists partly to keep that visible.",
+    "subjects": [
+      "Citizens Against AIPAC Corruption",
+      "United for Common Sense",
+      "New Journey PAC",
+      "Reject AIPAC PAC",
+      "MAHA Alliance"
+    ]
+  },
+  "conduits": {
+    "into": "conduits",
+    "note": "Committees that FORWARD other people's earmarked money rather than giving their own. Their Schedule B totals are individuals' donations passing through and must never be reported as the organisation's giving.",
+    "subjects": [
+      "ActBlue",
+      "WinRed",
+      "American Israel Public Affairs Committee",
+      "NORPAC"
     ]
   }
 }
