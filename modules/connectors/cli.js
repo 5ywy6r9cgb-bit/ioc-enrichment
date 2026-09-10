@@ -1114,11 +1114,27 @@ async function cmdControl(ids, opts = {}) {
   for (const line of wrap(
     'A shared treasurer is routinely innocent. Compliance firms supply '
     + 'treasurers to dozens of unrelated committees as a service — that is '
-    + 'their business. These committees pay BROGHAMER COMPLIANCE for '
-    + '"COMPLIANCE CONSULTING", so a shared officer may mean nothing more '
-    + 'than a shared vendor. A shared address may be that vendor\'s office, '
-    + 'or a registered-agent mail drop serving thousands of unrelated '
-    + 'entities.', 68)) console.log(C.dim(`    ${line}`));
+    + 'their business, and a shared officer may mean nothing more than a '
+    + 'shared vendor. A shared address may be that vendor\'s office, or a '
+    + 'registered-agent mail drop serving thousands of unrelated entities.',
+    68)) console.log(C.dim(`    ${line}`));
+
+  // The test that separates "one operation" from "one vendor" is whether
+  // the shared officer is on the payroll. That is Schedule B, and it is one
+  // command away — so name the person and the command rather than guessing.
+  const people = shared.filter((s2) => /treasurer|custodian/i.test(s2.label));
+  if (people.length) {
+    console.log(C.dim('\n    THE TEST: is the shared officer also a paid vendor? If each'));
+    console.log(C.dim('    committee pays a firm carrying that name, the officer is'));
+    console.log(C.dim('    bought, not shared. Schedule B answers it:'));
+    for (const p of people.slice(0, 2)) {
+      for (const c of p.committees.slice(0, 4)) {
+        console.log(C.dim(`      bin/sentinel connect asymmetry --committee ${c.id}`
+          + ' --dimension vendor'));
+      }
+    }
+    console.log(C.dim(`    …then look for ${C.b(people[0].value)} in the payee lists.`));
+  }
   console.log(C.dim('\n    What this establishes: these committees are administered from'));
   console.log(C.dim('    one place. What it does NOT establish: who decided anything,'));
   console.log(C.dim('    why, or that any rule was broken. Control is not motive, and'));
