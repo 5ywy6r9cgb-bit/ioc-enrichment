@@ -44,6 +44,7 @@
 #   sentinel connect delegation OH   a whole state's delegation, audited
 #   sentinel connect member "NAME"    every direction money moves at one seat
 #   sentinel connect donors "NAME"    who FUNDED a committee (Schedule A, money in)
+#   sentinel connect filings "NAME"   the DOCUMENTS themselves, with PDF links
 #   sentinel connect asymmetry "NAME" how concentrated is its spending, and on what
 #
 #   sentinel doc get URL            fetch a primary source, hashed + text-extracted
@@ -299,7 +300,7 @@ PYSTATUS
     # works when the module is called directly is not yet a command that works.
     action="${1:-test}"; shift || true
     case "$action" in
-      test|list|all|crosslink|lobby|graph|expand|sweep|brief|fecpac|delegation|member|asymmetry|donors)
+      test|list|all|crosslink|lobby|graph|expand|sweep|brief|fecpac|delegation|member|asymmetry|donors|filings)
         node "$ROOT/modules/connectors/cli.js" "$action" "$@"
         ;;
       *)

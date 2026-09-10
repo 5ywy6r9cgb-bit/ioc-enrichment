@@ -635,12 +635,14 @@ module.exports = function run() {
     const line = (disp.match(/^\s*test\|list\|.*\)$/m) || [''])[0];
     for (const verb of ['test', 'list', 'all', 'crosslink', 'lobby', 'graph',
       'expand', 'sweep', 'brief', 'fecpac', 'delegation', 'member',
-      'asymmetry', 'donors']) {
+      'asymmetry', 'donors', 'filings']) {
       check(`the dispatcher passes "${verb}" through`,
         line.split('|').map((s) => s.replace(/[^a-z]/g, '')).includes(verb));
     }
     check('and cli.js has a branch for donors',
       /if \(action === 'donors'\)/.test(cliSrc));
+    check('and one for filings',
+      /if \(action === 'filings'\)/.test(cliSrc));
   }
 
   console.log(`\n  ${FAIL === 0 ? 'PASS' : 'FAIL'} — ${PASS}/${PASS + FAIL} checks\n`);

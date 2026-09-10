@@ -272,7 +272,27 @@ bin/sentinel connect member "<NAME>" --cycle 2026       # every direction money 
 bin/sentinel connect member "<NAME>" --candidate S6OH00163 --cycle 2026
 bin/sentinel connect delegation OH --cycle 2026         # a whole state's delegation, audited
 bin/sentinel connect delegation OH --outside            # …plus who spent at each seat
+bin/sentinel connect filings "<org>" --cycle 2026       # the DOCUMENTS, with PDF links
+bin/sentinel connect filings --committee C00… --form F1 # registration; for a JFC, the PARTICIPANTS
+bin/sentinel connect filings --committee C00… --form F3X # the report, with full disbursement text
 ```
+
+**`filings` is the end of the chain.** Everything else here prints figures
+*derived* from a document. This prints the document, with a URL you can
+fetch, hash and cite:
+
+```bash
+bin/sentinel connect filings --committee C00… --form F3X
+bin/sentinel doc get "<pdf url it printed>"
+```
+
+`docquery.fec.gov/cgi-bin/forms/<id>/` answers **403** — it is a browser
+path, not a document path. The URLs `filings` prints are the ones that work.
+
+**Amendments supersede.** A committee that files and then amends has two
+documents saying different things. `filings` separates current from
+superseded and keeps both, because knowing a figure *changed* is often the
+finding — but quote the current one.
 
 **`fecpac` reads money OUT. `donors` reads money IN.** They are not two views
 of one thing and neither answers the other's question — Schedule B and E are

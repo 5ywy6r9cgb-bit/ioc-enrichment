@@ -1044,6 +1044,81 @@ async function resolveCommittee(nameOrId, key, fetchJson, cmd) {
  * Schedule A for a committee, so "whose money is this" could not be asked —
  * and was asked anyway, of a super PAC with two candidates and one state.
  */
+/**
+ * connect filings — the documents, not the numbers derived from them.
+ *
+ * docquery.fec.gov/cgi-bin/forms/<id>/ answers 403: it is a browser path,
+ * not a document path. The API publishes a direct pdf_url per filing.
+ */
+async function cmdFilings(opts = {}) {
+  const FL = require('./filings.js');
+  const F = require('./fecpac.js');
+  const env = R.loadEnv();
+  const key = R.resolveKey(R.CONNECTORS.fec, env);
+  if (!key) { console.error(`\n  ${C.r('FEC_API_KEY is not set.')}\n`); process.exit(2); }
+  const fetchJson = fecFetcher();
+  const committee = await resolveCommittee(opts.committee, key, fetchJson, 'filings');
+
+  const cmts = F.parseCommittees(await fetchJson(
+    `${F.API}/committees/?api_key=${encodeURIComponent(key)}`
+    + `&committee_id=${encodeURIComponent(committee)}&per_page=1`));
+  const c = cmts[0] || { name: committee };
+  console.log(`\n  ${C.b(c.name)}  ${C.dim(committee)}`);
+  if (c.type) {
+    console.log(C.dim(`  ${c.type}${c.designation ? ' · ' + c.designation : ''}`));
+  }
+  if (opts.dryRun) { console.log(C.dim('\n  DRY RUN — nothing requested.\n')); return; }
+
+  console.log(C.dim('  reading the filing index …'));
+  const got = await FL.collect(fetchJson,
+    (page) => FL.filingsUrl(committee, key,
+      { cycle: opts.cycle, formType: opts.form, page }));
+
+  if (!got.rows.length) {
+    console.log(`\n  ${C.y('No filings match.')}`);
+    console.log(C.dim('  If you passed --form, try without it: the filter is exact,'));
+    console.log(C.dim('  and F3 does not match F3X.\n'));
+    return;
+  }
+
+  const { current, superseded } = FL.supersession(got.rows);
+  console.log(`\n  ${got.rows.length} filing(s)`
+    + (superseded.length ? C.y(`  ${superseded.length} superseded by amendment`) : ''));
+
+  for (const grp of FL.byForm(current)) {
+    console.log(`\n  ${C.b(grp.form)}  ${C.dim(grp.purpose || '')}`);
+    for (const r of grp.rows.slice(0, opts.limit || 12)) {
+      const span = r.from && r.to ? `${r.from} → ${r.to}` : (r.receipt_date || '');
+      const amd = r.amendment === 'A' ? C.y(' AMENDMENT') : '';
+      console.log(`    ${C.dim(r.receipt_date)}  ${span}${amd}`);
+      if (r.receipts || r.disbursements) {
+        console.log(C.dim(`      in $${Math.round(r.receipts).toLocaleString('en-US')}`
+          + `   out $${Math.round(r.disbursements).toLocaleString('en-US')}`));
+      }
+      // The line the operator actually needs.
+      console.log(r.pdf ? `      ${r.pdf}`
+        : C.y('      no PDF published for this row'));
+    }
+    if (grp.rows.length > (opts.limit || 12)) {
+      console.log(C.dim(`    …and ${grp.rows.length - (opts.limit || 12)} more`));
+    }
+  }
+
+  if (superseded.length) {
+    console.log(`\n  ${C.y('SUPERSEDED — amended by a later filing')}`);
+    console.log(C.dim('    Kept rather than hidden: knowing a figure CHANGED is often'));
+    console.log(C.dim('    the finding. But quote the current document, not these.'));
+    for (const r of superseded.slice(0, 8)) {
+      console.log(C.dim(`    ${r.receipt_date}  ${r.form}  ${r.pdf || '(no pdf)'}`));
+    }
+  }
+
+  console.log(`\n  ${C.dim('Fetch and hash one:')}`);
+  console.log(C.dim('    bin/sentinel doc get "<pdf url from above>"'));
+  console.log(C.dim('\n  A filing is a PRIMARY SOURCE. Everything else this repo'));
+  console.log(C.dim('  prints is derived from one and must be checked against it.\n'));
+}
+
 async function cmdDonors(opts = {}) {
   const DN = require('./donors.js');
   const F = require('./fecpac.js');
@@ -2504,6 +2579,23 @@ async function main() {
       limit: li >= 0 && argv[li + 1] ? parseInt(argv[li + 1], 10) : undefined,
       dryRun: opts.dryRun,
     });
+  }
+  if (action === 'filings') {
+    const committee = flagVal(argv, '--committee')
+      || subjectFrom(args.slice(1), argv, ['--cycle', '--form', '--limit']);
+    if (!committee) {
+      console.error('\n  usage: sentinel connect filings "COMMITTEE NAME" [--cycle 2026]');
+      console.error('     or: sentinel connect filings --committee C00… [--form F1]');
+      console.error('\n  The DOCUMENTS a committee filed, with a direct PDF link for each.');
+      console.error('\n  --form F1   registration — for a joint fundraiser, the PARTICIPANTS');
+      console.error('  --form F3X  the periodic report, with full disbursement descriptions');
+      console.error('\n  docquery.fec.gov/cgi-bin/forms/<id>/ answers 403; it is a browser');
+      console.error('  path, not a document path. These urls are the ones that work.\n');
+      process.exit(2);
+    }
+    return cmdFilings({ committee, cycle: flagNum(argv, '--cycle'),
+      form: flagVal(argv, '--form'), limit: flagNum(argv, '--limit'),
+      dryRun: opts.dryRun });
   }
   if (action === 'donors') {
     const cycle = flagNum(argv, '--cycle');
