@@ -125,8 +125,68 @@ module.exports = async function run() {
       r.shared.length === 0 && r.docs.length === 0);
   }
 
-  console.log(`\n  ${FAIL ? 'FAIL' : 'PASS'} — ${PASS}/${PASS + FAIL} checks\n`);
   if (FAIL) process.exitCode = 1;
+  // ══ "U.S." IS NOT A SENATE BILL ═══════════════════════════════════════
+  // A live `doc bills` run reported, with context attached:
+  //
+  //   S. 2024  — 2 clients   …to influence the U.S. 2024 Presidential Election…
+  //   S. 82    — 2 clients   …targeting the U.S. 82 Artichoc io is a French…
+  //
+  // Both fake. \b matches between the "." and the "S" of "U.S.", so every
+  // "U.S. <number>" became a bill — and correlate then reported the two
+  // documents sharing it as a CORRELATION. Every part of that output was
+  // real except the fact.
+  {
+    const fake = [
+      'to influence the U.S. 2024 Presidential Election',
+      'disinformation targeting the U.S. 82 Artichoc io',
+      'brought under 42 U.S.C. 1983 in this circuit',
+      'the N.J.S. 40 statute referenced above',
+    ];
+    for (const t of fake) {
+      ok(`no bill is invented from "${t.slice(0, 34)}…"`,
+        B.billsIn(t).size === 0, [...B.billsIn(t).keys()].join(', '));
+    }
+
+    // The floor must not have been raised so far that real bills are lost.
+    const real = {
+      'S. 2024 was introduced in January': 'S. 2024',
+      'the Senate passed S. 82 that week': 'S. 82',
+      'S. 1234, a companion to H.R. 3076': 'S. 1234',
+    };
+    for (const [t, want] of Object.entries(real)) {
+      ok(`a genuine "${want}" still matches`, B.billsIn(t).has(want),
+        [...B.billsIn(t).keys()].join(', '));
+    }
+    ok('and the companion bill in the same sentence is kept too',
+      B.billsIn('S. 1234, a companion to H.R. 3076').has('H.R. 3076'));
+  }
+
+  // ══ A FIELD LABEL MUST START A LINE ═══════════════════════════════════
+  // The same run printed:
+  //   filed by A registrant is the person or entity that holds the right
+  //   to use a specific
+  // The word "registrant" in a TRADEMARK affidavit was read as an LDA
+  // field and printed beside a bill number as though it named a firm.
+  {
+    ok('prose containing the word "registrant" yields no party',
+      B.partiesIn('A registrant is the person or entity that holds the '
+        + 'right to use a specific mark').registrant === '');
+    ok('nor does a mid-sentence "client"',
+      B.partiesIn('Each client of the firm shall be notified in '
+        + 'writing of the change').client === '');
+
+    const real = B.partiesIn(
+      'Registrant Name: ALPINE GROUP PARTNERS, LLC.\nClient Name: VENNTEL, INC.');
+    ok('a real filing still reads its registrant', real.registrant === 'ALPINE GROUP PARTNERS, LLC.',
+      real.registrant);
+    ok('and its client', real.client === 'VENNTEL, INC.', real.client);
+
+    ok('an unreadable filing returns empty rather than a sentence',
+      B.partiesIn('nothing resembling a form here at all').registrant === '');
+  }
+
+  console.log(`\n  ${FAIL ? 'FAIL' : 'PASS'} — ${PASS}/${PASS + FAIL} checks\n`);
   return { pass: PASS, fail: FAIL };
 };
 

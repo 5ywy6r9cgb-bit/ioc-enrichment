@@ -53,8 +53,29 @@ const UNAMBIGUOUS = 'H\\.?\\s?J\\.?\\s?Res\\.?|S\\.?\\s?J\\.?\\s?Res\\.?'
   + '|H\\.?\\s?Con\\.?\\s?Res\\.?|S\\.?\\s?Con\\.?\\s?Res\\.?'
   + '|H\\.?\\s?Res\\.?|S\\.?\\s?Res\\.?|H\\.?\\s?R\\.?';
 
+// "U.S." ENDS IN S. AND IS FOLLOWED BY NUMBERS CONSTANTLY.
+//
+// The two-digit floor above was the whole defence for a bare "S.", and it
+// does nothing here, because a live run produced exactly this:
+//
+//   S. 2024  — 2 clients
+//     …to influence the U.S. 2024 Presidential Election…
+//   S. 82    — 2 clients
+//     …disinformation targeting the U.S. 82 Artichoc io is a French…
+//
+// Neither is a bill. `\b` matches between the "." and the "S" of "U.S.",
+// so every "U.S. <number>" in every document became a Senate bill — and
+// then `correlate` reported the two documents naming it as a CORRELATION,
+// which is the shape of a finding built entirely out of nothing.
+//
+// The fix is a lookbehind: a chamber prefix may not be preceded by another
+// letter-plus-dot. That kills U.S., N.J.S., and anything else of that form
+// while leaving a sentence-initial or space-preceded "S. 2024" intact.
+const NOT_AN_ABBREVIATION = '(?<![A-Za-z]\\.\\s?)';
+
 const BILL_RE = new RegExp(
-  '\\b(?:'
+  NOT_AN_ABBREVIATION
+  + '\\b(?:'
   + `(${UNAMBIGUOUS})\\s?(\\d{1,5})`      // H.Res. 9 is fine
   + '|(S\\.)\\s?(\\d{2,5})'            // bare "S." needs two digits
   + ')\\b',
@@ -101,11 +122,36 @@ function billsIn(text) {
  */
 function partiesIn(text) {
   const grab = (label) => {
-    const re = new RegExp(`${label}\\s*(?:Name)?\\s*[:\\n\\t]\\s*([^\\n\\t]{2,90})`, 'i');
+    // The label must START A LINE. Without that anchor the word "registrant"
+    // anywhere in running prose became a field, and a court affidavit about
+    // TRADEMARKS produced:
+    //
+    //   filed by A registrant is the person or entity that holds the right
+    //   to use a specific
+    //
+    // which was then printed beside a bill number as though it named a
+    // lobbying firm.
+    const re = new RegExp(`^[ \\t]*${label}\\s*(?:Name)?\\s*[:\\t]\\s*([^\\n\\t]{2,90})`, 'im');
     const m = re.exec(text);
-    return m ? m[1].trim().replace(/\s+/g, ' ') : '';
+    if (!m) return '';
+    const v = m[1].trim().replace(/\s+/g, ' ');
+    return looksLikeProse(v) ? '' : v;
   };
   return { registrant: grab('Registrant'), client: grab('Client') };
+}
+
+/**
+ * Is this a captured field value, or a sentence that happened to follow a
+ * word? An organisation name does not begin "is the person or entity".
+ */
+function looksLikeProse(v) {
+  if (/^(is|are|was|were|means|shall|may|must|can|refers|includes|does)\b/i.test(v)) return true;
+  // A name is not a clause. Two or more of these little words says sentence.
+  const glue = (v.match(/\b(the|of|that|which|to|for|with|and|or|a|an)\b/gi) || []).length;
+  if (glue >= 3) return true;
+  // Entirely lower-case is a word from prose, not a filed party name.
+  if (v === v.toLowerCase() && /[a-z]/.test(v)) return true;
+  return false;
 }
 
 /** Every extracted-text file sitting beside a fetched document. */

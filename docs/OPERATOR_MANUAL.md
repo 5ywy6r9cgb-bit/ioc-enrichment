@@ -257,6 +257,38 @@ bin/sentinel connect graph --dashboard --side-a "ENERGY|POWER|GAS" --side-b "AWS
 bin/sentinel connect <connector> "<query>"   # one source only
 ```
 
+### The money commands
+
+Five views over FEC filings. Each takes a NAME and resolves it, or stops and
+lists the matches — none of them choose between two committees for you.
+
+```bash
+bin/sentinel connect fecpac "<org>"                     # a committee's money OUT, by category
+bin/sentinel connect fecpac "<org>" --committee C00… --cycle 2026
+bin/sentinel connect donors "<org>" --cycle 2026        # a committee's money IN — who funded it
+bin/sentinel connect asymmetry "<org>" --cycle 2026     # how concentrated its spending is, and on what
+bin/sentinel connect asymmetry "<org>" --dimension vendor
+bin/sentinel connect member "<NAME>" --cycle 2026       # every direction money moves at one seat
+bin/sentinel connect member "<NAME>" --candidate S6OH00163 --cycle 2026
+bin/sentinel connect delegation OH --cycle 2026         # a whole state's delegation, audited
+bin/sentinel connect delegation OH --outside            # …plus who spent at each seat
+```
+
+**`fecpac` reads money OUT. `donors` reads money IN.** They are not two views
+of one thing and neither answers the other's question — Schedule B and E are
+disbursements and independent expenditures; Schedule A is receipts.
+
+**Read the caveat line before the number, in all five.** Each prints the
+thing that would make its headline figure wrong:
+
+| command | the line that governs |
+|---|---|
+| `donors` | **coverage** — Schedule A itemises above $200 only, so a low coverage figure means most of the money is not in the list. A share of the whole is stated ONLY at near-complete coverage. |
+| `asymmetry` | **the floor** — below 5 rows / $1,000 nothing is called concentrated, because at that size the arithmetic decides the answer. And **which way it pointed**: two committees at one seat can be opponents. |
+| `member` | **TRUNCATED** — a page cap makes money IN a floor, which makes OUTSIDE PRESSURE a *ceiling*. |
+| `delegation` | PAC share is divided by **contributions**, never by receipts. |
+| `fecpac` | contributions and independent expenditures are **never summed**. |
+
 ### The nine connectors
 
 | Name | Source | Key variable |
