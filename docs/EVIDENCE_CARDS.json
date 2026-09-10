@@ -1,0 +1,187 @@
+{
+  "_": "EVIDENCE CARDS \u2014 Sentinel Report. Every card is a FILED FACT with the command that produced it and the URL that verifies it. status GREEN = a filing says it. AMBER = a filing implies it and a second source is needed. Nothing here is characterisation. Cards feed OpenMontage scenes; the `line` is what goes on screen, the `caveat` is what must go on screen WITH it.",
+  "generated": "2026-09-10",
+  "source_doc": "docs/FINDINGS_2026-09-09.md",
+  "rules": [
+    "A card with a caveat may not be used without its caveat.",
+    "A FLOOR is never presented as a total. A CEILING is never presented as a floor.",
+    "Verify every figure against `verify` before it goes on screen.",
+    "status AMBER does not go on screen at all."
+  ],
+  "cards": [
+    {
+      "id": "OH-FLYER-01",
+      "status": "GREEN",
+      "subject": "Ohio Flyer PAC",
+      "line": "One committee. Two candidates. Both Ohio Senate seats. Opposite directions.",
+      "detail": "$4,459,869 total. $3,342,670 AGAINST Sherrod Brown. $1,117,199 FOR Jon Husted. The two sum to the total exactly \u2014 there is no third candidate.",
+      "caveat": "Concentration is not intent. A state-focused committee is single-state by design.",
+      "command": "bin/sentinel connect asymmetry \"Ohio Flyer PAC\" --cycle 2026",
+      "verify": "https://www.fec.gov/data/committee/C00912865/",
+      "complete": true
+    },
+    {
+      "id": "OH-FLYER-02",
+      "status": "GREEN",
+      "subject": "Ohio Flyer PAC donors",
+      "line": "One donor is 35% of the committee.",
+      "detail": "A PUBLIC VOCIE, INC. (sic, as filed) gave $1,000,000 of $2,834,231 in reported receipts. Coverage 100% \u2014 this is a share of essentially all its money.",
+      "caveat": "The company found in the registry is in COLUMBUS; the FEC filing says WEST CHESTER. SAME-ENTITY IS NOT CONFIRMED.",
+      "command": "bin/sentinel connect donors \"Ohio Flyer PAC\" --cycle 2026",
+      "verify": "https://www.fec.gov/data/committee/C00912865/",
+      "complete": true
+    },
+    {
+      "id": "TEAM-HUSTED-01",
+      "status": "GREEN",
+      "subject": "TEAM HUSTED joint fundraiser",
+      "line": "$8,253,532 split five ways. 63% to the campaign. 7% to the super PAC.",
+      "detail": "HUSTED FOR SENATE $5,215,998 (63.2%) \u00b7 NRSC $1,129,393 \u00b7 JOBS OPPORTUNITY NOW PAC $824,033 \u00b7 OHIO FLYER PAC $604,861 (7.3%) \u00b7 Ohio Republican Party $479,247. The five account for the 24G total exactly.",
+      "caveat": "A transfer is not a gift and not an endorsement. Whether a super PAC may participate in a candidate JFC is a question of FEC rules and advisory opinions this desk has NOT answered. Nothing here asserts a violation.",
+      "command": "bin/sentinel connect fecpac \"Team Husted\" --committee C00896928 --cycle 2026",
+      "verify": "https://www.fec.gov/data/committee/C00896928/",
+      "complete": true
+    },
+    {
+      "id": "LEADPAC-01",
+      "status": "GREEN",
+      "subject": "Jobs Opportunity Now PAC",
+      "line": "The leadership PAC is Husted's. The register says so.",
+      "detail": "C00896688, Leadership PAC, first filed 2025-01-27, sponsor: HUSTED, JON (S6OH00304). 65.2% of its $1,263,717 came from TEAM HUSTED.",
+      "caveat": "A filed sponsor, not an inference from the name.",
+      "command": "bin/sentinel connect donors --committee C00896688 --cycle 2026",
+      "verify": "https://www.fec.gov/data/committee/C00896688/",
+      "complete": true
+    },
+    {
+      "id": "LEADPAC-02",
+      "status": "GREEN",
+      "subject": "Jobs Opportunity Now PAC spending",
+      "line": "It paid the caucus: twenty Senate campaigns, $10,000 each.",
+      "detail": "$424,500 in 68 contributions across twenty states, plus $105,000 to HUSTED VICTORY and $15,000 to the NRSC. No independent expenditures at all.",
+      "caveat": "This is the TEXTBOOK function of a leadership PAC. A figure at the cap describes the cap, not the giver.",
+      "command": "bin/sentinel connect fecpac --committee C00896688 --cycle 2026",
+      "verify": "https://www.fec.gov/data/committee/C00896688/",
+      "complete": true
+    },
+    {
+      "id": "HV-01",
+      "status": "GREEN",
+      "subject": "HUSTED VICTORY",
+      "line": "Raised $3.6 million. Sent 76 cents of every dollar to one media firm.",
+      "detail": "$3,636,779 raised (coverage 100%, 85 donors). $2,755,532 to SRCP MEDIA INC. \u2014 75.8% of everything raised. $28,461 transferred to participants \u2014 0.78%.",
+      "caveat": "A joint fundraiser legitimately pays the COST of raising money and allocates it among participants. 'MEDIA' does not say whether this is fundraising solicitation or campaign advertising, and the purpose code cannot distinguish them. THIS IS A QUESTION, NOT A FINDING.",
+      "command": "bin/sentinel connect donors --committee C00937797 --cycle 2026",
+      "verify": "https://www.fec.gov/data/committee/C00937797/",
+      "complete": true
+    },
+    {
+      "id": "BROWN-01",
+      "status": "GREEN",
+      "subject": "Sherrod Brown 2026",
+      "line": "Six committees produced every dollar of the $13.5m spent against him.",
+      "detail": "$13,471,230 against in 91 expenditures; $1,340,363 for in 69. Contested ratio 0.10. AFP Action $4,888,349 \u00b7 SLF PAC $4,508,418 \u00b7 Ohio Flyer PAC $3,342,670 \u00b7 America PAC $648,371 \u00b7 Conservative Caucus $73,419 \u00b7 Red Senate $10,002. The six are the total, to within a dollar.",
+      "caveat": "Schedule E complete (3 of 25 pages). Money IN is TRUNCATED at the 2,500-row cap, so OUTSIDE PRESSURE 15.70x is a CEILING \u2014 the true multiple is lower.",
+      "command": "bin/sentinel connect member \"BROWN, SHERROD\" --candidate S6OH00163 --cycle 2026",
+      "verify": "https://www.fec.gov/data/candidate/S6OH00163/",
+      "complete": false
+    },
+    {
+      "id": "HUSTED-01",
+      "status": "GREEN",
+      "subject": "Jon Husted 2026",
+      "line": "$19.1 million moved at a seat with $476,000 in the candidate's own account.",
+      "detail": "$11,854,529 FOR (113 expenditures) and $7,270,291 AGAINST (22), against $376,438 + $99,435 raised into his own committee.",
+      "caveat": "OUTSIDE PRESSURE 40.19x is a CEILING, not a floor. His Schedule A hit the 25-page cap, so the denominator is understated and the true multiple is LOWER. DO NOT USE THE MULTIPLE until that pull completes.",
+      "command": "bin/sentinel connect member \"HUSTED, JON\" --cycle 2026",
+      "verify": "https://www.fec.gov/data/candidate/S6OH00304/",
+      "complete": false
+    },
+    {
+      "id": "WS-01",
+      "status": "GREEN",
+      "subject": "Wasserman Schultz, FL-25",
+      "line": "For every dollar spent attacking her, less than half a cent defended her.",
+      "detail": "2024: $98,905 against in 46 expenditures, $395 for in 2. A ratio of 250:1. Contested ratio 0.00.",
+      "caveat": "The SMALLER ratio is often the larger operation \u2014 Brown is 10:1 on $13.5m, which is 136x this money. A ratio describes balance, not size.",
+      "command": "bin/sentinel connect member \"WASSERMAN SCHULTZ\" --cycle 2024",
+      "verify": "https://www.fec.gov/data/candidate/H4FL20023/",
+      "complete": true
+    },
+    {
+      "id": "AIPAC-01",
+      "status": "GREEN",
+      "subject": "AIPAC's own funds vs its conduit",
+      "line": "The number everyone reports is the one that carries no information.",
+      "detail": "AIPAC's PAC gave exactly $10,000 \u2014 the maximum \u2014 to Wasserman Schultz in 2022 AND 2024, to Miller, and to Brown. Four of four at the cap. The conduit column varies six-fold: $89,610 / $530,369 / $89,988 / $127,070.",
+      "caveat": "Conduit money is individuals' giving passing through, disclosed under their names. It is NEVER the organisation's donation.",
+      "command": "bin/sentinel connect member \"<NAME>\" --cycle 2024",
+      "verify": "https://www.fec.gov/data/committee/C00797670/",
+      "complete": true
+    },
+    {
+      "id": "EDF-01",
+      "status": "GREEN",
+      "subject": "EDF Action Votes",
+      "line": "An environmental committee that has never spent a dollar in support of anyone.",
+      "detail": "$5,759,827 in 2026, 100% opposition, two candidates only \u2014 Rogers $3,256,161 and Husted $2,503,666.",
+      "caveat": "Two targets is above the 5-row/$1,000 floor, so the arithmetic is not deciding this. But a committee formed late has one race left.",
+      "command": "bin/sentinel connect asymmetry \"EDF Action Votes\" --cycle 2026",
+      "verify": "https://www.fec.gov/data/committee/C00707844/",
+      "complete": true
+    },
+    {
+      "id": "METHOD-01",
+      "status": "GREEN",
+      "subject": "method",
+      "line": "We retired our own best finding.",
+      "detail": "\u00a79 recorded three committees converging on Rogers and Husted. Reading the side split showed two of them were on OPPOSITE sides of all 8 candidates they shared \u2014 and Husted's leadership PAC funds six of the same names. It was the 2026 battleground map, not a network.",
+      "caveat": "The wrong reading is kept in the file with the retraction attached. Correcting it in place would hide the method that caught it.",
+      "command": "bin/sentinel connect asymmetry \"Americans for Prosperity Action\" --cycle 2026",
+      "verify": "docs/FINDINGS_2026-09-09.md \u00a79, \u00a719",
+      "complete": true
+    }
+  ],
+  "open_questions": [
+    {
+      "id": "Q-GAP",
+      "q": "The $91,631 gap: Ohio Flyer's Schedule A says $513,230 from TEAM HUSTED; TEAM HUSTED's Schedule B says $604,861. Four rows on the Husted side.",
+      "blocks": [
+        "TEAM-HUSTED-01"
+      ],
+      "note": "The Jobs Opportunity Now -> Husted Victory transfer reconciles to the dollar across the same two schedules, so the method works and this gap is specific."
+    },
+    {
+      "id": "Q-FORM1",
+      "q": "Who are TEAM HUSTED's declared participants, and what is the allocation formula?",
+      "blocks": [
+        "TEAM-HUSTED-01"
+      ],
+      "command": "bin/sentinel connect filings --committee C00896928 --form F1"
+    },
+    {
+      "id": "Q-MEDIA",
+      "q": "Is HUSTED VICTORY's $2,755,532 of 'MEDIA' fundraising solicitation or campaign advertising?",
+      "blocks": [
+        "HV-01"
+      ],
+      "command": "bin/sentinel connect filings --committee C00937797 --form F3X"
+    },
+    {
+      "id": "Q-VOICE",
+      "q": "Is A PUBLIC VOICE, INC. of Columbus the same entity as the FEC's 'A PUBLIC VOCIE, INC.' of West Chester?",
+      "blocks": [
+        "OH-FLYER-02"
+      ],
+      "note": "Different county, 100 miles apart. If it IS the same non-profit, the trail ends there BY LAW \u2014 a c4 does not disclose donors."
+    },
+    {
+      "id": "Q-CAP",
+      "q": "Husted's and Brown's Schedule A both hit the page cap, making both OUTSIDE PRESSURE figures CEILINGS.",
+      "blocks": [
+        "HUSTED-01",
+        "BROWN-01"
+      ]
+    }
+  ]
+}
