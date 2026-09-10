@@ -1768,13 +1768,22 @@ async function cmdFecPac(name, opts = {}) {
   if (conduit) {
     console.log(`  ${C.r('READ THIS BEFORE QUOTING THE NUMBER BELOW.')}`);
     for (const f of audit) {
-      for (const line of wrap(f.note, 68)) console.log(C.y(`    ${line}`));
+      // The note carries its own line breaks where it lists alternatives;
+      // wrapping the whole string ran them together into one paragraph.
+      for (const para of String(f.note).split('\n')) {
+        for (const line of wrap(para.trim(), 68)) console.log(C.y(`    ${line}`));
+      }
     }
-    console.log(C.dim('    A conduit forwards money that individuals earmarked for a named'));
-    console.log(C.dim('    candidate. It is their giving, disclosed under their names, moving'));
-    console.log(C.dim('    through this committee — not the committee giving its own funds.'));
-    console.log(C.dim('    Reported as the organisation\'s donation it is simply false, and'));
-    console.log(C.dim('    it is the most common error made with this exact filing.'));
+    // ONLY when the rows actually look like a conduit. Printing this after a
+    // TRANSFER reading told the operator the money was not the committee's
+    // when it was — the assertion the audit itself had just declined to make.
+    if (audit.some((f) => f.kind === 'over_cap' && f.reading === 'conduit')) {
+      console.log(C.dim('    A conduit forwards money that individuals earmarked for a named'));
+      console.log(C.dim('    candidate. It is their giving, disclosed under their names, moving'));
+      console.log(C.dim('    through this committee — not the committee giving its own funds.'));
+      console.log(C.dim('    Reported as the organisation\'s donation it is simply false, and'));
+      console.log(C.dim('    it is the most common error made with this exact filing.'));
+    }
     console.log(C.dim(`    Check a row against https://www.fec.gov/data/committee/${picked.committee_id}/`));
     console.log('');
   }

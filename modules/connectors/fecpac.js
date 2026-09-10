@@ -227,14 +227,43 @@ function auditContributions(contribs) {
     .filter(([, v]) => v > IMPLAUSIBLE_PER_RECIPIENT_USD)
     .sort((a, b) => b[1] - a[1]);
   if (over.length) {
+    // OVER THE CAP HAS TWO EXPLANATIONS AND THE ROWS SAY WHICH.
+    //
+    // This used to assert one: "the signature of a CONDUIT ... the money is
+    // theirs, not the committee's." It fired on a leadership PAC sending
+    // $105,000 to a JOINT FUNDRAISING COMMITTEE — a transfer between
+    // affiliated committees, uncapped, and unambiguously the committee's own
+    // money. The warning was not just unhelpful there, it was backwards.
+    //
+    // The evidence to tell them apart was already in hand and ignored:
+    // forwarded money carries MEMO CODES. Earmarked rows over the cap are a
+    // conduit. Over-cap rows with NO memo code are not — they are transfers,
+    // which is why the cap does not apply to them.
+    const overNames = new Set(over.map(([n]) => n));
+    const overRows = contribs.filter((c) => overNames.has(c.recipient));
+    const memoed = overRows.filter(isEarmarked).length;
+    const conduitLike = memoed > overRows.length / 2;
     findings.push({
       kind: 'over_cap',
       count: over.length,
       worst: over[0],
+      memo_rows: memoed,
+      over_rows: overRows.length,
+      reading: conduitLike ? 'conduit' : 'transfer',
       note: `${over.length} recipient(s) show more than $${IMPLAUSIBLE_PER_RECIPIENT_USD.toLocaleString('en-US')} `
-          + `— above what a PAC may give from its own funds in a cycle. `
-          + `That is the signature of a CONDUIT forwarding contributions `
-          + `earmarked by individuals. The money is theirs, not the committee's.`,
+          + `— above what a PAC may give a CANDIDATE from its own funds in a `
+          + `cycle. Two things produce that, and they are opposites:\n`
+          + `      CONDUIT — money individuals earmarked, passing through. It `
+          + `is their giving, not this committee's, and reporting it as the `
+          + `committee's donation is simply false.\n`
+          + `      TRANSFER — money moving to an AFFILIATED or JOINT `
+          + `FUNDRAISING committee, which is not capped and IS this `
+          + `committee's own money.\n`
+          + `      ${memoed} of ${overRows.length} over-cap row(s) carry a memo `
+          + `code. ${conduitLike
+            ? 'Most do, which is the conduit signature — read the memo rows.'
+            : 'None or few do, so this reads as a TRANSFER, not a conduit. '
+              + 'Check what the recipient is registered as before quoting it.'}`,
     });
   }
   const marked = contribs.filter(isEarmarked).length;

@@ -514,6 +514,50 @@ async function run() {
   }
 
 
+  // ══ OVER THE CAP HAS TWO OPPOSITE EXPLANATIONS ════════════════════════
+  // The audit fired on a leadership PAC sending $105,000 to a JOINT
+  // FUNDRAISING COMMITTEE and announced:
+  //   "That is the signature of a CONDUIT forwarding contributions
+  //    earmarked by individuals. The money is theirs, not the committee's."
+  // Backwards. A transfer to an affiliated or joint fundraising committee is
+  // uncapped and IS the committee's own money. The evidence to tell them
+  // apart was already in hand and ignored: forwarded money carries MEMO
+  // CODES, and that run had none.
+  {
+    const asTransfer = F.auditContributions([
+      { recipient: 'A JOINT FUNDRAISER', amount: 105000 },
+      { recipient: 'A CANDIDATE', amount: 10000 },
+    ]).find((f) => f.kind === 'over_cap');
+    eq('over-cap rows with no memo code read as a TRANSFER',
+      asTransfer.reading, 'transfer');
+    eq('and the memo count is shown, not just the verdict',
+      asTransfer.memo_rows, 0);
+    check('the note offers BOTH explanations rather than asserting one',
+      /CONDUIT/.test(asTransfer.note) && /TRANSFER/.test(asTransfer.note));
+    check('and tells the reader to check what the recipient is registered as',
+      /registered as/.test(asTransfer.note));
+    check('the old unconditional assertion is gone from the module',
+      !/That is the signature of a CONDUIT forwarding contributions\s*\`?\s*\+?\s*\`?earmarked by individuals\. The money is theirs/.test(src));
+
+    const asConduit = F.auditContributions([
+      { recipient: 'A CANDIDATE', amount: 60000, memo_code: 'X' },
+      { recipient: 'A CANDIDATE', amount: 50000, memo_code: 'X' },
+    ]).find((f) => f.kind === 'over_cap');
+    eq('over-cap rows that ARE memo-coded still read as a conduit',
+      asConduit.reading, 'conduit');
+    check('and say so in words', /conduit signature/.test(asConduit.note));
+
+    // The cap language must name what it is a cap ON.
+    check('the note says the cap applies to giving a CANDIDATE',
+      /give a CANDIDATE/.test(asTransfer.note));
+
+    // Below the threshold nothing fires at all.
+    check('an ordinary $10,000 contribution raises no flag',
+      !F.auditContributions([{ recipient: 'A CANDIDATE', amount: 10000 }])
+        .some((f) => f.kind === 'over_cap'));
+  }
+
+
   console.log(`\n  ${fails ? 'FAIL' : 'PASS'} — ${ran - fails}/${ran} checks\n`);
   return fails ? 1 : 0;
 }
