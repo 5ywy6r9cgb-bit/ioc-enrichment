@@ -1121,7 +1121,17 @@ async function cmdMember(name, opts = {}) {
   // ---- who, exactly. A name is not an identity.
   let picked = null;
   if (opts.candidate) {
-    picked = { candidate_id: opts.candidate, name: opts.candidate, committee_id: '' };
+    // LOOK THE ID UP. Synthesising a record here left committee_id empty and
+    // the command reported that absence as a fact about the register.
+    const byId = M.parseCandidateMatches(
+      await fetchJson(M.candidateByIdUrl(opts.candidate, key)));
+    if (!byId.length) {
+      console.log(`\n  ${C.y(`${opts.candidate} is not a candidate id the FEC knows.`)}`);
+      console.log(C.dim('  Ids look like S6OH00163 or H4FL20023. Drop the flag and'));
+      console.log(C.dim('  search by name to see the register\'s spelling.\n'));
+      process.exit(2);
+    }
+    picked = byId[0];
   } else {
     const matches = M.parseCandidateMatches(
       await fetchJson(M.candidateSearchUrl(name, key)));
@@ -1156,6 +1166,16 @@ async function cmdMember(name, opts = {}) {
   const page = (label) => (pg, got, total, cap) => process.stdout.write(
     `\r    ${label} page ${String(pg).padStart(2)}/${cap} · ${String(total).padStart(5)} rows`);
 
+  // The candidate record does not always carry the committee. Ask the other
+  // way round before concluding there isn't one.
+  if (!picked.committee_id) {
+    const cc = M.parseCandidateCommittees(
+      await fetchJson(M.candidateCommitteesUrl(picked.candidate_id, cycle, key)));
+    if (cc.length) {
+      picked = { ...picked, committee_id: cc[0].committee_id, committee_name: cc[0].name };
+    }
+  }
+
   let contribsIn = [];
   let inTrunc = false;
   if (picked.committee_id) {
@@ -1166,7 +1186,14 @@ async function cmdMember(name, opts = {}) {
     process.stdout.write('\n');
     contribsIn = a.rows; inTrunc = a.truncated;
   } else {
-    console.log(C.y('  no principal committee on file — money IN cannot be read.'));
+    // Two lookups have now failed to find one. That is worth saying plainly,
+    // and worth separating from the reader's likely conclusion.
+    console.log(C.y('  No principal campaign committee found for this candidate'));
+    console.log(C.y(`  in cycle ${cycle}, by candidate record or by committee filter.`));
+    console.log(C.dim('  Money IN is UNREAD, not zero. Everything below is Schedule E'));
+    console.log(C.dim('  only, so OUTSIDE PRESSURE cannot be computed — it needs the'));
+    console.log(C.dim('  denominator this absence removes.'));
+    console.log(C.dim(`  Check by eye: https://www.fec.gov/data/candidate/${picked.candidate_id}/`));
   }
 
   console.log(C.dim('  reading Schedule E — spending for and against …'));

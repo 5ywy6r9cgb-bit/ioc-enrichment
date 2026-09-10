@@ -157,6 +157,58 @@ async function run() {
   eq('a seat with only opposition spending rates 0.00', s2.contested_ratio, 0);
   check('while outside pressure still computes', s2.outside_pressure === 30);
 
+  // ── --candidate MUST LOOK THE PERSON UP ──────────────────────────────
+  // The live failure: `member "BROWN, SHERROD" --candidate S6OH00163`
+  // printed
+  //     S6OH00163  S6OH00163  cycle 2026
+  //     no principal committee on file — money IN cannot be read.
+  // Neither line was about the FEC. The flag path synthesised a record with
+  // an empty committee id and never asked the register anything, so the id
+  // stood in for the name and the empty field was reported as an absence.
+  //
+  // The disambiguation guard RECOMMENDS this flag. Following the tool's own
+  // instruction silently switched off one of the three directions the
+  // command exists to reconcile.
+  const cliSrc = require('fs').readFileSync(require.resolve('./cli.js'), 'utf8');
+
+  check('--candidate resolves the id against the register',
+    /candidateByIdUrl\(opts\.candidate, key\)/.test(cliSrc));
+  check('and does NOT synthesise a record with an empty committee id',
+    !/candidate_id: opts\.candidate, name: opts\.candidate, committee_id: ''/.test(cliSrc));
+  check('an id the FEC does not know is refused, not invented',
+    /is not a candidate id the FEC knows/.test(cliSrc));
+
+  eq('the by-id lookup uses /candidates/search/, which carries committees',
+    M.candidateByIdUrl('S6OH00163', 'k').includes('/candidates/search/'), true);
+  check('and filters on candidate_id',
+    M.candidateByIdUrl('S6OH00163', 'k').includes('candidate_id=S6OH00163'));
+
+  // The fallback delegation already had and member did not.
+  check('a missing committee is retried the other way round',
+    /candidateCommitteesUrl\(picked\.candidate_id, cycle, key\)/.test(cliSrc));
+  check('via a FILTER on /committees/, not the 404 path',
+    M.candidateCommitteesUrl('S6OH00163', 2026, 'k').includes('/committees/?')
+    && !M.candidateCommitteesUrl('S6OH00163', 2026, 'k').includes('/candidate/S6OH00163/'));
+  check('asking for the principal committee specifically',
+    M.candidateCommitteesUrl('S6OH00163', 2026, 'k').includes('designation=P'));
+  eq('and the newest filer wins when several answer',
+    M.parseCandidateCommittees({ results: [
+      { committee_id: 'C1', name: 'OLD', last_file_date: '2019-01-01' },
+      { committee_id: 'C2', name: 'NEW', last_file_date: '2026-06-01' },
+    ] })[0].committee_id, 'C2');
+  eq('committee-less rows are dropped rather than carried as blanks',
+    M.parseCandidateCommittees({ results: [{ name: 'NO ID' }] }).length, 0);
+
+  // Only after BOTH fail may the tool say so, and it must not say "zero".
+  check('the absence message says UNREAD, not zero',
+    /Money IN is UNREAD, not zero/.test(cliSrc));
+  check('it names both lookups it tried',
+    /by candidate record or by committee filter/.test(cliSrc));
+  check('and states that outside pressure is uncomputable without it',
+    /OUTSIDE PRESSURE cannot be computed/.test(cliSrc));
+  check('the old sentence, which asserted a fact about the register, is gone',
+    !/no principal committee on file — money IN cannot be read/.test(cliSrc));
+
   console.log(`\n  ${fails ? 'FAIL' : 'PASS'} — ${ran - fails}/${ran} checks\n`);
   return fails ? 1 : 0;
 }

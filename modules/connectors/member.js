@@ -65,6 +65,53 @@ function candidateSearchUrl(name, key) {
        + `&q=${encodeURIComponent(name)}&per_page=20&sort=-first_file_date`;
 }
 
+/**
+ * The same lookup, BY ID.
+ *
+ * `--candidate S6OH00163` used to skip the register entirely and synthesise
+ * a record with an empty committee id. The command then printed
+ *
+ *     no principal committee on file — money IN cannot be read.
+ *
+ * which is a statement about the FEC's register and was not true. It was a
+ * statement about having used the flag. Worse, the disambiguation guard
+ * RECOMMENDS the flag, so following the tool's own advice silently disabled
+ * one of the three directions the command exists to reconcile — and the
+ * header printed the id twice because there was no name to print either.
+ *
+ * /candidates/search/ carries principal_committees; the plain /candidates/
+ * does not. Same trap as the delegation sweep.
+ */
+function candidateByIdUrl(candidateId, key) {
+  return `${API}/candidates/search/?api_key=${encodeURIComponent(key)}`
+       + `&candidate_id=${encodeURIComponent(candidateId)}&per_page=1`;
+}
+
+/**
+ * Fallback when the candidate record carries no committee.
+ *
+ * /candidate/{id}/committees/ does not exist and answers 404 — the link is
+ * a FILTER on /committees/. designation=P is the principal campaign
+ * committee, as opposed to a leadership PAC or a joint fundraiser.
+ */
+function candidateCommitteesUrl(candidateId, cycle, key) {
+  return `${API}/committees/?api_key=${encodeURIComponent(key)}`
+       + `&candidate_id=${encodeURIComponent(candidateId)}`
+       + `&cycle=${encodeURIComponent(cycle)}`
+       + '&designation=P&per_page=10&sort=-last_file_date';
+}
+
+function parseCandidateCommittees(json) {
+  return (json.results || [])
+    .map((r) => ({
+      committee_id: r.committee_id || '',
+      name: r.name || '',
+      last_file_date: r.last_file_date || '',
+    }))
+    .filter((c) => c.committee_id)
+    .sort((a, b) => String(b.last_file_date).localeCompare(String(a.last_file_date)));
+}
+
 function parseCandidateMatches(json) {
   return (json.results || []).map((r) => {
     const pcs = Array.isArray(r.principal_committees) ? r.principal_committees : [];
@@ -258,6 +305,7 @@ async function collect(fetchJson, buildUrl, parse, cap = 25, pace = 0, onPage = 
 
 module.exports = {
   API, cycleWindow, candidateSearchUrl, parseCandidateMatches,
+  candidateByIdUrl, candidateCommitteesUrl, parseCandidateCommittees,
   contributionsInUrl, parseContributionsIn,
   independentUrl, parseIndependent,
   isEarmarked, clampToCycle, byOrganisation, twoColumn, soleTargets,
