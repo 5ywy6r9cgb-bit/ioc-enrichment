@@ -1032,6 +1032,130 @@ async function resolveCommittee(nameOrId, key, fetchJson, cmd) {
   process.exit(2);
 }
 
+/**
+ * connect donors — who funded a committee, and how much of it that is.
+ *
+ * `fecpac` reads Schedule B and E. Both are money OUT. Nothing here read
+ * Schedule A for a committee, so "whose money is this" could not be asked —
+ * and was asked anyway, of a super PAC with two candidates and one state.
+ */
+async function cmdDonors(opts = {}) {
+  const DN = require('./donors.js');
+  const F = require('./fecpac.js');
+  const DG = require('./delegation.js');
+  const env = R.loadEnv();
+  const key = R.resolveKey(R.CONNECTORS.fec, env);
+  if (!key) { console.error(`\n  ${C.r('FEC_API_KEY is not set.')}\n`); process.exit(2); }
+  const now = new Date().getFullYear();
+  const cycle = opts.cycle || (now % 2 === 0 ? now : now - 1);
+  const fetchJson = fecFetcher();
+
+  const committee = await resolveCommittee(opts.committee, key, fetchJson, 'donors');
+  const cmts = F.parseCommittees(await fetchJson(
+    `${F.API}/committees/?api_key=${encodeURIComponent(key)}`
+    + `&committee_id=${encodeURIComponent(committee)}&per_page=1`));
+  const name = cmts.length ? cmts[0].name : committee;
+  console.log(`\n  ${C.b(name)}  ${C.dim(committee)}  cycle ${cycle}`);
+  if (cmts.length) {
+    console.log(C.dim(`  ${cmts[0].type}${cmts[0].designation ? ' · ' + cmts[0].designation : ''}`
+      + `${cmts[0].first_file_date ? ' · first filed ' + cmts[0].first_file_date.slice(0, 10) : ''}`));
+  }
+  if (opts.dryRun) { console.log(C.dim('\n  DRY RUN — nothing requested.\n')); return; }
+
+  // The committee's own summary first. Without it there is no denominator
+  // and every share below would be a share of an unknown quantity.
+  let totals = null;
+  try {
+    totals = DG.parseTotals(await fetchJson(DG.totalsUrl(committee, cycle, key)));
+  } catch (e) {
+    console.log(C.y(`  summary totals unavailable — ${e.message}`));
+  }
+
+  console.log(C.dim('  reading Schedule A — money in …'));
+  const a = await DN.collect(fetchJson,
+    (li, ld) => DN.receiptsUrl(committee, cycle, key, li, ld),
+    DN.parseReceipts, 25, 2600,
+    (pg, got, total, cap) => process.stdout.write(
+      `\r    page ${String(pg).padStart(2)}/${cap} · ${String(total).padStart(5)} rows`));
+  process.stdout.write('\n');
+
+  const s = DN.summarise(a.rows, totals, a.truncated);
+  const usd = (n) => '$' + Math.round(n).toLocaleString('en-US');
+
+  if (!s.rows) {
+    console.log(`\n  ${C.y('Schedule A is empty for this committee and cycle.')}`);
+    console.log(C.dim('  That is one register saying nothing. A committee can be funded'));
+    console.log(C.dim('  entirely below the $200 itemisation threshold, or have filed'));
+    console.log(C.dim('  nothing yet.'));
+    if (totals && totals.receipts > 0) {
+      console.log(C.dim(`  Its own summary reports ${usd(totals.receipts)} in receipts, so`));
+      console.log(C.dim('  the money exists and is simply not itemised here.'));
+    }
+    console.log('');
+    return;
+  }
+
+  // COVERAGE BEFORE ANY NAME. A reader who sees the top donor first has
+  // already formed the conclusion the coverage line is meant to qualify.
+  const cv = s.coverage;
+  const cColour = { near_complete: C.g, partial: C.y, thin: C.r,
+    truncated: C.r, unknown: C.r }[cv.verdict] || C.dim;
+  console.log(`\n  ${C.b('How much of the money this can see')}`);
+  console.log(`    ${cColour(cv.verdict.toUpperCase().replace('_', ' '))}`
+    + (cv.share !== null ? `  ${cv.share}% of reported receipts` : ''));
+  if (cv.receipts) console.log(`    receipts reported   ${usd(cv.receipts).padStart(15)}`);
+  console.log(`    itemised here       ${usd(cv.itemised).padStart(15)}   ${s.rows} rows`);
+  console.log('');
+  for (const line of wrap(cv.note, 68)) console.log(C.dim(`    ${line}`));
+
+  if (s.forwarded_total > 0) {
+    console.log(`\n  ${C.b('Forwarded, not given')}  ${usd(s.forwarded_total)}`
+      + C.dim(`  in ${s.forwarded_rows} memo row(s)`));
+    console.log(C.dim('    Earmarked money passing through a conduit. The conduit is the'));
+    console.log(C.dim('    filer, not the donor, and this is never its own giving.'));
+  }
+
+  console.log(`\n  ${C.b('Where the itemised money came from')}`);
+  for (const k of s.by_kind) {
+    const share = s.direct_total > 0
+      ? ((k.amount / s.direct_total) * 100).toFixed(1) : '—';
+    console.log(`    ${String(share).padStart(5)}%  ${usd(k.amount).padStart(15)}  ${k.kind}`);
+  }
+
+  const top = s.donors.slice(0, opts.limit || 25);
+  console.log(`\n  ${C.b(`Donors (${s.distinct_donors} distinct, top ${top.length})`)}`);
+  console.log(C.dim('       direct     forwarded  n   donor'));
+  for (const d of top) {
+    console.log(`    ${usd(d.direct).padStart(13)}  ${(d.forwarded ? usd(d.forwarded) : '—').padStart(11)}`
+      + `  ${String(d.rows).padStart(2)}  ${d.name}`);
+    const meta = [d.kind, d.where, d.employer && `employer: ${d.employer}`]
+      .filter(Boolean).join(' · ');
+    if (meta) console.log(C.dim(`    ${' '.repeat(30)}${meta}`));
+  }
+
+  // The share-of-whole claim, allowed only when coverage earns it.
+  const t = s.donors[0];
+  if (t) {
+    console.log('');
+    if (s.can_state_share_of_whole) {
+      const share = ((t.direct + t.forwarded) / cv.receipts * 100).toFixed(1);
+      console.log(`  ${C.b('Largest donor')}  ${share}% of this committee's reported receipts`);
+      console.log(C.dim(`    ${t.name} — ${usd(t.direct + t.forwarded)} of ${usd(cv.receipts)}`));
+    } else {
+      const share = ((t.direct + t.forwarded) / (s.direct_total + s.forwarded_total) * 100).toFixed(1);
+      console.log(`  ${C.b('Largest donor')}  ${share}% ${C.y('OF THE ITEMISED MONEY ONLY')}`);
+      console.log(C.dim(`    ${t.name} — ${usd(t.direct + t.forwarded)} of ${usd(s.direct_total + s.forwarded_total)} itemised.`));
+      console.log(C.dim('    NOT a share of the committee. The rest of its money is not in'));
+      console.log(C.dim('    these rows and could change this number in either direction.'));
+    }
+  }
+
+  if (a.truncated) {
+    console.log(`\n  ${C.r('TRUNCATED — a page cap was reached. These are FLOORS.')}`);
+  }
+  console.log(`\n  ${C.dim('Verify:')} https://www.fec.gov/data/committee/${committee}/\n`);
+}
+
 async function cmdAsymmetry(opts = {}) {
   const A = require('./asymmetry.js');
   const F = require('./fecpac.js');
@@ -2275,6 +2399,23 @@ async function main() {
       limit: li >= 0 && argv[li + 1] ? parseInt(argv[li + 1], 10) : undefined,
       dryRun: opts.dryRun,
     });
+  }
+  if (action === 'donors') {
+    const cycle = flagNum(argv, '--cycle');
+    const committee = flagVal(argv, '--committee')
+      || subjectFrom(args.slice(1), argv, ['--cycle', '--limit']);
+    if (!committee) {
+      console.error('\n  usage: sentinel connect donors "COMMITTEE NAME" [--cycle 2026]');
+      console.error('     or: sentinel connect donors --committee C00… [--cycle 2026]');
+      console.error('\n  Who funded this committee — Schedule A, money IN.');
+      console.error('\n  Schedule A itemises above $200 only, so the answer is always');
+      console.error('  partial. The command reports what share of the committee\'s');
+      console.error('  reported receipts it can actually see, and refuses to state a');
+      console.error('  share of the whole when that share is low.\n');
+      process.exit(2);
+    }
+    return cmdDonors({ committee, cycle,
+      limit: flagNum(argv, '--limit'), dryRun: opts.dryRun });
   }
   if (action === 'asymmetry') {
     const cycle = flagNum(argv, '--cycle');

@@ -611,12 +611,36 @@ module.exports = function run() {
       /rate limit/.test(CLI.fecError({ status: 429, body: 'rate limit exceeded' })));
 
     // One fetcher, not four that drifted.
-    check('every command uses the shared fetcher',
-      (cliSrc.match(/const fetchJson = fecFetcher\(\);/g) || []).length === 4);
+    // Count-free: every fetchJson assignment must come from the shared
+    // fetcher. Pinning a number just means the next command that adds one
+    // breaks the test instead of being checked by it.
+    const assignments = (cliSrc.match(/const fetchJson = /g) || []).length;
+    const shared = (cliSrc.match(/const fetchJson = fecFetcher\(/g) || []).length;
+    check(`every fetchJson comes from the shared fetcher (${shared}/${assignments})`,
+      assignments > 0 && shared === assignments);
     check('and no inline retry list survives',
       !/\[429, 503, 504\]\.includes/.test(cliSrc));
     check('the shared fetcher exists and is callable',
       typeof CLI.fecFetcher() === 'function');
+  }
+
+  // ══ THE DISPATCHER MUST KNOW EVERY VERB ═══════════════════════════════
+  // `all` was added to cli.js and not to bin/sentinel, so the dispatcher
+  // treated it as a connector NAME and reported "unknown connector: all".
+  // A command that works when the module is called directly is not yet a
+  // command that works.
+  {
+    const disp = require('fs').readFileSync(
+      require('path').join(__dirname, '..', '..', 'bin', 'sentinel'), 'utf8');
+    const line = (disp.match(/^\s*test\|list\|.*\)$/m) || [''])[0];
+    for (const verb of ['test', 'list', 'all', 'crosslink', 'lobby', 'graph',
+      'expand', 'sweep', 'brief', 'fecpac', 'delegation', 'member',
+      'asymmetry', 'donors']) {
+      check(`the dispatcher passes "${verb}" through`,
+        line.split('|').map((s) => s.replace(/[^a-z]/g, '')).includes(verb));
+    }
+    check('and cli.js has a branch for donors',
+      /if \(action === 'donors'\)/.test(cliSrc));
   }
 
   console.log(`\n  ${FAIL === 0 ? 'PASS' : 'FAIL'} — ${PASS}/${PASS + FAIL} checks\n`);
