@@ -1004,6 +1004,51 @@ async function runConnector(name, query, opts = {}) {
  */
 const SECRET_PARAMS = /^(api[_-]?key|key|token|access[_-]?token|apikey|auth|secret|password|signature|sig)$/i;
 
+
+/**
+ * STRINGS A WEB FIREWALL REFUSES TO CARRY, AND THE BLIND SPOT THEY CREATE.
+ *
+ * One registrant out of 181 answered 403: MCGINLEY LLC. It was not rate
+ * limiting (403 on the first request of a fresh run), not the connection (a
+ * control succeeded in the same minute), and not the corporate suffix. A
+ * four-request ladder found the cause:
+ *
+ *     MCGINLEY LLC  403      GINLEY                   200
+ *     MCGIN         403      MCNEES WALLACE & NURICK  200
+ *
+ * M-C-G-I-N. The refused strings contain **cgi** and the accepted ones do
+ * not — and from the full run MCGUIREWOODS and MCALLISTER, which share the
+ * "MC" and even the "MCG", both answered normally.
+ *
+ * `cgi` is Common Gateway Interface, and generic web-firewall rules block
+ * request strings containing it because of decades-old /cgi-bin/ exploits.
+ * Nothing is denying anything about McGinley; a rule written for a 1990s
+ * attack is eating three letters of a surname.
+ *
+ * WHY THIS MATTERS BEYOND ONE FIRM: it is a SYSTEMATIC BLIND SPOT. Any
+ * organisation whose name contains those letters is unreachable through
+ * this route — and CGI FEDERAL, a large federal IT contractor, is exactly
+ * such a name. An empty result for a name like that would otherwise read as
+ * "this company does not lobby", which is the §42 failure with a different
+ * cause.
+ *
+ * So the toolkit names it rather than leaving the operator to a theory.
+ */
+const FIREWALL_SNAGS = [
+  { re: /cgi/i, what: 'cgi', why: 'Common Gateway Interface — generic firewall '
+    + 'rules block it because of /cgi-bin/ exploits' },
+  { re: /\.\.\//, what: '../', why: 'path traversal' },
+  { re: /<script/i, what: '<script', why: 'cross-site scripting' },
+  { re: /\bunion\s+select\b/i, what: 'union select', why: 'SQL injection' },
+];
+
+/** Which snag, if any, a query string carries. Null when it carries none. */
+function firewallSnag(query) {
+  const q = String(query == null ? '' : query);
+  if (!q) return null;
+  return FIREWALL_SNAGS.find((s) => s.re.test(q)) || null;
+}
+
 function redactUrl(url) {
   const raw = String(url == null ? '' : url);
   if (!raw) return raw;
@@ -1071,4 +1116,5 @@ module.exports = { phrase,
   stripAuth, AUTH_HEADERS, MAX_REDIRECTS,
   CONNECTORS, VERSION, EVIDENCE, CAPTURES, LEDGER, resolveKey, retryAfterMs, pace,
   loadEnv, mask, request, runConnector, redactUrl, recordCapture,
+  firewallSnag, FIREWALL_SNAGS,
 };

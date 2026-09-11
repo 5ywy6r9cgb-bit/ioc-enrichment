@@ -2542,7 +2542,22 @@ async function cmdRegistrant(query, opts) {
       //
       // The 403 need not come from the register at all: a proxy, a WAF or a
       // CDN in front of it answers with the same status and the same words.
-      if (page === 1 && /\b403\b/.test(String(out.error || ''))) {
+      const snag = page === 1 ? R.firewallSnag(query) : null;
+      if (snag) {
+        // The control is no longer needed: the cause is known.
+        console.error(`\n  ${C.y(`This query contains "${snag.what}" — that is why.`)}`);
+        for (const line of wrap(
+          `"${snag.what}" is ${snag.why}. A web firewall in front of lda.gov `
+          + 'refuses request strings containing it, so the refusal is about '
+          + 'those characters and not about this organisation. Established '
+          + 'by ladder: MCGINLEY and MCGIN refuse; GINLEY, MCNEES and '
+          + 'MCGUIREWOODS — which shares the MCG — do not.', 68)) {
+          console.error(C.dim(`    ${line}`));
+        }
+        console.error(C.y(`\n    ANY registrant or client whose name contains "${snag.what}" is`));
+        console.error(C.y('    unreachable through this route. An empty answer for one of'));
+        console.error(C.dim('    them is a fact about the firewall, not about their lobbying.\n'));
+      } else if (page === 1 && /\b403\b/.test(String(out.error || ''))) {
         console.error(`\n  ${C.y('A 403 is an ANSWER, and it may not be from the register.')}`);
         for (const line of wrap(
           'A proxy, a WAF or a CDN in front of lda.gov returns the same '
@@ -3175,7 +3190,31 @@ async function cmdSearch(name, query, opts) {
   const out = await R.runConnector(name, query, { env });
   if (!out.ok) {
     console.error(C.r(`\n  ${out.error} — nothing written.`));
-    if (out.status === 401 || out.status === 403) console.error('  The key was rejected. Run: sentinel connect test\n');
+    // "The key was rejected" was printed for a 403 that had nothing to do
+    // with the key — the same key had answered a control seconds earlier.
+    // A 401 IS about credentials. A 403 is "not allowed", which the key is
+    // only one possible reason for.
+    if (out.status === 401) {
+      console.error('  The key was rejected. Run: sentinel connect test\n');
+    } else if (out.status === 403) {
+      const snag = R.firewallSnag(q);
+      if (snag) {
+        console.error(`\n  ${C.y(`This query contains "${snag.what}".`)}`);
+        for (const line of wrap(
+          `That is ${snag.why}, and a web firewall in front of the API `
+          + 'refuses request strings containing it. The refusal is about '
+          + 'those characters, NOT about this organisation and NOT about '
+          + 'your key — verified by a ladder: MCGINLEY and MCGIN refuse, '
+          + 'GINLEY and MCNEES do not.', 68)) console.error(C.dim(`    ${line}`));
+        console.error(C.y('\n    ANY name containing those characters is unreachable '
+          + 'this way.'));
+        console.error(C.dim('    An empty answer for one is a fact about the firewall, '
+          + 'not\n    about whether they lobby.\n'));
+      } else {
+        console.error('  403 is "not allowed" — which may be the key, or may be a\n'
+          + '  firewall in front of the API. Check the key with: sentinel connect test\n');
+      }
+    }
     else console.error('');
     process.exit(1);
   }

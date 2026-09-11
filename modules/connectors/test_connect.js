@@ -854,6 +854,43 @@ module.exports = function run() {
   }
 
 
+  // ══ THREE LETTERS OF A SURNAME, NOT A REDACTION ═══════════════════════
+  // One registrant of 181 answered 403. A four-request ladder found why:
+  //   MCGINLEY LLC 403 · MCGIN 403 · GINLEY 200 · MCNEES 200
+  // M-C-G-I-N. "cgi" is Common Gateway Interface, and generic firewall
+  // rules refuse request strings containing it over /cgi-bin/ exploits.
+  {
+    const snag = (q) => R.firewallSnag(q);
+    check('the refused strings are caught', !!snag('MCGINLEY LLC') && !!snag('MCGIN'));
+    check('and the accepted ones are not',
+      !snag('GINLEY') && !snag('MCNEES WALLACE & NURICK') && !snag('VENABLE LLP'));
+    // The clincher from the live run: MCGUIREWOODS shares MC and even MCG
+    // and answered normally, so the rule is not a prefix.
+    check('MCGUIREWOODS shares the MCG and is clean', !snag('MCGUIREWOODS CONSULTING'));
+    check('MCALLISTER too', !snag('MCALLISTER & QUINN, LLC'));
+    check('it is case-insensitive', !!snag('mcginley llc'));
+    check('the snag is named so the reader can check it', snag('MCGIN').what === 'cgi');
+    check('with the reason', /Common Gateway Interface/.test(snag('MCGIN').why));
+    // THE BLIND SPOT. A real federal IT contractor is unreachable this way,
+    // and an empty answer for it would read as "does not lobby".
+    check('CGI FEDERAL is caught by the same rule', !!snag('CGI FEDERAL'));
+    check('an empty query snags nothing', !snag(''));
+    check('null does not throw', !snag(null));
+
+    check('a 403 on a snagged query explains itself instead of asking for a control',
+      /that is why/i.test(cliSrc));
+    check('and says the blind spot covers ANY such name',
+      /is unreachable through this route|unreachable\s*'\s*\+/.test(cliSrc)
+      || /ANY registrant or client whose name contains/.test(cliSrc));
+    // "The key was rejected" was printed for a 403 the key had nothing to
+    // do with — the same key answered a control seconds earlier.
+    check('401 still blames the key', /out\.status === 401\) \{/.test(cliSrc));
+    check('403 no longer blames the key by default',
+      !/if \(out\.status === 401 \|\| out\.status === 403\) console\.error\('  The key was rejected/
+        .test(cliSrc));
+  }
+
+
   console.log(`\n  ${FAIL === 0 ? 'PASS' : 'FAIL'} — ${PASS}/${PASS + FAIL} checks\n`);
   return FAIL;
 };
