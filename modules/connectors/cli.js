@@ -988,7 +988,39 @@ function fecFetcher({ quiet = false } = {}) {
   };
 }
 
-async function resolveCommittee(nameOrId, key, fetchJson, cmd) {
+/**
+ * Print the candidate list for an ambiguous committee name. Shared by the
+ * hard-exit path and the soft path `control` uses, so both readers see the
+ * same thing.
+ */
+function printCommitteeMatches(cmts, nameOrId) {
+  console.log(`\n  ${C.b(`${cmts.length} committees match`)} "${nameOrId}"\n`);
+  for (const c of cmts.slice(0, 12)) {
+    console.log(`  ${C.g(c.committee_id)}  ${c.name}`);
+    console.log(C.dim(`  ${' '.repeat(12)}${c.type}${c.designation ? ' · ' + c.designation : ''}`
+      + `${c.first_file_date ? ' · first filed ' + c.first_file_date.slice(0, 10) : ''}`));
+    // WHOSE it is, when the register says. "Leadership PAC" names a category,
+    // not a person, and the obvious guess from the committee's name is the
+    // inference this desk refuses everywhere else.
+    const aff = require('./fecpac.js').affiliationOf(c);
+    if (aff) console.log(`  ${' '.repeat(12)}${C.b(aff)}`);
+  }
+  if (cmts.length > 12) console.log(C.dim(`\n  …and ${cmts.length - 12} more.`));
+}
+
+const WHY_NOT_CHOSEN = [
+  'A connected PAC and a super PAC under one name are governed by',
+  'different rules and their money means different things.',
+  'Choosing for you would be choosing the story.',
+];
+
+/**
+ * @param {object} [opts]
+ * @param {boolean} [opts.soft] return `{ambiguous:true, …}` instead of
+ *   exiting, so a caller resolving SEVERAL names can report all of them at
+ *   once rather than dying on the first.
+ */
+async function resolveCommittee(nameOrId, key, fetchJson, cmd, opts = {}) {
   const F = require('./fecpac.js');
   const q = nameOrId.trim();
   if (/^C\d{8}$/i.test(q)) return q.toUpperCase();
@@ -1017,23 +1049,13 @@ async function resolveCommittee(nameOrId, key, fetchJson, cmd) {
     console.log(C.dim(`\n  "${nameOrId}" → ${cmts[0].committee_id}  ${cmts[0].name}`));
     return cmts[0].committee_id;
   }
-  console.log(`\n  ${C.b(`${cmts.length} committees match`)} "${nameOrId}"\n`);
-  for (const c of cmts.slice(0, 12)) {
-    console.log(`  ${C.g(c.committee_id)}  ${c.name}`);
-    console.log(C.dim(`  ${' '.repeat(12)}${c.type}${c.designation ? ' · ' + c.designation : ''}`
-      + `${c.first_file_date ? ' · first filed ' + c.first_file_date.slice(0, 10) : ''}`));
-    // WHOSE it is, when the register says. "Leadership PAC" names a category,
-    // not a person, and the obvious guess from the committee's name is the
-    // inference this desk refuses everywhere else.
-    const aff = require('./fecpac.js').affiliationOf(c);
-    if (aff) console.log(`  ${' '.repeat(12)}${C.b(aff)}`);
-  }
-  if (cmts.length > 12) console.log(C.dim(`\n  …and ${cmts.length - 12} more.`));
+  if (opts.soft) return { ambiguous: true, query: nameOrId, matches: cmts };
+  printCommitteeMatches(cmts, nameOrId);
   console.log(`\n  ${C.b('Nothing was measured.')} ${C.dim('Pick one:')}`);
   console.log(C.dim(`    sentinel connect ${cmd} --committee ${cmts[0].committee_id}`));
-  console.log(C.dim('\n  A connected PAC and a super PAC under one name are governed by'));
-  console.log(C.dim('  different rules and their money means different things.'));
-  console.log(C.dim('  Choosing for you would be choosing the story.\n'));
+  console.log('');
+  for (const line of WHY_NOT_CHOSEN) console.log(C.dim(`  ${line}`));
+  console.log('');
   process.exit(2);
 }
 
@@ -1065,9 +1087,36 @@ async function cmdControl(ids, opts = {}) {
   console.log(`\n  ${C.b('Shared control')}  ${C.dim(`${ids.length} committee(s)`)}`);
   if (opts.dryRun) { console.log(C.dim('\n  DRY RUN — nothing requested.\n')); return; }
 
-  const cmts = [];
+  // `control` takes several committees at once, so one ambiguous name must
+  // not kill the run. Resolve them ALL first, report every ambiguity
+  // together, and hand back the corrected command line with the names that
+  // did resolve already filled in — a reader who typed three names should
+  // not have to retype the two that were fine.
+  const resolved = [];
   for (const raw of ids) {
-    const id = await resolveCommittee(raw, key, fetchJson, 'control');
+    resolved.push({ raw, got: await resolveCommittee(raw, key, fetchJson, 'control', { soft: true }) });
+  }
+  const unclear = resolved.filter((r) => r.got && r.got.ambiguous);
+  if (unclear.length) {
+    for (const u of unclear) printCommitteeMatches(u.got.matches, u.raw);
+    console.log(`\n  ${C.b('Nothing was measured.')} ${C.dim(`${unclear.length} name(s) matched more than one committee.`)}`);
+    console.log(C.dim('\n  Re-run with an id in place of each name below:\n'));
+    console.log(C.dim('    sentinel connect control \\'));
+    for (let i = 0; i < resolved.length; i += 1) {
+      const r = resolved[i];
+      const tail = i === resolved.length - 1 ? '' : ' \\';
+      if (r.got && r.got.ambiguous) {
+        console.log(`      ${C.y('C00…')}${tail}   ${C.dim(`← "${r.raw}"`)}`);
+      } else console.log(C.dim(`      ${r.got}${tail}`));
+    }
+    console.log('');
+    for (const line of WHY_NOT_CHOSEN) console.log(C.dim(`  ${line}`));
+    console.log('');
+    return;
+  }
+
+  const cmts = [];
+  for (const { got: id } of resolved) {
     const got = F.parseCommittees(await fetchJson(
       `${F.API}/committees/?api_key=${encodeURIComponent(key)}`
       + `&committee_id=${encodeURIComponent(id)}&per_page=1`));
