@@ -1201,9 +1201,19 @@ async function cmdControl(ids, opts = {}) {
  * than a shared bill and nobody publishes it, because finding it means
  * reading every committee's Schedule B instead of one.
  *
- * It is also not evidence of coordination. Political media is a small trade;
- * firms carry many clients, and FEC rules address common vendors directly,
+ * It is also not evidence of coordination — USUALLY. Firms in these trades
+ * carry many clients, and FEC rules address common vendors directly,
  * including a firewall safe harbour at 11 CFR 109.21(h).
+ *
+ * That defence is a claim about the FIRM, not about the rule, so it has to
+ * be measured rather than assumed: it holds for a practice with dozens of
+ * clients and not for one with five. The caveat printed at the end of a run
+ * therefore follows `vendorShape`, because a static one contradicted the
+ * label above it the first time a five-client firm came through.
+ *
+ * The trade itself is never named here either. This command was calling
+ * everything "political media" over rows that read FINANCE CONSULTING; the
+ * purpose codes are on screen and they say what the work was.
  */
 async function cmdVendor(name, opts = {}) {
   const F = require('./fecpac.js');
@@ -1315,15 +1325,36 @@ async function cmdVendor(name, opts = {}) {
     console.log(C.dim('  firm would not appear there, and a media BUYER usually would.'));
   }
 
+  // THE CAVEAT MUST NOT CONTRADICT THE LABEL ABOVE IT.
+  //
+  // This block was static, so a run that had just printed "A FEW CLIENTS —
+  // the usual defence does not apply here" then printed, eight lines later,
+  // "firms carry many clients". The header for Quintus said one thing and
+  // the footer said the opposite, and the footer was the confident one.
+  //
+  // It also said "political media is a small trade" about a firm whose every
+  // row reads FINANCE CONSULTING. The trade is in the purpose codes on
+  // screen; the caveat has no business naming a different one.
+  const MANY = 'A shared vendor is a contract, which makes it a stronger link '
+    + 'than a shared bill. It is NOT evidence of coordination. Firms in this '
+    + 'trade carry many clients, and FEC rules address common vendors '
+    + 'directly, including a firewall safe harbour at 11 CFR 109.21(h). What '
+    + 'makes a shared vendor a story is the committees being nominally '
+    + 'independent of each other — read the list above and decide that '
+    + 'yourself.';
+  const FEW = 'A shared vendor is a contract, which makes it a stronger link '
+    + 'than a shared bill. It is still NOT evidence of coordination, and no '
+    + 'violation follows from anything above. But the usual reason not to '
+    + 'ask — that firms carry many clients, so a shared one means little — '
+    + 'is unavailable at this client count. A small firm may serve one '
+    + 'client lawfully and by choice. What it cannot do is supply that '
+    + 'defence. If any committee above may not lawfully coordinate with the '
+    + 'others, the 11 CFR 109.21(h) firewall becomes a fair question to put '
+    + 'to them rather than an assumption to make.';
+  const fewish = shape.reading === 'few_clients' || shape.reading === 'single_client'
+    || shape.reading === 'one_client_dominant';
   console.log(`\n  ${C.y('BEFORE THIS MEANS ANYTHING:')}`);
-  for (const line of wrap(
-    'A shared vendor is a contract, which makes it a stronger link than a '
-    + 'shared bill. It is NOT evidence of coordination. Political media is a '
-    + 'small trade and firms carry many clients; FEC rules address common '
-    + 'vendors directly, including a firewall safe harbour at 11 CFR '
-    + '109.21(h). What makes a shared vendor a story is the committees being '
-    + 'nominally independent of each other — read the list above and decide '
-    + 'that yourself.', 68)) console.log(C.dim(`    ${line}`));
+  for (const line of wrap(fewish ? FEW : MANY, 68)) console.log(C.dim(`    ${line}`));
   console.log(C.dim('\n    The name was matched as full text. Confirm the payees above are'));
   console.log(C.dim('    one firm before saying so:'));
   console.log(C.dim(`      sentinel connect opencorporates "${name}"\n`));

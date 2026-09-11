@@ -647,6 +647,22 @@ module.exports = function run() {
       /if \(action === 'control'\)/.test(cliSrc));
     check('and one for vendor',
       /if \(action === 'vendor'\)/.test(cliSrc));
+    // The caveat must agree with the label above it. A run that printed
+    // "A FEW CLIENTS — the usual defence does not apply" also printed
+    // "firms carry many clients" eight lines later, and the footer was the
+    // confident one.
+    check('vendor carries a caveat for MANY clients',
+      /trade carry many clients/.test(cliSrc));
+    check('and a different one for FEW, which withdraws that defence',
+      /is unavailable at this client count/.test(cliSrc));
+    check('the few-client caveat still refuses to allege a violation',
+      /violation follows from anything above/.test(cliSrc));
+    check('and the choice is driven by the measured shape, not by hand',
+      /shape\.reading === 'few_clients'/.test(cliSrc));
+    // "Political media is a small trade" was printed over rows reading
+    // FINANCE CONSULTING. The trade is in the purpose codes on screen.
+    check('the caveat no longer names a trade it has not measured',
+      !/Political media is a /.test(cliSrc));
   }
 
   // ══ A MULTI-WORD SUBJECT IS A PHRASE, NOT A BAG OF WORDS ══════════════
