@@ -891,6 +891,51 @@ module.exports = function run() {
   }
 
 
+  // ══ A SUBJECT MUST BE A NAME, NOT A NAME PLUS A CONCEPT ═══════════════
+  // The phrase fix quotes any multi-word subject, which is right for an
+  // entity ("Flock Safety") and fatal for "Meta Platforms law enforcement"
+  // — sent as one exact string that appears in no document. The sweep then
+  // returns nothing, and nothing looks like an answer.
+  {
+    const subjects = require('./subjects.json');
+    // A concept word inside a quoted subject means the query can only match
+    // a document containing that exact sentence fragment.
+    const CONCEPT = /\b(law enforcement|lobbying|subsidy|ratepayer|surveillance|privacy|disclosure|funding)\b/i;
+    const glued = [];
+    for (const [k, v] of Object.entries(subjects)) {
+      if (!v || !Array.isArray(v.subjects)) continue;
+      for (const sub of v.subjects) {
+        if (/\s/.test(sub) && CONCEPT.test(sub)) glued.push(`${k}: ${sub}`);
+      }
+    }
+    check(`no subject glues an entity to a concept${glued.length ? ' — ' + glued.join('; ') : ''}`,
+      glued.length === 0);
+
+    const sp = subjects.surveillance_platforms;
+    check('surveillance_platforms asks for platforms by name',
+      sp.subjects.includes('Meta Platforms') && sp.subjects.includes('ByteDance'));
+    check('and records why it was rewritten', /appears in no document/.test(sp.note));
+
+    const pm = subjects.persona_management;
+    check('there is a persona_management sweep', !!pm && Array.isArray(pm.subjects));
+    check('anchored on the documented precedent',
+      pm.subjects.includes('HBGary Federal') && pm.subjects.includes('Ntrepid'));
+    // The claim this sweep must never be read as making.
+    check('and it states that none of it evidences a platform bot farm',
+      /NONE of it is evidence that any platform operates a bot farm/.test(pm.note));
+    check('naming the register that can speak to the contract',
+      /usaspending/.test(pm.note));
+
+    // Every subject in the file must survive quoting as something a
+    // register could plausibly match.
+    for (const [k, v] of Object.entries(subjects)) {
+      if (!v || !Array.isArray(v.subjects)) continue;
+      check(`${k}: every subject is non-empty`,
+        v.subjects.every((x) => typeof x === 'string' && x.trim().length > 1));
+    }
+  }
+
+
   console.log(`\n  ${FAIL === 0 ? 'PASS' : 'FAIL'} — ${PASS}/${PASS + FAIL} checks\n`);
   return FAIL;
 };

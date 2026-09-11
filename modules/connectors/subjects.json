@@ -97,12 +97,15 @@
   },
   "surveillance_platforms": {
     "into": "surveillance-platforms",
-    "note": "Platform law-enforcement programmes. A hit is a lead about the company, not evidence of any specific disclosure.",
+    "note": "Platform companies as ENTITIES. These were written as 'Meta Platforms law enforcement' \u2014 an entity glued to a concept \u2014 which the phrase fix then sent as one exact quoted string that appears in no document, so the sweep returned nothing and the nothing looked like an answer. A subject must be a NAME. The concept belongs in which register you ask, not in the query.",
     "subjects": [
-      "Meta Platforms law enforcement",
-      "TikTok law enforcement",
-      "Google LLC law enforcement",
-      "Snap Inc law enforcement",
+      "Meta Platforms",
+      "ByteDance",
+      "TikTok Inc",
+      "X Corp",
+      "Reddit Inc",
+      "Snap Inc",
+      "Google LLC",
       "Ring LLC"
     ]
   },
@@ -194,6 +197,21 @@
       "WinRed",
       "American Israel Public Affairs Committee",
       "NORPAC"
+    ]
+  },
+  "persona_management": {
+    "into": "persona-management",
+    "note": "The documented precedent for automated persona operations, and the platforms they run on. HBGARY FEDERAL's 2011 breach put 'persona management' proposals into the public record, and NTREPID held a US CENTCOM contract for online persona management \u2014 that one is federal CONTRACTING, so usaspending can speak to it. Everything here is an entity name. NONE of it is evidence that any platform operates a bot farm: platforms publish takedown reports about third-party networks, which is the opposite claim.",
+    "subjects": [
+      "HBGary Federal",
+      "HBGary",
+      "Ntrepid Corporation",
+      "Ntrepid",
+      "Meta Platforms",
+      "ByteDance",
+      "TikTok Inc",
+      "X Corp",
+      "Reddit Inc"
     ]
   }
 }
