@@ -1225,17 +1225,18 @@ async function cmdVendor(name, opts = {}) {
     (p, n2, tot) => process.stdout.write(`\r    page ${String(p).padStart(2)}/${cap} · ${String(tot).padStart(5)} rows`));
   console.log('');
 
-  if (!got.rows.length) {
-    console.log(`\n  ${C.y('No committee reported paying that name.')}`);
-    console.log(C.dim('  Schedule B itemises above $200, so a small buyer will not appear.'));
-    console.log(C.dim('  The name is matched as filed — try a shorter form of it:'));
-    console.log(C.dim(`    sentinel connect vendor "${String(name).split(/\s+/)[0]}"\n`));
-    return;
-  }
-
   const { payers, total, memoTotal } = F.byPayer(got.rows);
   const shape = F.vendorShape(payers, total);
 
+  // An empty Schedule B is NOT the end of the run. A firm that only places
+  // independent advertising appears on Schedule E and nowhere else, and
+  // returning here would have reported it as unknown to the FEC.
+  if (!got.rows.length) {
+    console.log(`\n  ${C.y('Schedule B: no committee reported paying that name.')}`);
+    console.log(C.dim('  Schedule B itemises above $200, so a small buyer will not appear.'));
+    console.log(C.dim('  The name is matched as filed — a shorter form may find more:'));
+    console.log(C.dim(`    sentinel connect vendor "${String(name).split(/\s+/)[0]}"`));
+  } else {
   console.log(`\n    rows              ${got.rows.length}${got.truncated ? C.y('  (page cap reached — this is a FLOOR)') : ''}`);
   console.log(`    paying committees ${shape.committees}`);
   console.log(`    total             ${money(total)}`);
@@ -1270,6 +1271,47 @@ async function cmdVendor(name, opts = {}) {
   }
   if (payers.length > (opts.limit || 20)) {
     console.log(C.dim(`\n  …and ${payers.length - (opts.limit || 20)} more.`));
+  }
+  }
+
+  // SCHEDULE E, the money a super PAC actually spends.
+  //
+  // Schedule B is a committee's overheads. Advertising bought independently
+  // is on Schedule E, so reading B alone made this command blind to exactly
+  // the spending a super PAC exists to do — it listed $25m of other
+  // committees' overheads for STRATEGIC MEDIA PLACEMENT and never showed
+  // the $3,244,873 OHIO FLYER PAC paid it to attack a candidate.
+  const ie = await F.collect(fetchJson,
+    (lastIndex, lastDate) => F.vendorIndependentUrl(name, key, { cycle: opts.cycle, lastIndex, lastDate }),
+    F.parseIndependent, cap, 0,
+    (p, n2, tot) => process.stdout.write(`\r    schedule E · page ${String(p).padStart(2)}/${cap} · ${String(tot).padStart(5)} rows`));
+  process.stdout.write('\r'.padEnd(60) + '\r');
+
+  if (ie.rows.length) {
+    const iep = F.byPayerIndependent(ie.rows);
+    console.log(`\n  ${C.b('Also paid to run INDEPENDENT expenditures')}`
+      + `  ${C.dim(`${iep.payers.length} committee(s), Schedule E`)}`);
+    console.log(C.dim('  Advertising bought independently. Not overheads, and not on'));
+    console.log(C.dim('  Schedule B — a separate register with its own total.'));
+    console.log(`\n    total    ${money(iep.total)}`
+      + `${iep.forTotal ? `    for ${money(iep.forTotal)}` : ''}`
+      + `${iep.againstTotal ? `    ${C.r(`against ${money(iep.againstTotal)}`)}` : ''}`);
+    if (ie.truncated) console.log(C.y('    page cap reached — this is a FLOOR'));
+    console.log('');
+    for (const p of iep.payers.slice(0, opts.limit || 20)) {
+      console.log(`  ${money(p.amount).padStart(14)}  ${p.name}`);
+      console.log(C.dim(`          ${p.committee_id || '(no id)'}  ${p.rows} row(s)`
+        + `${p.first ? `  ${p.first} → ${p.last}` : ''}`));
+      if (p.targets.length) console.log(C.dim(`          ${p.targets.join(' · ')}`));
+    }
+    // The two registers must never be added together in the reader's head.
+    console.log(C.y(`\n    Schedule B ${money(total)} and Schedule E ${money(iep.total)}`
+      + ' are DIFFERENT EVENTS.'));
+    console.log(C.dim('    Overheads and independent advertising. Do not sum them.'));
+  } else {
+    console.log(C.dim('\n  Schedule E: no independent expenditures name this payee.'));
+    console.log(C.dim('  That is a fact about the register — a production or compliance'));
+    console.log(C.dim('  firm would not appear there, and a media BUYER usually would.'));
   }
 
   console.log(`\n  ${C.y('BEFORE THIS MEANS ANYTHING:')}`);

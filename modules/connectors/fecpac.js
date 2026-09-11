@@ -519,6 +519,10 @@ function clampToCycle(rows, cycle) {
 
 function parseIndependent(json) {
   return (json.results || []).map((r) => ({
+    // WHO SPENT IT. Read by committee this was whatever had been asked for;
+    // read by PAYEE the spender is the answer.
+    committee_id: r.committee_id || '',
+    committee_name: (r.committee && r.committee.name) || r.committee_name || '',
     candidate: r.candidate_name || '',
     candidate_id: r.candidate_id || '',
     office: r.candidate_office_full || r.candidate_office || '',
@@ -660,6 +664,80 @@ function quotePhrase(q) {
   return /\s/.test(clean) ? `"${clean}"` : clean;
 }
 
+/**
+ * The same question asked of Schedule E.
+ *
+ * `vendorUrl` reads Schedule B and Schedule B ONLY, which is where a
+ * committee reports its overheads. A super PAC's advertising is not there —
+ * it is on Schedule E — so the first version of this command was
+ * systematically blind to exactly the money a super PAC exists to spend.
+ *
+ * Proof from this desk's own run: OHIO FLYER PAC paid STRATEGIC MEDIA
+ * PLACEMENT $3,244,873 to attack a candidate, and `vendor "Strategic Media
+ * Placement"` did not list Ohio Flyer at all. It read $25m of other
+ * committees' overheads and missed the one row the operator was looking for.
+ *
+ * Schedule E takes min_date/max_date; two_year_transaction_period is an
+ * A/B-only filter and is silently ignored here.
+ */
+function vendorIndependentUrl(name, key, opts = {}) {
+  let u = `${API}/schedules/schedule_e/?api_key=${encodeURIComponent(key)}`
+        + `&payee_name=${encodeURIComponent(quotePhrase(name))}`
+        + '&per_page=100&sort=-expenditure_date';
+  if (opts.cycle) {
+    const [lo, hi] = cycleWindow(opts.cycle);
+    u += `&min_date=${lo}&max_date=${hi}`;
+  }
+  if (opts.lastIndex) u += `&last_index=${encodeURIComponent(opts.lastIndex)}`;
+  if (opts.lastDate) u += `&last_expenditure_date=${encodeURIComponent(opts.lastDate)}`;
+  return u;
+}
+
+/**
+ * Schedule E rows grouped by the committee that paid, with the side kept.
+ *
+ * FOR and AGAINST must never merge. A firm paid to attack is doing different
+ * work from one paid to support, and a single total describes neither — the
+ * same lesson that made `asymmetry` split its columns.
+ */
+function byPayerIndependent(rows) {
+  const map = new Map();
+  let total = 0; let forTotal = 0; let againstTotal = 0;
+  for (const r of rows) {
+    const amt = Number(r.amount) || 0;
+    const key = r.committee_id || r.committee_name || '(unnamed)';
+    let cur = map.get(key);
+    if (!cur) {
+      cur = {
+        committee_id: r.committee_id || '',
+        name: r.committee_name || r.committee_id || '(unnamed)',
+        amount: 0, for: 0, against: 0, rows: 0,
+        targets: new Map(), first: '', last: '',
+      };
+      map.set(key, cur);
+    }
+    cur.rows += 1;
+    cur.amount += amt;
+    total += amt;
+    if (r.stance === 'O') { cur.against += amt; againstTotal += amt; }
+    else { cur.for += amt; forTotal += amt; }
+    if (r.candidate) {
+      const t = `${r.candidate}${r.stance === 'O' ? ' (against)' : ' (for)'}`;
+      cur.targets.set(t, (cur.targets.get(t) || 0) + amt);
+    }
+    const d = String(r.date || '').slice(0, 10);
+    if (d) {
+      if (!cur.first || d < cur.first) cur.first = d;
+      if (!cur.last || d > cur.last) cur.last = d;
+    }
+  }
+  const payers = [...map.values()].map((c) => ({
+    ...c,
+    targets: [...c.targets.entries()].sort((a, b) => b[1] - a[1]).map(([k]) => k).slice(0, 3),
+  })).sort((a, b) => b.amount - a.amount);
+  return { payers, total, forTotal, againstTotal, rows: rows.length };
+}
+
 function vendorUrl(name, key, opts = {}) {
   let u = `${API}/schedules/schedule_b/?api_key=${encodeURIComponent(key)}`
         + `&recipient_name=${encodeURIComponent(quotePhrase(name))}`
@@ -775,6 +853,7 @@ module.exports = {
   PAC_PER_ELECTION_CAP_USD, IMPLAUSIBLE_PER_RECIPIENT_USD,
   disbursementsUrl, parseDisbursements, isContribution, CONTRIBUTION_TYPES,
   vendorUrl, byPayer, vendorShape, quotePhrase,
+  vendorIndependentUrl, byPayerIndependent,
   independentUrl, parseIndependent,
   byRecipient, totals, collect, residual, byPayee, affiliationOf, resolveSponsors,
   sharedControl,

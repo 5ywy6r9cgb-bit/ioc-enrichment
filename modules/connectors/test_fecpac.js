@@ -824,3 +824,53 @@ module.exports = { run };
     eq('and its name', p.committee_name, 'OHIO FLYER PAC');
   }
 }
+
+// ── vendor: the Schedule E half, which the first version was blind to ────
+{
+  console.log('\n  vendor: independent expenditures by payee');
+  const F = require('./fecpac.js');
+
+  check('the payee is quoted on schedule E too',
+    F.vendorIndependentUrl('Strategic Media Placement', 'K')
+      .includes(encodeURIComponent('"Strategic Media Placement"')));
+  check('it asks schedule_e, not schedule_b',
+    F.vendorIndependentUrl('X', 'K').includes('/schedules/schedule_e/'));
+  // two_year_transaction_period is an A/B filter. Sent here it is ignored
+  // silently, and a cycle the operator asked for would not be applied.
+  check('a cycle becomes min_date/max_date, not two_year',
+    F.vendorIndependentUrl('X', 'K', { cycle: 2026 }).includes('min_date=')
+    && !F.vendorIndependentUrl('X', 'K', { cycle: 2026 }).includes('two_year'));
+
+  const e = (cid, cname, amt, stance, cand, date) => ({
+    committee_id: cid, committee_name: cname, amount: amt,
+    stance, candidate: cand, date, payee: 'STRATEGIC MEDIA PLACEMENT INC.',
+  });
+  {
+    const got = F.byPayerIndependent([
+      e('C00912865', 'OHIO FLYER PAC', 3244873, 'O', 'BROWN, SHERROD', '2026-05-01'),
+      e('C00912865', 'OHIO FLYER PAC', 100000, 'S', 'HUSTED, JON', '2026-06-01'),
+      e('C99', 'OTHER PAC', 50000, 'O', 'X', '2026-04-01'),
+    ]);
+    eq('grouped by the committee that spent it', got.payers.length, 2);
+    eq('largest first', got.payers[0].name, 'OHIO FLYER PAC');
+    eq('for and against never merge — against', got.payers[0].against, 3244873);
+    eq('for and against never merge — for', got.payers[0].for, 100000);
+    eq('the against total is its own figure', got.againstTotal, 3294873);
+    eq('and the for total is too', got.forTotal, 100000);
+    eq('the target carries the side', got.payers[0].targets[0], 'BROWN, SHERROD (against)');
+    eq('a missing stance is not read as opposition',
+      F.byPayerIndependent([e('C1', 'A', 5, '', 'Y', '2026-01-01')]).againstTotal, 0);
+  }
+  {
+    // The row that proves why this half had to exist.
+    const p = F.parseIndependent({ results: [{
+      committee_id: 'C00912865', committee: { name: 'OHIO FLYER PAC' },
+      payee_name: 'STRATEGIC MEDIA PLACEMENT INC.', expenditure_amount: 3244873,
+      expenditure_date: '2026-05-01', support_oppose_indicator: 'O',
+      candidate_name: 'BROWN, SHERROD',
+    }] })[0];
+    eq('the SPENDING committee survives parsing', p.committee_id, 'C00912865');
+    eq('with its name', p.committee_name, 'OHIO FLYER PAC');
+    eq('and the payee it was blind to before', p.payee, 'STRATEGIC MEDIA PLACEMENT INC.');
+  }
+}
