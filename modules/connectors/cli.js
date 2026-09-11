@@ -439,6 +439,119 @@ async function cmdAll(query, opts) {
 /**
  * Cross-reference everything already captured. No network call.
  */
+/**
+ * connect matrix — the library as a spreadsheet, and the spreadsheet as a
+ * worklist.
+ *
+ * `crosslink` prints what it found. This writes it, in files you can sort,
+ * filter and hand to somebody else — and then reads its own tables back to
+ * produce a ranked list of what to look at next, each lead carrying the
+ * command that tests it.
+ *
+ * No network call. Everything here is already on disk, hashed, in the
+ * capture ledger. What it adds is the join.
+ */
+function cmdMatrix(opts = {}) {
+  const X = require('./crosslink.js');
+  const M = require('./matrix.js');
+  const fs = require('fs');
+  const path = require('path');
+  const dir = path.join(R.EVIDENCE, 'captures');
+  const captures = X.readCaptures(dir);
+
+  if (!captures.length) {
+    console.log(`\n  ${C.dim('No captures yet. The matrix is built from your library:')}`);
+    console.log(C.dim('    sentinel connect all "SUBJECT" --into NAME\n'));
+    return;
+  }
+
+  const outDir = opts.out || path.join(R.EVIDENCE, 'matrix');
+  const { byName, edges } = X.index(captures);
+  const subjects = [...new Set(captures.map((c) => c.subject))];
+
+  console.log(`\n  ${C.b('MATRIX')}  ${C.dim(`${captures.length} capture(s) · `
+    + `${subjects.length} subject(s) · no network call`)}`);
+
+  const relationshipRows = M.relationships(edges);
+  const byClient = M.group(edges, 'client_key', 'client', 'registrant_key', 'registrant');
+  const byRegistrant = M.group(edges, 'registrant_key', 'registrant', 'client_key', 'client');
+  const clientFanout = M.fanout(byClient, 'client', 'registrants');
+  const registrantFanout = M.fanout(byRegistrant, 'registrant', 'clients');
+  // Direction matters and was wrong here first time round: overlap() pairs
+  // the KEYS of what it is given. Grouping by registrant pairs the FIRMS.
+  const registrantOverlap = M.overlap(byRegistrant); // firms sharing a client
+  const clientOverlap = M.overlap(byClient);         // orgs sharing a firm
+  const entityRows = M.entities(byName);
+
+  if (!edges.length) {
+    console.log(`\n  ${C.y('No lobbying relationships in the library.')}`);
+    console.log(C.dim('  Client—registrant pairs come from senatelda captures only.'));
+    console.log(C.dim('  The entity sheet is still written.\n'));
+  }
+
+  const sheets = [
+    ['relationships.csv', ['client', 'registrant', 'filings', 'subject_count',
+      'subjects', 'issues', 'largest_reported', 'amounts_seen', 'url'], relationshipRows,
+    'every CLIENT—REGISTRANT pair the filings assert'],
+    ['client_firms.csv', ['client', 'registrants_count', 'registrants'], clientFanout,
+      'one organisation, how many firms — the AEP shape'],
+    ['firm_clients.csv', ['registrant', 'clients_count', 'clients'], registrantFanout,
+      'one firm, how many clients — the denominator for every overlap below'],
+    ['firms_sharing_clients.csv', ['a', 'b', 'shared_count', 'shared'], registrantOverlap,
+      'two firms with a client in common'],
+    ['clients_sharing_firms.csv', ['a', 'b', 'shared_count', 'shared'], clientOverlap,
+      'two organisations retaining the same firm'],
+    ['entities.csv', ['name', 'register_count', 'registers', 'subject_count',
+      'subjects', 'mentions'], entityRows,
+    'every name, and which registers it appeared in'],
+  ];
+
+  const leads = M.patternMap({ relationshipRows, clientFanout, registrantOverlap, entityRows });
+  sheets.push(['pattern_map.csv',
+    ['rank', 'shape', 'subject', 'detail', 'why', 'next'], leads,
+    'the tables read back as a worklist, each lead with the command that tests it']);
+
+  if (opts.dryRun) {
+    console.log(C.dim('\n  DRY RUN — nothing written.\n'));
+  } else {
+    fs.mkdirSync(outDir, { recursive: true });
+    for (const [file, headers, rows] of sheets) {
+      fs.writeFileSync(path.join(outDir, file), M.toCsv(headers, rows));
+    }
+  }
+
+  console.log('');
+  for (const [file, , rows, gloss] of sheets) {
+    console.log(`  ${C.g(String(rows.length).padStart(6))}  ${C.b(file)}`);
+    console.log(C.dim(`          ${gloss}`));
+  }
+  console.log(C.dim(`\n  written to  ${outDir}`));
+
+  // The worklist, on screen, because a CSV nobody opens is not a worklist.
+  const top = leads.slice(0, opts.limit || 12);
+  if (top.length) {
+    console.log(`\n  ${C.b('WHERE TO LOOK NEXT')}  ${C.dim(`${leads.length} lead(s), best first`)}\n`);
+    for (const l of top) {
+      console.log(`  ${C.b(l.subject)}`);
+      console.log(C.dim(`    ${l.shape} — ${l.detail}`));
+      console.log(C.dim(`    ${l.next}`));
+    }
+    if (leads.length > top.length) {
+      console.log(C.dim(`\n  …and ${leads.length - top.length} more in pattern_map.csv`));
+    }
+  }
+
+  console.log(`\n  ${C.y('WHAT THESE TABLES DO NOT CONTAIN:')}`);
+  for (const line of wrap(
+    'A lobbying filing names a client, a firm, chambers and agencies. It does '
+    + 'NOT name a politician, and it does not say which side the client took '
+    + 'on anything. There is no lobbyist-to-legislator column here because '
+    + 'the register has no such field — any tool that shows you one has '
+    + 'inferred it. The politician layer is FEC money, and it is a different '
+    + 'file.', 68)) console.log(C.dim(`    ${line}`));
+  console.log('');
+}
+
 function cmdCrosslink(opts) {
   const X = require('./crosslink.js');
   const dir = require('path').join(R.EVIDENCE, 'captures');
@@ -2940,6 +3053,10 @@ async function main() {
       process.exit(2);
     }
     return cmdControl(ids, { dryRun: opts.dryRun });
+  }
+  if (action === 'matrix') {
+    return cmdMatrix({ out: flagVal(argv, '--out'), limit: flagNum(argv, '--limit'),
+      dryRun: opts.dryRun });
   }
   if (action === 'vendor') {
     const q = subjectFrom(args.slice(1), argv, ['--cycle', '--limit', '--pages']);

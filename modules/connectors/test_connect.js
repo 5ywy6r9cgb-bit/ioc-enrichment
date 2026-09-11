@@ -635,7 +635,7 @@ module.exports = function run() {
     const line = (disp.match(/^\s*test\|list\|.*\)$/m) || [''])[0];
     for (const verb of ['test', 'list', 'all', 'crosslink', 'lobby', 'graph',
       'expand', 'sweep', 'brief', 'fecpac', 'delegation', 'member',
-      'asymmetry', 'donors', 'filings', 'control', 'vendor']) {
+      'asymmetry', 'donors', 'filings', 'control', 'vendor', 'matrix']) {
       check(`the dispatcher passes "${verb}" through`,
         line.split('|').map((s) => s.replace(/[^a-z]/g, '')).includes(verb));
     }
@@ -647,6 +647,14 @@ module.exports = function run() {
       /if \(action === 'control'\)/.test(cliSrc));
     check('and one for vendor',
       /if \(action === 'vendor'\)/.test(cliSrc));
+    check('and one for matrix',
+      /if \(action === 'matrix'\)/.test(cliSrc));
+    // The register has no lobbyist-to-legislator field. A tool that shows
+    // one has inferred it, and this one says so on every run.
+    check('matrix states that no politician column exists in the LDA',
+      /NOT name a politician/.test(cliSrc));
+    check('and that a tool showing one has inferred it',
+      /has \s*'\s*\+\s*'?\s*inferred it|inferred it/.test(cliSrc));
     // The caveat must agree with the label above it. A run that printed
     // "A FEW CLIENTS — the usual defence does not apply" also printed
     // "firms carry many clients" eight lines later, and the footer was the
