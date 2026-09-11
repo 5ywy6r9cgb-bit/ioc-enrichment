@@ -763,6 +763,53 @@ module.exports = function run() {
         fs.readFileSync(require('path').join(__dirname, 'registry.js'), 'utf8')));
   }
 
+  // ══ A DEAD NETWORK IS NOT A FINDING ═══════════════════════════════════
+  // A router reboot mid-run produced 150 lines of
+  //     fail  AXON ENTERPRISE — ENOTFOUND
+  // which reads exactly like "these firms have no filings". ENOTFOUND is
+  // DNS; ETIMEDOUT is a connection that never opened. Neither is an answer.
+  {
+    const isTransport = new Function('out', `
+      if (!out || out.ok) return false;
+      if (out.status === 0) return true;
+      return /ENOTFOUND|ETIMEDOUT|ECONNRESET|ECONNREFUSED|EAI_AGAIN|timed out|socket hang up|network/i
+        .test(String(out.error || ''));`);
+
+    check('ENOTFOUND is the network', isTransport({ ok: false, error: 'ENOTFOUND' }));
+    check('ETIMEDOUT is the network', isTransport({ ok: false, error: 'ETIMEDOUT' }));
+    check('"timed out" is the network', isTransport({ ok: false, error: 'timed out' }));
+    check('status 0 is the network', isTransport({ ok: false, status: 0, error: '' }));
+    check('a 404 is an ANSWER, not a dead link',
+      !isTransport({ ok: false, status: 404, error: 'not found' }));
+    check('a 429 is an answer too — it means later, not broken',
+      !isTransport({ ok: false, status: 429, error: 'rate limited' }));
+    check('a success is never a transport failure', !isTransport({ ok: true }));
+
+    check('expand stops after consecutive transport failures',
+      /const BREAK_AFTER = 3;/.test(cliSrc) && /aborted = t; break;/.test(cliSrc));
+    check('and says it was the network, not the register',
+      /network, not an answer/.test(cliSrc));
+    check('a transport failure resets to zero on the next success',
+      /consecutive = 0;\n    done \+= 1;/.test(cliSrc));
+    check('an ordinary failure does NOT trip the breaker',
+      /consecutive = 0;\n        console\.log\(`  \$\{C\.r\('fail'\)\}/.test(cliSrc));
+    check('the abort reports how many were never asked',
+      /not asked/.test(cliSrc));
+
+    // Resumability, with no new state file: the ledger already records what
+    // was asked, on the same record that proves what was fetched.
+    check('expand reads the ledger to find what it already asked',
+      /function askedRegistrants\(ledgerPath\)/.test(cliSrc));
+    check('filtering on the search mode, not just the connector',
+      /x\.search_mode !== 'registrant_name'/.test(cliSrc));
+    check('skipped registrants are counted out loud',
+      /already asked/.test(cliSrc));
+    check('and --again re-asks the whole list',
+      /opts\.again \? new Set\(\)/.test(cliSrc)
+      && /again: argv\.includes\('--again'\)/.test(cliSrc));
+  }
+
+
   console.log(`\n  ${FAIL === 0 ? 'PASS' : 'FAIL'} — ${PASS}/${PASS + FAIL} checks\n`);
   return FAIL;
 };

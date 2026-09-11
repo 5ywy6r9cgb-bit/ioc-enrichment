@@ -2587,6 +2587,49 @@ async function cmdRegistrant(query, opts) {
  *   and the work is sequential. A burst of parallel requests is how a free
  *   tier revokes a key.
  */
+
+/**
+ * A failure of the NETWORK, not an answer from the register.
+ *
+ * ENOTFOUND is DNS. ETIMEDOUT is a connection that never opened. Neither is
+ * a fact about the organisation named beside it — but the log said
+ *
+ *     fail  AXON ENTERPRISE — ENOTFOUND
+ *
+ * a hundred and fifty times after a router rebooted, which reads exactly
+ * like "these firms have no filings". A run that keeps going after the
+ * network dies manufactures false negatives at one per second.
+ */
+function isTransportFailure(out) {
+  if (!out || out.ok) return false;
+  if (out.status === 0) return true;
+  return /ENOTFOUND|ETIMEDOUT|ECONNRESET|ECONNREFUSED|EAI_AGAIN|timed out|socket hang up|network/i
+    .test(String(out.error || ''));
+}
+
+/**
+ * Registrants this library has ALREADY asked about, read from the ledger.
+ *
+ * No new state file: `runConnector` already records `search_mode` and
+ * `subject` on every capture, so the record of what was asked is the same
+ * record that proves what was fetched.
+ */
+function askedRegistrants(ledgerPath) {
+  const out = new Set();
+  let text;
+  try { text = fs.readFileSync(ledgerPath, 'utf8'); } catch { return out; }
+  for (const line of text.split('\n')) {
+    if (!line.trim()) continue;
+    let rec;
+    try { rec = JSON.parse(line); } catch { continue; }
+    const x = rec.extra || {};
+    if (x.connector !== 'senatelda') continue;
+    if (x.search_mode !== 'registrant_name') continue;
+    if (x.subject) out.add(require('./crosslink.js').normalise(x.subject));
+  }
+  return out;
+}
+
 async function cmdExpand(opts) {
   const X = require('./crosslink.js');
   const captures = X.readCaptures(R.CAPTURES);
@@ -2613,10 +2656,21 @@ async function cmdExpand(opts) {
   }
 
   const limit = Number.isFinite(opts.limit) && opts.limit > 0 ? opts.limit : 10;
-  const targets = registrants.slice(0, limit);
+
+  // RESUMABLE. A run that died at firm 30 of 181 should not re-ask the 29
+  // that succeeded — that is 29 wasted calls against a public service and
+  // 29 more chances to be throttled. --again forces the whole list, which
+  // is what you want when the library is weeks old and page 1 has moved.
+  const already = opts.again ? new Set() : askedRegistrants(R.LEDGER);
+  const pending = registrants.filter((r) => !already.has(X.normalise(r.name)));
+  const skipped = registrants.length - pending.length;
+  const targets = pending.slice(0, limit);
 
   console.log('\n' + C.b('Expand — ask every registrant who else they file for'));
   console.log(`  registrants in library   ${registrants.length}`);
+  if (skipped) {
+    console.log(`  already asked            ${skipped}  ${C.dim('skipped — --again to re-ask')}`);
+  }
   console.log(`  asking about             ${targets.length}  ${C.dim(`(--limit ${limit})`)}`);
   console.log(`  ${C.b('live calls')}               ${C.b(String(targets.length))}  ${C.dim('one page each, sequential')}`);
   console.log('  boundary                 every hit lands as a LEAD requiring a primary source');
@@ -2638,13 +2692,30 @@ async function cmdExpand(opts) {
   const found = [];
   let failed = 0;
 
+  // Three transport failures in a row is a dead network, not three firms
+  // with no data. Stop and say which it was.
+  const BREAK_AFTER = 3;
+  let consecutive = 0;
+  let aborted = null;
+  let done = 0;
+
   for (const t of targets) {
     const out = await R.runConnector('senatelda', t.name, { mode: 'registrant', page: 1 });
     if (!out.ok) {
       failed++;
-      console.log(`  ${C.r('fail')}  ${t.name} — ${out.error}`);
+      if (isTransportFailure(out)) {
+        consecutive += 1;
+        console.log(`  ${C.y('down')}  ${t.name} — ${out.error} `
+          + C.dim(`(network, not an answer · ${consecutive}/${BREAK_AFTER})`));
+        if (consecutive >= BREAK_AFTER) { aborted = t; break; }
+      } else {
+        consecutive = 0;
+        console.log(`  ${C.r('fail')}  ${t.name} — ${out.error}`);
+      }
       continue;
     }
+    consecutive = 0;
+    done += 1;
     let total = null;
     const fresh = [];
     try {
@@ -2669,6 +2740,23 @@ async function cmdExpand(opts) {
   }
 
   console.log('');
+  if (aborted) {
+    const reached = targets.indexOf(aborted);
+    console.log(`  ${C.r('STOPPED — the network went away.')}`);
+    for (const line of wrap(
+      `${BREAK_AFTER} connection failures in a row is a dead link, not `
+      + `${BREAK_AFTER} firms with no filings. The run stopped rather than `
+      + `logging "fail" against every remaining name, because a log full of `
+      + `those reads exactly like a finding and is not one.`, 68)) {
+      console.log(C.dim(`    ${line}`));
+    }
+    console.log(`\n    asked      ${done} of ${targets.length} before it dropped`);
+    console.log(`    not asked  ${targets.length - reached}  ${C.dim('nothing was recorded about these')}`);
+    console.log(C.dim('\n  Successful pages are already captured and hashed. When the'));
+    console.log(C.dim('  connection is back, run the same command — it resumes:'));
+    console.log(C.dim(`    bin/sentinel connect expand --limit ${limit}\n`));
+    return;
+  }
   if (!found.length) {
     console.log(`  ${C.dim('No clients on the first page that you did not already have.')}`);
     console.log(C.dim('  Page 1 is the 25 most recent filings — go deeper on one firm with:'));
@@ -3100,6 +3188,7 @@ async function main() {
     const li = argv.indexOf('--limit');
     return cmdExpand({
       limit: li >= 0 && argv[li + 1] ? parseInt(argv[li + 1], 10) : undefined,
+      again: argv.includes('--again'),
       dryRun: opts.dryRun,
     });
   }
