@@ -831,6 +831,29 @@ module.exports = function run() {
   }
 
 
+  // ══ A 403 NEEDS A CONTROL, NOT A THEORY ═══════════════════════════════
+  // "Access Denied" on one name out of 181 is either a fact about that name
+  // or a fact about that minute. Without the control an operator reads a
+  // refusal as a finding — which is how a DNS outage became 139 blocked
+  // firms.
+  {
+    check('a 403 on page 1 prescribes a control run',
+      /A 403 is an ANSWER, and it may not be from the register/.test(cliSrc));
+    check('naming a known-good registrant to try right now',
+      /--registrant "VENABLE LLP" --pages 1/.test(cliSrc));
+    check('and both readings of the control result',
+      /Control WORKS/.test(cliSrc) && /Control ALSO 403s/.test(cliSrc));
+    check('it says a 403 may come from a proxy, WAF or CDN, not the register',
+      /WAF/.test(cliSrc) && /CDN/.test(cliSrc));
+    check('and that a shared refusal teaches nothing about anyone',
+      /Nothing has been learned about anyone/.test(cliSrc));
+    // Only page 1: a 403 on page 9 of 20 is a different event and the
+    // control would be noise.
+    check('the control is offered on page 1 only',
+      /page === 1 && \/\\b403\\b\//.test(cliSrc));
+  }
+
+
   console.log(`\n  ${FAIL === 0 ? 'PASS' : 'FAIL'} — ${PASS}/${PASS + FAIL} checks\n`);
   return FAIL;
 };

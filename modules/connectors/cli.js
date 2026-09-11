@@ -2502,6 +2502,9 @@ async function cmdFecPac(name, opts = {}) {
   console.log(`\n  ${C.dim('Verify any row:')} https://www.fec.gov/data/committee/${picked.committee_id}/\n`);
 }
 
+/** "MCGINLEY LLC" reads better than "the subject" in a sentence. */
+function this_name_phrase(q) { return `"${String(q).trim()}",`; }
+
 async function cmdRegistrant(query, opts) {
   const name = 'senatelda';
   const c = R.CONNECTORS[name];
@@ -2530,6 +2533,31 @@ async function cmdRegistrant(query, opts) {
     const out = await R.runConnector(name, query, { mode: 'registrant', page });
     if (!out.ok) {
       console.error(`\n  ${C.r(`page ${page} failed:`)} ${out.error}`);
+      // A 403 ON PAGE 1 NEEDS A CONTROL, NOT A THEORY.
+      //
+      // "Access Denied" on one name out of 181 is either a fact about that
+      // name or a fact about this minute, and the difference is one command
+      // away. Without the control an operator reads a refusal as a finding —
+      // which is how a DNS outage became a list of 139 blocked firms.
+      //
+      // The 403 need not come from the register at all: a proxy, a WAF or a
+      // CDN in front of it answers with the same status and the same words.
+      if (page === 1 && /\b403\b/.test(String(out.error || ''))) {
+        console.error(`\n  ${C.y('A 403 is an ANSWER, and it may not be from the register.')}`);
+        for (const line of wrap(
+          'A proxy, a WAF or a CDN in front of lda.gov returns the same '
+          + 'status and the same words. Before this means anything about '
+          + this_name_phrase(query) + ' run a CONTROL — a name you know '
+          + 'works, right now, from this machine:', 68)) {
+          console.error(C.dim(`    ${line}`));
+        }
+        console.error(C.dim('\n      bin/sentinel connect senatelda --registrant "VENABLE LLP" --pages 1'));
+        console.error(C.dim('\n    Control WORKS  → the refusal is about this query. Try the'));
+        console.error(C.dim('    same string as a CLIENT, which is a different parameter:'));
+        console.error(C.dim(`      bin/sentinel connect senatelda "${query}"`));
+        console.error(C.dim('\n    Control ALSO 403s → it is this minute, not this name.'));
+        console.error(C.dim('    Wait and re-run. Nothing has been learned about anyone.\n'));
+      }
       break;
     }
     pagesDone++;
