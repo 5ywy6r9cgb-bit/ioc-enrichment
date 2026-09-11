@@ -810,8 +810,36 @@ module.exports = { run };
       shape([row('C1', 'A', 990, '2026-01-01'), row('C2', 'B', 10, '2026-01-01')]).reading,
       'one_client_dominant');
     eq('an even spread across many is a practice',
-      shape(['C1', 'C2', 'C3', 'C4', 'C5', 'C6'].map((c) => row(c, c, 100, '2026-01-01'))).reading,
+      shape(['C1', 'C2', 'C3', 'C4', 'C5', 'C6', 'C7'].map((c) => row(c, c, 100, '2026-01-01'))).reading,
       'practice');
+
+    // THE LIVE FAILURE. Quintus: five committees, all one candidate's, and
+    // the label read A PRACTICE — "a firm with a broad client list carries
+    // everything" — directly above the table showing it had five clients.
+    const quintus = shape([
+      row('C00896928', 'TEAM HUSTED', 451788, '2026-01-01'),
+      row('C00896019', 'HUSTED FOR SENATE', 107009, '2026-01-01'),
+      row('C00912865', 'OHIO FLYER PAC', 90152, '2026-01-01'),
+      row('C00937797', 'HUSTED VICTORY', 54622, '2026-01-01'),
+      row('C00896688', 'JOBS OPPORTUNITY NOW', 1318, '2026-01-01'),
+    ]);
+    eq('five committees is never a practice, whatever the HHI', quintus.reading, 'few_clients');
+    check('and the HHI that fell through the old cutoff is recorded',
+      Math.abs(quintus.hhi - 0.456) < 0.005);
+    check('the reader is given effective clients, not just HHI',
+      Math.abs(quintus.effective - 2.2) < 0.1);
+    // Six committees split evenly IS a practice, so the count rule has not
+    // simply swallowed everything.
+    eq('six even clients stays a practice',
+      shape(['A', 'B', 'C', 'D', 'E', 'F'].map((c) => row(c, c, 100, '2026-01-01'))).reading,
+      'practice');
+    // Concentration still catches a firm with many nominal clients and one
+    // real one.
+    eq('many committees but one supplying most is few_clients',
+      shape([row('C1', 'A', 800, '2026-01-01'), row('C2', 'B', 60, '2026-01-01'),
+        row('C3', 'C', 50, '2026-01-01'), row('C4', 'D', 50, '2026-01-01'),
+        row('C5', 'E', 30, '2026-01-01'), row('C6', 'F', 10, '2026-01-01')]).reading,
+      'few_clients');
     eq('no rows says so', F.vendorShape([], 0).reading, 'no_rows');
   }
   {

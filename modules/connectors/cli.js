@@ -1248,11 +1248,12 @@ async function cmdVendor(name, opts = {}) {
   const READING = {
     single_client: ['ONE CLIENT', 'Only one committee reports paying this name. That is an in-house or sole-client relationship, not a shared vendor.'],
     one_client_dominant: ['ONE CLIENT DOMINANT', 'Several committees pay it, but one supplies almost all of the money. The others may be incidental.'],
-    few_clients: ['A FEW CLIENTS', 'Concentrated across a handful of committees. Worth reading who they are and whether they are on one side.'],
+    few_clients: ['A FEW CLIENTS', 'A handful of committees, not a client list. The usual defence of a shared vendor — that firms carry many clients — does not apply here. Read WHO they are: if they are one operation, that is the finding.'],
     practice: ['A PRACTICE', 'Spread across many committees. A firm with a broad client list carries everything, and a shared name here means less.'],
   };
   const [label, gloss] = READING[shape.reading] || ['—', ''];
-  console.log(`\n  ${C.b(label)}  ${C.dim(`HHI ${shape.hhi.toFixed(3)}`)}`);
+  console.log(`\n  ${C.b(label)}  ${C.dim(`HHI ${shape.hhi.toFixed(3)}`
+    + `  \u2248 ${shape.effective.toFixed(1)} effective client(s)`)}`);
   for (const line of wrap(gloss, 68)) console.log(C.dim(`    ${line}`));
 
   console.log(`\n  ${C.b('Who pays it')}`);

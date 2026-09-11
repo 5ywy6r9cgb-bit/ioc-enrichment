@@ -815,12 +815,30 @@ function vendorShape(payers, total) {
   if (!n || !total) return { committees: n, topShare: 0, hhi: 0, reading: 'no_rows' };
   const hhi = payers.reduce((t, p) => t + (p.amount / total) ** 2, 0);
   const topShare = payers[0].amount / total;
+
+  // THE THRESHOLD THAT CALLED FIVE COMMITTEES A PRACTICE.
+  //
+  // QUINTUS, LLC took money from five committees, all of them one
+  // candidate's — and this function labelled it A PRACTICE, printing "a firm
+  // with a broad client list carries everything, and a shared name here
+  // means less." The label contradicted the finding directly underneath it,
+  // and an operator who trusted the label would have dropped the strongest
+  // result of the day.
+  //
+  // The cutoff was hhi >= 0.5 alone. Quintus sits at 0.456 — about 2.2
+  // effective clients — and fell through to the default. A COUNT now counts:
+  // a handful of committees is never a practice however the money is split
+  // among them, and the HHI bar comes down to where 1/HHI stops meaning
+  // "many".
   let reading;
   if (n === 1) reading = 'single_client';
   else if (topShare >= 0.9) reading = 'one_client_dominant';
-  else if (hhi >= 0.5) reading = 'few_clients';
+  else if (n <= 5 || hhi >= 0.25) reading = 'few_clients';
   else reading = 'practice';
-  return { committees: n, topShare, hhi, reading };
+
+  // 1/HHI is the number a reader can actually hold: "about two clients'
+  // worth of money", not "0.456".
+  return { committees: n, topShare, hhi, effective: 1 / hhi, reading };
 }
 
 async function collect(fetchJson, buildUrl, parse, cap = 25, pace = 0, onPage = null) {
