@@ -810,6 +810,27 @@ module.exports = function run() {
   }
 
 
+  // ══ A FAILURE LOG IS NOT A COVERAGE REPORT ════════════════════════════
+  // 139 lines of `fail <FIRM> — ENOTFOUND` read like a list of firms that
+  // could not be reached. Every one of those requests goes to ONE host —
+  // lda.gov — so DNS cannot select by which firm name is in the query
+  // string, and the same firms succeeded in an adjacent run.
+  {
+    check('every senatelda request goes to one host',
+      /https:\/\/lda\.gov\/api\/v1\/filings\//.test(
+        require('fs').readFileSync(require('path').join(__dirname, 'registry.js'), 'utf8')));
+    check('expand can report coverage from the ledger',
+      /if \(opts\.status\)/.test(cliSrc));
+    check('with no network call', /read from the ledger · no network call/.test(cliSrc));
+    check('naming the registrants that have NO capture',
+      /NOT captured/.test(cliSrc));
+    check('and stating why a log cannot answer the question',
+      /FAILED call writes no ledger record/.test(cliSrc));
+    check('--status is wired to the dispatcher',
+      /status: argv\.includes\('--status'\)/.test(cliSrc));
+  }
+
+
   console.log(`\n  ${FAIL === 0 ? 'PASS' : 'FAIL'} — ${PASS}/${PASS + FAIL} checks\n`);
   return FAIL;
 };

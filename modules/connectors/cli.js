@@ -2665,6 +2665,38 @@ async function cmdExpand(opts) {
     return;
   }
 
+  // --status: WHO IS COVERED, read from the ledger, with no network call.
+  //
+  // A failure log is not a coverage report. A run that dies mid-way prints
+  // 139 lines of `fail` and nothing that says which registrants actually
+  // have a capture behind them — so the operator is left reading the
+  // failures as if they were the answer. They are not: they are a record of
+  // one afternoon's connection.
+  //
+  // This asks the ledger instead. It is the only honest answer to "did we
+  // get the data", and it costs nothing to run.
+  if (opts.status) {
+    const asked = askedRegistrants(R.LEDGER);
+    const have = registrants.filter((r) => asked.has(X.normalise(r.name)));
+    const missing = registrants.filter((r) => !asked.has(X.normalise(r.name)));
+    console.log('\n' + C.b('Expand — coverage'));
+    console.log(C.dim('  read from the ledger · no network call\n'));
+    console.log(`  registrants in library   ${registrants.length}`);
+    console.log(`  ${C.g('captured')}                 ${have.length}`);
+    console.log(`  ${missing.length ? C.y('NOT captured') : C.dim('not captured')}             ${missing.length}`);
+    if (missing.length) {
+      console.log('');
+      for (const m of missing) console.log(`    ${C.y(m.name)}  ${C.dim(`${m.filings} filing(s) in library`)}`);
+      console.log(C.dim('\n  These have no page-1 capture. Ask for them with:'));
+      console.log(C.dim(`    bin/sentinel connect expand --limit ${registrants.length}`));
+    } else {
+      console.log(C.dim('\n  Every registrant in the library has a capture behind it.'));
+    }
+    console.log(C.dim('\n  A FAILED call writes no ledger record, so nothing here is'));
+    console.log(C.dim('  inferred from a log — a name is captured or it is not.\n'));
+    return;
+  }
+
   const limit = Number.isFinite(opts.limit) && opts.limit > 0 ? opts.limit : 10;
 
   // RESUMABLE. A run that died at firm 30 of 181 should not re-ask the 29
@@ -3212,6 +3244,7 @@ async function main() {
     return cmdExpand({
       limit: li >= 0 && argv[li + 1] ? parseInt(argv[li + 1], 10) : undefined,
       again: argv.includes('--again'),
+      status: argv.includes('--status'),
       dryRun: opts.dryRun,
     });
   }
