@@ -480,7 +480,6 @@ function cmdMatrix(opts = {}) {
   // Direction matters and was wrong here first time round: overlap() pairs
   // the KEYS of what it is given. Grouping by registrant pairs the FIRMS.
   const registrantOverlap = M.overlap(byRegistrant); // firms sharing a client
-  const clientOverlap = M.overlap(byClient);         // orgs sharing a firm
   const entityRows = M.entities(byName);
 
   if (!edges.length) {
@@ -499,8 +498,19 @@ function cmdMatrix(opts = {}) {
       'one firm, how many clients — the denominator for every overlap below'],
     ['firms_sharing_clients.csv', ['a', 'b', 'shared_count', 'shared'], registrantOverlap,
       'two firms with a client in common'],
-    ['clients_sharing_firms.csv', ['a', 'b', 'shared_count', 'shared'], clientOverlap,
-      'two organisations retaining the same firm'],
+    // TWO ORGANISATIONS SHARING ONE BIG FIRM IS ARITHMETIC, NOT A LINK.
+    //
+    // Unthresholded this produced 1,128,579 rows. SQUIRE PATTON BOGGS alone
+    // has 716 clients, which is 256,020 pairs from that one firm — a file
+    // no spreadsheet will open and no reader could use. Every row was true
+    // and the file was worthless, which is its own kind of wrong.
+    //
+    // Requiring TWO shared firms is the cheapest honest filter: two
+    // organisations that independently picked the same two firms is a fact
+    // about them, and sharing one is a fact about the firm.
+    ['clients_sharing_firms.csv', ['a', 'b', 'shared_count', 'shared'],
+      M.overlap(byClient, 2),
+      'two organisations retaining the same TWO OR MORE firms (one shared firm is arithmetic)'],
     ['entities.csv', ['name', 'register_count', 'registers', 'subject_count',
       'subjects', 'mentions'], entityRows,
     'every name, and which registers it appeared in'],
@@ -2771,9 +2781,22 @@ async function cmdExpand(opts) {
     console.log(C.dim('  reason to look, not a connection to anything.'));
   }
 
-  if (registrants.length > targets.length) {
-    console.log(C.dim(`\n  ${registrants.length - targets.length} registrant(s) not asked about `
-      + `— raise --limit to include them.`));
+  // TWO REASONS A REGISTRANT WENT UNASKED, AND THEY ARE NOT THE SAME.
+  //
+  // This printed "180 registrant(s) not asked about — raise --limit to
+  // include them" on a run that had just said "already asked 180, skipped".
+  // Raising the limit would have changed nothing. The line was written
+  // before resume existed and it survived as a confident instruction that
+  // does not work — which is the failure this whole file keeps catching.
+  const beyondLimit = pending.length - targets.length;
+  if (beyondLimit > 0) {
+    console.log(C.dim(`\n  ${beyondLimit} registrant(s) beyond --limit `
+      + `— raise it to include them.`));
+  }
+  if (skipped) {
+    console.log(C.dim(`  ${skipped} already asked in an earlier run and skipped. `
+      + `Page 1 is\n  the 25 most recent filings, so --again is worth it `
+      + `once the library is weeks old.`));
   }
   if (failed) console.log(C.dim(`  ${failed} call(s) failed.`));
 

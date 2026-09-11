@@ -254,5 +254,72 @@ console.log('\n  anomalies: rarity, not size');
   }
 }
 
+
+console.log('\n  in-house lobbying is not a retained firm');
+{
+  eq('exact match is in-house', M.isInHouse('microsoft corporation', 'microsoft corporation'), true);
+  // The register writes the registrant and the client differently.
+  eq('a whole-word prefix is in-house',
+    M.isInHouse('motorola solutions inc', 'motorola solutions'), true);
+  eq('and the other way round',
+    M.isInHouse('axon enterprise', 'axon enterprise inc'), true);
+  eq('an unrelated firm is not', M.isInHouse('microsoft corporation', 'akin gump'), false);
+  // Conservative on purpose: a false positive would DELETE a real retainer.
+  eq('a short name cannot swallow a longer one', M.isInHouse('rti', 'rti international'), false);
+  eq('a mid-word overlap is not a prefix',
+    M.isInHouse('american electric power', 'american electrical power co'), false);
+  eq('empty is never in-house', M.isInHouse('', 'x'), false);
+}
+
+console.log('\n  the score must not measure size');
+{
+  const edge2 = (c, r) => ({ client: c, registrant: r,
+    client_key: c.toLowerCase(), registrant_key: r.toLowerCase() });
+  const build = (edges) => M.anomalies({
+    byClient: M.group(edges, 'client_key', 'client', 'registrant_key', 'registrant'),
+    byRegistrant: M.group(edges, 'registrant_key', 'registrant', 'client_key', 'client'),
+    entityRows: [], relationshipRows: [],
+  }).filter((r) => r.kind === 'client retains multiple firms');
+
+  {
+    // A company lobbying for itself was counted as retaining a firm.
+    // MICROSOFT CORPORATION was listed among Microsoft's 22 registrants.
+    const rows = build([edge2('MICROSOFT CORP', 'MICROSOFT CORP'),
+      edge2('MICROSOFT CORP', 'AKIN GUMP'), edge2('MICROSOFT CORP', 'SQUIRE')]);
+    eq('the company itself is not one of its firms', rows[0].shared_count, 2);
+    check('and the row says it lobbies in-house', /IN-HOUSE/.test(rows[0].why));
+    check('the firm list excludes it', !/MICROSOFT/.test(rows[0].detail));
+  }
+  {
+    // A client whose ONLY registrant is itself is not retaining anybody.
+    eq('in-house alone raises no lead',
+      build([edge2('SOLO CO', 'SOLO CO'), edge2('SOLO CO', 'ONE FIRM')]).length, 0);
+  }
+  {
+    // THE CONTRADICTION. The count term was `size * 2` in a function whose
+    // premise is that nothing scores on size, and the live run duly ranked
+    // the four biggest companies in the library at the top.
+    const edges = [];
+    // GIANT: 20 firms, every one a huge practice carrying 200 clients.
+    for (let f = 0; f < 20; f += 1) {
+      edges.push(edge2('GIANT CO', `BIG FIRM ${f}`));
+      for (let c = 0; c < 200; c += 1) edges.push(edge2(`FILLER ${f}_${c}`, `BIG FIRM ${f}`));
+    }
+    // SPLIT: 3 firms, each of which works for almost nobody else.
+    for (let f = 0; f < 3; f += 1) edges.push(edge2('SPLIT CO', `TINY FIRM ${f}`));
+
+    const rows = build(edges);
+    const giant = rows.find((r) => r.subject === 'GIANT CO');
+    const split = rows.find((r) => r.subject === 'SPLIT CO');
+    check('both are found', !!giant && !!split);
+    check('THREE boutique firms outranks TWENTY big practices',
+      split.score > giant.score);
+    check('even though the giant retains far more', giant.shared_count > split.shared_count);
+    check('the count still counts — it is logarithmic, not absent',
+      build([edge2('A', 'F1'), edge2('A', 'F2'), edge2('A', 'F3'), edge2('A', 'F4')])[0].score
+      > build([edge2('A', 'F1'), edge2('A', 'F2')])[0].score);
+  }
+}
+
 console.log(`\n  ${fail ? 'FAIL' : 'PASS'} — ${pass}/${pass + fail} checks\n`);
 process.exit(fail ? 1 : 0);
