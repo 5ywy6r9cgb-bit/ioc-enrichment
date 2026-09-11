@@ -724,6 +724,45 @@ module.exports = function run() {
   }
 
 
+  // ── FEC captures, and the key that was in the ledger ────────────────────
+  {
+    console.log('\n  FEC runs now leave an audit trail');
+    const fs = require('fs');
+    const cliSrc = fs.readFileSync(require('path').join(__dirname, 'cli.js'), 'utf8');
+    const R2 = require('./registry.js');
+
+    // The strongest figures on this desk had no capture, no hash and no
+    // ledger entry, while a speculative name search had all three.
+    check('the FEC fetcher takes a capture spec', /function fecFetcher\(\{ quiet = false, capture/.test(cliSrc));
+    check('and writes it through the shared recorder', /R\.recordCapture\(\{/.test(cliSrc));
+    for (const cmd of ['fecpac', 'vendor', 'donors', 'asymmetry', 'control',
+      'filings', 'member', 'delegation']) {
+      check(`${cmd} captures`, new RegExp(`command: '${cmd}'`).test(cliSrc));
+    }
+    // 'fec' is the candidate-search connector. Reusing that name would make
+    // crosslink parse schedule rows with the wrong parser.
+    check('captures use a prefix crosslink will not index',
+      /prefix: 'fec_api'/.test(cliSrc));
+    check('a capture that cannot be written is reported, not swallowed',
+      /capture NOT written/.test(cliSrc));
+
+    // The ledger is the file you hand to a lawyer. The FEC takes its key as a
+    // QUERY PARAMETER, so source_url was recording it verbatim.
+    const red = R2.redactUrl('https://api.open.fec.gov/v1/x/?api_key=SECRET&committee_id=C1');
+    check('an api_key in the query string is redacted', !/SECRET/.test(red));
+    check('but the parameter NAME survives, because which key is a fair question',
+      /api_key=REDACTED/.test(red));
+    check('the rest of the query is untouched', /committee_id=C1/.test(red));
+    check('a token is redacted too', !/T0K/.test(R2.redactUrl('https://x.test/?token=T0K')));
+    check('a url with no secret is returned unchanged',
+      R2.redactUrl('https://example.com/a?q=hi') === 'https://example.com/a?q=hi');
+    check('a string that is not a url does not throw',
+      R2.redactUrl('not a url') === 'not a url');
+    check('and the connector path redacts before the ledger too',
+      /sourceUrl: redactUrl\(spec\.url\)/.test(
+        fs.readFileSync(require('path').join(__dirname, 'registry.js'), 'utf8')));
+  }
+
   console.log(`\n  ${FAIL === 0 ? 'PASS' : 'FAIL'} — ${PASS}/${PASS + FAIL} checks\n`);
   return FAIL;
 };

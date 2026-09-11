@@ -506,6 +506,13 @@ function cmdMatrix(opts = {}) {
     'every name, and which registers it appeared in'],
   ];
 
+  // Rarity, measured against THIS library — a sort order, never a verdict.
+  const anomalyRows = M.anomalies({ byClient, byRegistrant, entityRows, relationshipRows });
+  sheets.push(['anomalies.csv',
+    ['score', 'kind', 'subject', 'rarity', 'overlap_of_smaller_book',
+      'shared_count', 'a_clients', 'b_clients', 'detail', 'why', 'next'], anomalyRows,
+  'the same relationships ranked by RARITY in this library, highest first']);
+
   const leads = M.patternMap({ relationshipRows, clientFanout, registrantOverlap, entityRows });
   sheets.push(['pattern_map.csv',
     ['rank', 'shape', 'subject', 'detail', 'why', 'next'], leads,
@@ -540,6 +547,17 @@ function cmdMatrix(opts = {}) {
       console.log(C.dim(`\n  …and ${leads.length - top.length} more in pattern_map.csv`));
     }
   }
+
+  // A score means nothing without the population it was measured against,
+  // and ten registrants will make ordinary relationships look rare.
+  console.log(`\n  ${C.y('THE SCORE IS A SORT ORDER, NOT A VERDICT.')}`);
+  for (const line of wrap(
+    `Rarity is measured against what you have ASKED, not against lobbying. `
+    + `This library holds ${byRegistrant.size} registrant(s) and `
+    + `${byClient.size} client(s); a narrow library ranks ordinary `
+    + `relationships as rare. Widen it before trusting the order: `
+    + `sentinel connect expand --limit 181. No score belongs in a script.`,
+    68)) console.log(C.dim(`    ${line}`));
 
   console.log(`\n  ${C.y('WHAT THESE TABLES DO NOT CONTAIN:')}`);
   for (const line of wrap(
@@ -1083,12 +1101,59 @@ function fecError(res) {
  * printed anything while waiting, so whether a pull survived a hiccup
  * depended on which command you happened to run.
  */
-function fecFetcher({ quiet = false } = {}) {
+/**
+ * The FEC fetcher, which until now threw the evidence away.
+ *
+ * Every connector driven through `R.runConnector` writes the raw bytes to a
+ * capture, hashes them, and appends a ledger record. The FEC commands drive
+ * this instead — so `fecpac`, `vendor`, `donors`, `asymmetry`, `control`,
+ * `filings`, `member` and `delegation` parsed each response and dropped it.
+ *
+ * That meant the STRONGEST figures on this desk were the only ones with no
+ * audit trail. QUINTUS, LLC — $704,890, five committees, the finding an
+ * editor is most likely to challenge — had no capture file and no hash
+ * behind it, while a speculative OpenCorporates name search had both.
+ *
+ * Consistency matters more than volume here: a finding backed by bytes and a
+ * hash is reproducible, and a finding backed by a number someone copied out
+ * of a terminal is not defensible six months later.
+ *
+ * Pass `capture: { command, subject }` and every page is written and
+ * recorded separately. Pages are not merged, because merged bytes are bytes
+ * no server ever sent.
+ */
+function fecFetcher({ quiet = false, capture = null } = {}) {
+  let page = 0;
   return async function fetchJson(url) {
     let wait = 1500;
     for (let attempt = 1; attempt <= 5; attempt++) {
       const res = await R.request('GET', url, {});
-      if (res.status === 200) return JSON.parse(res.body);
+      if (res.status === 200) {
+        if (capture) {
+          page += 1;
+          try {
+            R.recordCapture({
+              // NOT 'fec': that name belongs to the candidate-search
+              // connector, and crosslink would try to parse schedule rows
+              // with the wrong parser. A distinct prefix keeps these out of
+              // the entity index, where they do not belong.
+              prefix: 'fec_api',
+              connector: capture.command,
+              subject: capture.subject,
+              url,               // redacted inside recordCapture
+              body: res.body,
+              tool: `sentinel connect ${capture.command}`,
+              extra: { page, http_status: 200, live_calls: 1 },
+            });
+          } catch (e) {
+            // A capture that cannot be written must not lose the run, but it
+            // must never pass silently either: the whole point is the audit
+            // trail, and a missing one has to be visible.
+            if (!quiet) console.log(C.y(`\n    capture NOT written: ${e.message}`));
+          }
+        }
+        return JSON.parse(res.body);
+      }
       if (!fecRetryable(res) || attempt === 5) throw new Error(fecError(res));
       if (!quiet) {
         const what = res.status === 0 ? (res.error || 'connection failed') : String(res.status);
@@ -1195,7 +1260,7 @@ async function cmdControl(ids, opts = {}) {
   const env = R.loadEnv();
   const key = R.resolveKey(R.CONNECTORS.fec, env);
   if (!key) { console.error(`\n  ${C.r('FEC_API_KEY is not set.')}\n`); process.exit(2); }
-  const fetchJson = fecFetcher();
+  const fetchJson = fecFetcher({ capture: { command: 'control', subject: ids.join(' ') } });
 
   console.log(`\n  ${C.b('Shared control')}  ${C.dim(`${ids.length} committee(s)`)}`);
   if (opts.dryRun) { console.log(C.dim('\n  DRY RUN — nothing requested.\n')); return; }
@@ -1334,7 +1399,7 @@ async function cmdVendor(name, opts = {}) {
   const env = R.loadEnv();
   const key = R.resolveKey(R.CONNECTORS.fec, env);
   if (!key) { console.error(`\n  ${C.r('FEC_API_KEY is not set.')}\n`); process.exit(2); }
-  const fetchJson = fecFetcher();
+  const fetchJson = fecFetcher({ capture: { command: 'vendor', subject: name } });
 
   console.log(`\n  ${C.b(name)}  ${C.dim(opts.cycle ? `cycle ${opts.cycle}` : 'all cycles')}`);
   console.log(C.dim('  measuring: every committee that PAID this name, Schedule B'));
@@ -1485,7 +1550,7 @@ async function cmdFilings(opts = {}) {
   const env = R.loadEnv();
   const key = R.resolveKey(R.CONNECTORS.fec, env);
   if (!key) { console.error(`\n  ${C.r('FEC_API_KEY is not set.')}\n`); process.exit(2); }
-  const fetchJson = fecFetcher();
+  const fetchJson = fecFetcher({ capture: { command: 'filings', subject: opts.committee } });
   const committee = await resolveCommittee(opts.committee, key, fetchJson, 'filings');
 
   const cmts = F.parseCommittees(await fetchJson(
@@ -1557,7 +1622,7 @@ async function cmdDonors(opts = {}) {
   if (!key) { console.error(`\n  ${C.r('FEC_API_KEY is not set.')}\n`); process.exit(2); }
   const now = new Date().getFullYear();
   const cycle = opts.cycle || (now % 2 === 0 ? now : now - 1);
-  const fetchJson = fecFetcher();
+  const fetchJson = fecFetcher({ capture: { command: 'donors', subject: opts.committee } });
 
   const committee = await resolveCommittee(opts.committee, key, fetchJson, 'donors');
   const cmts = F.parseCommittees(await fetchJson(
@@ -1700,7 +1765,7 @@ async function cmdAsymmetry(opts = {}) {
     process.exit(2);
   }
 
-  const fetchJson = fecFetcher();
+  const fetchJson = fecFetcher({ capture: { command: 'asymmetry', subject: opts.committee } });
 
   // A name is allowed here. It resolves to exactly one id or the command
   // stops -- see resolveCommittee.
@@ -1847,7 +1912,7 @@ async function cmdMember(name, opts = {}) {
   const now = new Date().getFullYear();
   const cycle = opts.cycle || (now % 2 === 0 ? now : now - 1);
 
-  const fetchJson = fecFetcher();
+  const fetchJson = fecFetcher({ capture: { command: 'member', subject: name || opts.candidate } });
 
   // ---- who, exactly. A name is not an identity.
   let picked = null;
@@ -2041,7 +2106,7 @@ async function cmdDelegation(state, opts = {}) {
     return;
   }
 
-  const fetchJson = fecFetcher();
+  const fetchJson = fecFetcher({ capture: { command: 'delegation', subject: state } });
 
   console.log(`\n  ${C.b(state)} federal delegation · cycle ${cycle} · `
     + opts.offices.map((o) => D.OFFICES[o]).join(' + '));
@@ -2196,7 +2261,7 @@ async function cmdFecPac(name, opts = {}) {
   // The FEC times out on wide schedule queries and answers 504 with a JSON
   // body saying so. Crashing on it loses every page already fetched and reads
   // as a bug in this tool rather than a slow query upstream.
-  const fetchJson = fecFetcher();
+  const fetchJson = fecFetcher({ capture: { command: 'fecpac', subject: name } });
 
   // ---- step one: which committee, exactly
   // When only an id was given there is nothing to search FOR — asking the

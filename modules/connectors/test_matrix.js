@@ -160,5 +160,99 @@ console.log('\n  the pattern map is a worklist, not a feeling');
     /"ACME, INC\."/.test(q[0].next));
 }
 
+
+console.log('\n  anomalies: rarity, not size');
+{
+  const g = (edges, a, b, c, d) => M.group(edges, a, b, c, d);
+  const build = (edges) => {
+    const byClient = g(edges, 'client_key', 'client', 'registrant_key', 'registrant');
+    const byRegistrant = g(edges, 'registrant_key', 'registrant', 'client_key', 'client');
+    return M.anomalies({ byClient, byRegistrant, entityRows: [], relationshipRows: [] });
+  };
+
+  {
+    // THE PROPERTY THAT MATTERS. Two small firms sharing their only client —
+    // a client nobody else carries — must outrank two large practices
+    // sharing three clients that ten firms each carry. Otherwise the score
+    // is measuring SIZE, which is the failure every correction on this desk
+    // traces back to.
+    const edges = [];
+    // RARE: one client, carried by these two firms and nobody else.
+    edges.push(edge('RARE CLIENT', 'SMALL A'), edge('RARE CLIENT', 'SMALL B'));
+    // COMMON: two big books, overlapping only on clients that everyone has.
+    for (let i = 0; i < 3; i += 1) {
+      for (let f = 0; f < 10; f += 1) edges.push(edge(`POPULAR ${i}`, `BIG ${f}`));
+    }
+    for (let i = 0; i < 30; i += 1) {
+      edges.push(edge(`ONLY BIG0 ${i}`, 'BIG 0'), edge(`ONLY BIG1 ${i}`, 'BIG 1'));
+    }
+
+    const rows = build(edges).filter((r) => r.kind === 'firms share clients');
+    const rare = rows.find((r) => /SMALL A/.test(r.subject) && /SMALL B/.test(r.subject));
+    const common = rows.find((r) => /BIG 0 /.test(r.subject) && /BIG 1$/.test(r.subject));
+    check('both pairs are found', !!rare && !!common);
+    check('the RARE pair outranks the pair sharing THREE times as many clients',
+      rare.score > common.score);
+    check('even though the common pair shares more', common.shared_count > rare.shared_count);
+    eq('the rare pair shares its whole book', rare.overlap_of_smaller_book, 1);
+    check('and the common pair shares almost none of its own',
+      common.overlap_of_smaller_book < 0.15);
+  }
+  {
+    // The other direction, and it is intended: a pair sharing MANY rare
+    // clients should score very high. Rarity accumulates, so twenty
+    // exclusive clients is a stronger relationship than one, not a weaker
+    // one. This is the case that made the first version of the test above
+    // wrong, and it is worth pinning down so it is not "fixed" later.
+    const edges = [edge('SOLE', 'X'), edge('SOLE', 'Y')];
+    for (let i = 0; i < 20; i += 1) edges.push(edge(`EXCLUSIVE ${i}`, 'P'), edge(`EXCLUSIVE ${i}`, 'Q'));
+    const rows = build(edges).filter((r) => r.kind === 'firms share clients');
+    const many = rows.find((r) => /P /.test(r.subject));
+    const one = rows.find((r) => /X /.test(r.subject));
+    check('twenty exclusive shared clients beats one', many.score > one.score);
+  }
+  {
+    // A client carried by many firms contributes less rarity than one
+    // carried by two — that is the whole weighting.
+    const two = build([edge('C', 'A'), edge('C', 'B')])
+      .find((r) => r.kind === 'firms share clients');
+    const many = build([edge('C', 'A'), edge('C', 'B'), edge('C', 'D'),
+      edge('C', 'E'), edge('C', 'F'), edge('C', 'G')])
+      .find((r) => r.kind === 'firms share clients');
+    check('a client carried by two firms is rarer than one carried by six',
+      two.rarity > many.rarity);
+  }
+  {
+    const rows = build([edge('SOLO', 'ONLY FIRM')]);
+    eq('one firm, one client raises nothing', rows.length, 0);
+  }
+  {
+    // Pairing is by inversion, so a pair must appear exactly once however
+    // many clients it shares.
+    const rows = build([edge('C1', 'A'), edge('C1', 'B'), edge('C2', 'A'), edge('C2', 'B')])
+      .filter((r) => r.kind === 'firms share clients');
+    eq('a pair sharing two clients is ONE row', rows.length, 1);
+    eq('with both clients counted', rows[0].shared_count, 2);
+  }
+  {
+    const rows = M.anomalies({
+      byClient: new Map(), byRegistrant: new Map(),
+      entityRows: [{ name: 'AXON', register_count: 4, registers: 'a|b|c|d', subject_count: 3 },
+        { name: 'QUIET', register_count: 2, registers: 'a|b', subject_count: 1 }],
+      relationshipRows: [],
+    });
+    eq('a name in 4 registers is scored', rows.length, 1);
+    eq('and it is the one in four, not the one in two', rows[0].subject, 'AXON');
+  }
+  {
+    const rows = build([edge('C1', 'A'), edge('C1', 'B')]);
+    check('every anomaly carries a command that runs',
+      rows.every((r) => /^bin\/sentinel connect /.test(r.next)));
+    check('and the reason it scored', rows.every((r) => r.why && r.why.length > 20));
+    check('scores are finite numbers, never NaN',
+      rows.every((r) => Number.isFinite(r.score)));
+  }
+}
+
 console.log(`\n  ${fail ? 'FAIL' : 'PASS'} — ${pass}/${pass + fail} checks\n`);
 process.exit(fail ? 1 : 0);

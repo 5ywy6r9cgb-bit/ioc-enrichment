@@ -961,7 +961,7 @@ async function runConnector(name, query, opts = {}) {
     sha256: captureHash,
     localPath: capturePath,
     evidenceRoot,
-    sourceUrl: spec.url,
+    sourceUrl: redactUrl(spec.url),
     extra: Object.assign({
       connector: name,
       subject: query,
@@ -986,10 +986,89 @@ async function runConnector(name, query, opts = {}) {
   return { ok: true, status: res.status, capturePath, captureHash, results, parseError, record };
 }
 
+
+/**
+ * A URL with its credentials removed.
+ *
+ * The ledger is the file you would hand to a lawyer, a collaborator or an
+ * editor to show where a number came from. Several services take their key
+ * as a QUERY PARAMETER — the FEC is one — so recording `source_url` verbatim
+ * writes the operator's API key into exactly the file whose purpose is to be
+ * shown to other people.
+ *
+ * The evidence store is gitignored, so this never reached a remote. It was
+ * still a secret sitting in the artefact most likely to be shared by hand.
+ *
+ * The parameter NAME is kept and only the value replaced, because "which
+ * credential was used" is sometimes the question and "what was it" never is.
+ */
+const SECRET_PARAMS = /^(api[_-]?key|key|token|access[_-]?token|apikey|auth|secret|password|signature|sig)$/i;
+
+function redactUrl(url) {
+  const raw = String(url == null ? '' : url);
+  if (!raw) return raw;
+  let u;
+  try { u = new URL(raw); } catch { return raw; }
+  let touched = false;
+  for (const name of [...u.searchParams.keys()]) {
+    if (SECRET_PARAMS.test(name)) { u.searchParams.set(name, 'REDACTED'); touched = true; }
+  }
+  return touched ? u.toString() : raw;
+}
+
+/**
+ * Write bytes to a capture, hash them, and record the run in the ledger.
+ *
+ * Extracted from runConnector so the FEC commands can use the same path.
+ * They could not: every FEC command drives a bespoke fetcher, so the
+ * strongest figures on this desk — the ones an editor is most likely to
+ * challenge — were the only ones with no capture file, no hash and no ledger
+ * entry behind them. A number you cannot reproduce is a number you cannot
+ * defend.
+ *
+ * Pages are NEVER merged into one file. The bytes on disk are bytes a server
+ * actually sent, or they are not evidence.
+ */
+function recordCapture({ connector, subject, url, body, tool, extra = {},
+  evidenceRoot, ledgerPath, prefix = 'live_capture' } = {}) {
+  const root = evidenceRoot || EVIDENCE;
+  const captureDir = path.join(root, 'captures');
+  fs.mkdirSync(captureDir, { recursive: true });
+
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const slug = String(subject || 'query').replace(/[^A-Za-z0-9]+/g, '_').slice(0, 60);
+  const capturePath = path.join(captureDir, `${prefix}_${connector}_${slug}_${stamp}.json`);
+  const bytes = Buffer.isBuffer(body) ? body : Buffer.from(String(body), 'utf8');
+  fs.writeFileSync(capturePath, bytes);
+
+  // Hash BEFORE anything is derived from these bytes.
+  const sha256 = P.sha256Bytes(bytes);
+
+  const ledger = new P.Ledger(ledgerPath || LEDGER);
+  const record = P.makeRecord({
+    kind: 'connector_run',
+    artifactId: `${connector}-${stamp}`,
+    label: `${connector}: ${subject}`,
+    tool: tool || 'sentinel connect',
+    toolVersion: VERSION,
+    tier: 'GREEN',
+    sha256,
+    localPath: capturePath,
+    evidenceRoot: root,
+    sourceUrl: redactUrl(url),
+    extra: Object.assign({
+      connector, subject,
+      result_disposition: 'lead_needs_primary_source',
+    }, extra),
+  });
+  ledger.append(record);
+  return { capturePath, sha256, record };
+}
+
 module.exports = { phrase,
   explainHttpError, looksLikeSubstringMatch,
   checkKeyShape, KEY_SHAPES,
   stripAuth, AUTH_HEADERS, MAX_REDIRECTS,
   CONNECTORS, VERSION, EVIDENCE, CAPTURES, LEDGER, resolveKey, retryAfterMs, pace,
-  loadEnv, mask, request, runConnector,
+  loadEnv, mask, request, runConnector, redactUrl, recordCapture,
 };
