@@ -382,8 +382,32 @@ async function cmdAll(query, opts) {
 
   // ---- the library view -------------------------------------------------
   const total = rows.reduce((n, r) => n + r.results.length, 0);
+
+  // THE HEADLINE NUMBER MUST NOT COUNT THE NOISE IT IS ABOUT TO LABEL.
+  //
+  // Per-source lists already mark substring hits "probably not it". The
+  // total did not, so a run whose every usaspending row was ENGINEERING LLC
+  // matched on "Ring LLC" still announced "74 candidate lead(s)" — and a
+  // reader comparing 74 against another subject's 72 is comparing noise.
+  //
+  // A bare "Ntrepid" run did the same: $441m to INTREPID LLC and five NHTSA
+  // airbag dockets about the Dodge Intrepid, all counted in the headline.
+  const subCount = rows.reduce((n, r) => n + r.results.filter(
+    (h) => R.looksLikeSubstringMatch(query, h.name || h.title || '')).length, 0);
+  const clean = total - subCount;
   console.log('\n' + C.dim('  ' + '─'.repeat(74)));
-  console.log(`  ${C.b(`${total} candidate lead(s)`)} across ${rows.filter((r) => r.results.length).length} source(s)\n`);
+  console.log(`  ${C.b(`${clean} candidate lead(s)`)} across `
+    + `${rows.filter((r) => r.results.length).length} source(s)`
+    + (subCount ? `  ${C.y(`+ ${subCount} substring match(es), probably not it`)}` : ''));
+
+  // Every page-size cap reads as a round number and none of them is a
+  // measurement. Two subjects with "25" are not comparable.
+  const capped = rows.filter((r) => r.results.length >= 20);
+  if (capped.length) {
+    console.log(C.dim(`  ${capped.length} source(s) returned a full page — those counts are `
+      + `PAGE SIZE,\n  not a measurement. Do not compare subjects by lead count.`));
+  }
+  console.log('');
 
   for (const r of rows) {
     if (!r.results.length) continue;

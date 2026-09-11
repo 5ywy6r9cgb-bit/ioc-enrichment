@@ -936,6 +936,35 @@ module.exports = function run() {
   }
 
 
+  // ══ A HEADLINE COUNT MUST NOT COUNT THE NOISE IT LABELS ═══════════════
+  // A "Ring LLC" sweep announced 74 candidate leads; its usaspending rows
+  // were LEIDOS ENGINEERING, VERACITY ENGINEERING and CONTRACTING,
+  // CONSULTING, ENGINEERING — "ring" inside "engineering", each already
+  // marked "probably not it" in the list below the total.
+  {
+    check('"Ring LLC" matches inside ENGINEERING',
+      R.looksLikeSubstringMatch('Ring LLC', 'LEIDOS ENGINEERING LLC'));
+    // The bare "Ntrepid" run: $441m to INTREPID LLC and NHTSA airbag
+    // dockets about the Dodge Intrepid.
+    check('"Ntrepid" matches inside INTREPID', R.looksLikeSubstringMatch('Ntrepid', 'INTREPID LLC'));
+    check('but the real recipient is not flagged',
+      !R.looksLikeSubstringMatch('Ntrepid Corporation', 'NTREPID, LLC'));
+    check('nor an ordinary exact hit',
+      !R.looksLikeSubstringMatch('Meta Platforms', 'META PLATFORMS, INC.'));
+
+    check('the headline excludes substring matches',
+      /const clean = total - subCount;/.test(cliSrc));
+    check('and still reports them, because unseen output cannot be audited',
+      /substring match\(es\), probably not it/.test(cliSrc));
+    // 20 and 25 are page sizes. Comparing two subjects by lead count is
+    // comparing their page sizes.
+    check('a full page is named as PAGE SIZE, not a measurement',
+      /those counts are `\s*\+\s*`PAGE SIZE/.test(cliSrc) || /PAGE SIZE/.test(cliSrc));
+    check('and the reader is told not to compare subjects by it',
+      /Do not compare subjects by lead count/.test(cliSrc));
+  }
+
+
   console.log(`\n  ${FAIL === 0 ? 'PASS' : 'FAIL'} — ${PASS}/${PASS + FAIL} checks\n`);
   return FAIL;
 };
