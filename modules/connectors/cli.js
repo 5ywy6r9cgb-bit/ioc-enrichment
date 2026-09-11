@@ -1191,6 +1191,102 @@ async function cmdControl(ids, opts = {}) {
 }
 
 /**
+ * connect vendor — the reverse lookup. WHO PAYS THIS FIRM.
+ *
+ * Every FEC command in this toolkit starts with a committee. That answers
+ * "where did their money go" and can never answer "who else uses them",
+ * because the question runs the other way down the same schedule.
+ *
+ * A shared vendor is a CONTRACT. It is stronger evidence of a relationship
+ * than a shared bill and nobody publishes it, because finding it means
+ * reading every committee's Schedule B instead of one.
+ *
+ * It is also not evidence of coordination. Political media is a small trade;
+ * firms carry many clients, and FEC rules address common vendors directly,
+ * including a firewall safe harbour at 11 CFR 109.21(h).
+ */
+async function cmdVendor(name, opts = {}) {
+  const F = require('./fecpac.js');
+  const money = (n) => (n ? '$' + Math.round(n).toLocaleString('en-US') : '—');
+  const env = R.loadEnv();
+  const key = R.resolveKey(R.CONNECTORS.fec, env);
+  if (!key) { console.error(`\n  ${C.r('FEC_API_KEY is not set.')}\n`); process.exit(2); }
+  const fetchJson = fecFetcher();
+
+  console.log(`\n  ${C.b(name)}  ${C.dim(opts.cycle ? `cycle ${opts.cycle}` : 'all cycles')}`);
+  console.log(C.dim('  measuring: every committee that PAID this name, Schedule B'));
+  console.log(C.dim(`  asked as: recipient_name=${F.quotePhrase(name)}`));
+  if (opts.dryRun) { console.log(C.dim('\n  DRY RUN — nothing requested.\n')); return; }
+
+  const cap = opts.pages || 25;
+  const got = await F.collect(fetchJson,
+    (lastIndex, lastDate) => F.vendorUrl(name, key, { cycle: opts.cycle, lastIndex, lastDate }),
+    F.parseDisbursements, cap, 0,
+    (p, n2, tot) => process.stdout.write(`\r    page ${String(p).padStart(2)}/${cap} · ${String(tot).padStart(5)} rows`));
+  console.log('');
+
+  if (!got.rows.length) {
+    console.log(`\n  ${C.y('No committee reported paying that name.')}`);
+    console.log(C.dim('  Schedule B itemises above $200, so a small buyer will not appear.'));
+    console.log(C.dim('  The name is matched as filed — try a shorter form of it:'));
+    console.log(C.dim(`    sentinel connect vendor "${String(name).split(/\s+/)[0]}"\n`));
+    return;
+  }
+
+  const { payers, total, memoTotal } = F.byPayer(got.rows);
+  const shape = F.vendorShape(payers, total);
+
+  console.log(`\n    rows              ${got.rows.length}${got.truncated ? C.y('  (page cap reached — this is a FLOOR)') : ''}`);
+  console.log(`    paying committees ${shape.committees}`);
+  console.log(`    total             ${money(total)}`);
+  if (memoTotal) {
+    console.log(C.dim(`    memo rows         ${money(memoTotal)} — passed through, excluded above`));
+  }
+  console.log(`    top client        ${(shape.topShare * 100).toFixed(1)}%  ${payers[0].name}`);
+
+  const READING = {
+    single_client: ['ONE CLIENT', 'Only one committee reports paying this name. That is an in-house or sole-client relationship, not a shared vendor.'],
+    one_client_dominant: ['ONE CLIENT DOMINANT', 'Several committees pay it, but one supplies almost all of the money. The others may be incidental.'],
+    few_clients: ['A FEW CLIENTS', 'Concentrated across a handful of committees. Worth reading who they are and whether they are on one side.'],
+    practice: ['A PRACTICE', 'Spread across many committees. A firm with a broad client list carries everything, and a shared name here means less.'],
+  };
+  const [label, gloss] = READING[shape.reading] || ['—', ''];
+  console.log(`\n  ${C.b(label)}  ${C.dim(`HHI ${shape.hhi.toFixed(3)}`)}`);
+  for (const line of wrap(gloss, 68)) console.log(C.dim(`    ${line}`));
+
+  console.log(`\n  ${C.b('Who pays it')}`);
+  for (const p of payers.slice(0, opts.limit || 20)) {
+    console.log(`  ${String((p.share * 100).toFixed(1)).padStart(6)}%  ${money(p.amount).padStart(14)}  ${p.name}`);
+    console.log(C.dim(`          ${p.committee_id || '(no id)'}  ${p.rows} row(s)`
+      + `${p.first ? `  ${p.first} → ${p.last}` : ''}`));
+    if (p.purposes.length) console.log(C.dim(`          ${p.purposes.join(' · ')}`));
+    // The name AS FILED. A full-text match is not an identification, and two
+    // firms whose names share a word are not one firm.
+    if (p.names.length > 1) {
+      console.log(C.y(`          filed as ${p.names.length} different names: ${p.names.slice(0, 3).join(' | ')}`));
+    } else if (p.names.length) {
+      console.log(C.dim(`          filed as "${p.names[0]}"`));
+    }
+  }
+  if (payers.length > (opts.limit || 20)) {
+    console.log(C.dim(`\n  …and ${payers.length - (opts.limit || 20)} more.`));
+  }
+
+  console.log(`\n  ${C.y('BEFORE THIS MEANS ANYTHING:')}`);
+  for (const line of wrap(
+    'A shared vendor is a contract, which makes it a stronger link than a '
+    + 'shared bill. It is NOT evidence of coordination. Political media is a '
+    + 'small trade and firms carry many clients; FEC rules address common '
+    + 'vendors directly, including a firewall safe harbour at 11 CFR '
+    + '109.21(h). What makes a shared vendor a story is the committees being '
+    + 'nominally independent of each other — read the list above and decide '
+    + 'that yourself.', 68)) console.log(C.dim(`    ${line}`));
+  console.log(C.dim('\n    The name was matched as full text. Confirm the payees above are'));
+  console.log(C.dim('    one firm before saying so:'));
+  console.log(C.dim(`      sentinel connect opencorporates "${name}"\n`));
+}
+
+/**
  * connect filings — the documents, not the numbers derived from them.
  *
  * docquery.fec.gov/cgi-bin/forms/<id>/ answers 403: it is a browser path,
@@ -2770,6 +2866,23 @@ async function main() {
       process.exit(2);
     }
     return cmdControl(ids, { dryRun: opts.dryRun });
+  }
+  if (action === 'vendor') {
+    const q = subjectFrom(args.slice(1), argv, ['--cycle', '--limit', '--pages']);
+    if (!q) {
+      console.error('\n  usage: sentinel connect vendor "FIRM NAME" [--cycle 2026] [--pages 25]');
+      console.error('\n  The REVERSE lookup: every committee that PAID this name.');
+      console.error('\n  Every other FEC command starts with a committee and asks where');
+      console.error('  its money went. This one starts with a vendor and asks who buys');
+      console.error('  from it — a contract relationship across committees, which is');
+      console.error('  published nowhere because it means reading every Schedule B.');
+      console.error('\n  A shared vendor is NOT evidence of coordination. Firms carry');
+      console.error('  many clients and FEC rules address common vendors directly.\n');
+      process.exit(2);
+    }
+    return cmdVendor(q, { cycle: flagNum(argv, '--cycle'),
+      limit: flagNum(argv, '--limit'), pages: flagNum(argv, '--pages'),
+      dryRun: opts.dryRun });
   }
   if (action === 'filings') {
     const committee = flagVal(argv, '--committee')

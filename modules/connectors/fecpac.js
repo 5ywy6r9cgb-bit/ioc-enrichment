@@ -242,6 +242,11 @@ function disbursementsUrl(committeeId, cycle, key, lastIndex, lastDate) {
 
 function parseDisbursements(json) {
   return (json.results || []).map((r) => ({
+    // WHO PAID. Every command until now read one committee's rows, so the
+    // payer was whatever had been asked for and there was nothing to keep.
+    // Read the schedule by PAYEE instead and the payer is the answer.
+    committee_id: r.committee_id || '',
+    committee_name: (r.committee && r.committee.name) || r.committee_name || '',
     recipient: r.recipient_name || '',
     recipient_committee_id: r.recipient_committee_id || '',
     amount: Number(r.disbursement_amount) || 0,
@@ -634,6 +639,112 @@ function totals(contribs, independents) {
  * number of requests: an unbounded loop against a keyset API that stops
  * returning a cursor is an infinite loop against somebody else's server.
  */
+/**
+ * Schedule B read by PAYEE rather than by payer.
+ *
+ * Every other command here starts with a committee and asks where its money
+ * went. This one starts with a VENDOR and asks who pays it. A firm serving
+ * several committees is a contract relationship across them, and it is not
+ * published anywhere — it exists only as rows in each client's Schedule B.
+ *
+ * `recipient_name` is a full-text field on the FEC's side, so a multi-word
+ * name must be quoted or the words match independently. That defect has
+ * already cost this desk a day: unquoted "Flock Safety" returned hunting
+ * regulations. Quote it here, at the source.
+ */
+function quotePhrase(q) {
+  const t = String(q == null ? '' : q).trim();
+  if (!t) return t;
+  if (/^".*"$/.test(t)) return t;
+  const clean = t.replace(/"/g, '');
+  return /\s/.test(clean) ? `"${clean}"` : clean;
+}
+
+function vendorUrl(name, key, opts = {}) {
+  let u = `${API}/schedules/schedule_b/?api_key=${encodeURIComponent(key)}`
+        + `&recipient_name=${encodeURIComponent(quotePhrase(name))}`
+        + '&per_page=100&sort=-disbursement_date';
+  if (opts.cycle) u += `&two_year_transaction_period=${encodeURIComponent(opts.cycle)}`;
+  if (opts.lastIndex) u += `&last_index=${encodeURIComponent(opts.lastIndex)}`;
+  if (opts.lastDate) u += `&last_disbursement_date=${encodeURIComponent(opts.lastDate)}`;
+  return u;
+}
+
+/**
+ * Who pays this vendor, and how much.
+ *
+ * Memo rows are separated, not dropped: money a committee passed through is
+ * not money it spent on this vendor, and summing the column without saying
+ * so is the same error that produced 119.2% coverage in another register.
+ *
+ * The PAYEE NAME AS FILED is kept per committee. A full-text match on
+ * "SRCP Media" will also return "SRCP MEDIA INC." and possibly an unrelated
+ * firm whose name contains those words — so the reader is shown exactly what
+ * each committee wrote, and can see for themselves whether it is one vendor.
+ */
+function byPayer(rows) {
+  const map = new Map();
+  let total = 0;
+  let memoTotal = 0;
+  for (const r of rows) {
+    const amt = Number(r.amount) || 0;
+    const key = r.committee_id || r.committee_name || '(unnamed)';
+    let cur = map.get(key);
+    if (!cur) {
+      cur = {
+        committee_id: r.committee_id || '',
+        name: r.committee_name || r.committee_id || '(unnamed)',
+        amount: 0, memo: 0, rows: 0,
+        names: new Map(), purposes: new Map(),
+        first: '', last: '',
+      };
+      map.set(key, cur);
+    }
+    cur.rows += 1;
+    if (isEarmarked(r)) { cur.memo += amt; memoTotal += amt; }
+    else { cur.amount += amt; total += amt; }
+    if (r.recipient) cur.names.set(r.recipient, (cur.names.get(r.recipient) || 0) + amt);
+    if (r.purpose) cur.purposes.set(r.purpose, (cur.purposes.get(r.purpose) || 0) + amt);
+    const d = String(r.date || '').slice(0, 10);
+    if (d) {
+      if (!cur.first || d < cur.first) cur.first = d;
+      if (!cur.last || d > cur.last) cur.last = d;
+    }
+  }
+  const rank = (m) => [...m.entries()].sort((a, b) => b[1] - a[1]).map(([k]) => k);
+  const payers = [...map.values()].map((c) => ({
+    ...c,
+    names: rank(c.names),
+    purposes: rank(c.purposes).slice(0, 3),
+    share: total ? c.amount / total : 0,
+  })).sort((a, b) => b.amount - a.amount);
+  return { payers, total, memoTotal, rows: rows.length };
+}
+
+/**
+ * A vendor serving several committees is only interesting if those
+ * committees are on DIFFERENT sides or are nominally independent. Same-side
+ * committees sharing a firm is how campaigns are run.
+ *
+ * This cannot be decided from Schedule B, so it is not decided here. What is
+ * reported is the raw shape: how many distinct committees, and how
+ * concentrated the vendor's income is across them. A firm taking 98% from
+ * one client is that client's in-house shop; one split evenly across six is
+ * a practice.
+ */
+function vendorShape(payers, total) {
+  const n = payers.length;
+  if (!n || !total) return { committees: n, topShare: 0, hhi: 0, reading: 'no_rows' };
+  const hhi = payers.reduce((t, p) => t + (p.amount / total) ** 2, 0);
+  const topShare = payers[0].amount / total;
+  let reading;
+  if (n === 1) reading = 'single_client';
+  else if (topShare >= 0.9) reading = 'one_client_dominant';
+  else if (hhi >= 0.5) reading = 'few_clients';
+  else reading = 'practice';
+  return { committees: n, topShare, hhi, reading };
+}
+
 async function collect(fetchJson, buildUrl, parse, cap = 25, pace = 0, onPage = null) {
   const rows = [];
   let lastIndex = null, lastDate = null, pages = 0, truncated = false;
@@ -663,6 +774,7 @@ module.exports = {
   splitConduit, clampToCycle, cycleWindow,
   PAC_PER_ELECTION_CAP_USD, IMPLAUSIBLE_PER_RECIPIENT_USD,
   disbursementsUrl, parseDisbursements, isContribution, CONTRIBUTION_TYPES,
+  vendorUrl, byPayer, vendorShape, quotePhrase,
   independentUrl, parseIndependent,
   byRecipient, totals, collect, residual, byPayee, affiliationOf, resolveSponsors,
   sharedControl,

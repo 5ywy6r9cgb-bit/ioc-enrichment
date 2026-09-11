@@ -746,3 +746,81 @@ async function run() {
 
 if (require.main === module) run().then((c) => process.exit(c));
 module.exports = { run };
+
+// ── connect vendor: the reverse lookup ──────────────────────────────────
+{
+  console.log('\n  vendor: reading Schedule B by PAYEE');
+  const F = require('./fecpac.js');
+
+  // The unquoted-phrase defect, caught at the source this time.
+  eq('a multi-word vendor name is quoted', F.quotePhrase('SRCP Media'), '"SRCP Media"');
+  eq('a single word is sent bare', F.quotePhrase('Anedot'), 'Anedot');
+  eq('an already-quoted name is left alone', F.quotePhrase('"A B"'), '"A B"');
+  eq('empty stays empty', F.quotePhrase('  '), '');
+  check('the url carries the quoted form',
+    F.vendorUrl('SRCP Media', 'K').includes(encodeURIComponent('"SRCP Media"')));
+  check('a cycle is optional', !F.vendorUrl('X', 'K').includes('two_year'));
+  check('and applied when given',
+    F.vendorUrl('X', 'K', { cycle: 2026 }).includes('two_year_transaction_period=2026'));
+
+  const row = (cid, cname, amt, date, extra = {}) => ({
+    committee_id: cid, committee_name: cname, recipient: 'SRCP MEDIA INC.',
+    amount: amt, date, purpose: 'MEDIA', ...extra,
+  });
+
+  {
+    const { payers, total } = F.byPayer([
+      row('C1', 'HUSTED VICTORY', 100, '2026-03-01'),
+      row('C1', 'HUSTED VICTORY', 50, '2026-05-01'),
+      row('C2', 'OTHER PAC', 25, '2026-04-01'),
+    ]);
+    eq('rows group by paying committee', payers.length, 2);
+    eq('largest payer first', payers[0].name, 'HUSTED VICTORY');
+    eq('amounts sum per payer', payers[0].amount, 150);
+    eq('total is the sum', total, 175);
+    eq('share is against the vendor total', Number(payers[0].share.toFixed(4)), 0.8571);
+    eq('the first date is kept', payers[0].first, '2026-03-01');
+    eq('and the last', payers[0].last, '2026-05-01');
+  }
+  {
+    // Money passed through is not money spent with this vendor.
+    const { payers, total, memoTotal } = F.byPayer([
+      row('C1', 'A', 100, '2026-03-01'),
+      row('C1', 'A', 900, '2026-03-02', { memo_code: 'X' }),
+    ]);
+    eq('a memo row is kept out of the total', total, 100);
+    eq('and reported separately', memoTotal, 900);
+    eq('per payer, the spend', payers[0].amount, 100);
+    eq('per payer, the pass-through', payers[0].memo, 900);
+  }
+  {
+    // A full-text match is not an identification.
+    const { payers } = F.byPayer([
+      { ...row('C1', 'A', 10, '2026-01-01'), recipient: 'SRCP MEDIA INC.' },
+      { ...row('C1', 'A', 90, '2026-01-02'), recipient: 'SRCP MEDIA LLC' },
+    ]);
+    eq('every name as filed is kept', payers[0].names.length, 2);
+    eq('ranked by money, so the main one leads', payers[0].names[0], 'SRCP MEDIA LLC');
+  }
+  {
+    const shape = (rows) => { const { payers, total } = F.byPayer(rows); return F.vendorShape(payers, total); };
+    eq('one committee is not a shared vendor',
+      shape([row('C1', 'A', 100, '2026-01-01')]).reading, 'single_client');
+    eq('one client supplying almost everything is named as such',
+      shape([row('C1', 'A', 990, '2026-01-01'), row('C2', 'B', 10, '2026-01-01')]).reading,
+      'one_client_dominant');
+    eq('an even spread across many is a practice',
+      shape(['C1', 'C2', 'C3', 'C4', 'C5', 'C6'].map((c) => row(c, c, 100, '2026-01-01'))).reading,
+      'practice');
+    eq('no rows says so', F.vendorShape([], 0).reading, 'no_rows');
+  }
+  {
+    // The payer must survive parsing, or the whole command has no answer.
+    const p = F.parseDisbursements({ results: [{
+      committee_id: 'C00912865', committee: { name: 'OHIO FLYER PAC' },
+      recipient_name: 'QUINTUS, LLC', disbursement_amount: 5, disbursement_date: '2026-02-02',
+    }] })[0];
+    eq('the paying committee id is kept', p.committee_id, 'C00912865');
+    eq('and its name', p.committee_name, 'OHIO FLYER PAC');
+  }
+}

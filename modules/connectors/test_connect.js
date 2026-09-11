@@ -635,7 +635,7 @@ module.exports = function run() {
     const line = (disp.match(/^\s*test\|list\|.*\)$/m) || [''])[0];
     for (const verb of ['test', 'list', 'all', 'crosslink', 'lobby', 'graph',
       'expand', 'sweep', 'brief', 'fecpac', 'delegation', 'member',
-      'asymmetry', 'donors', 'filings', 'control']) {
+      'asymmetry', 'donors', 'filings', 'control', 'vendor']) {
       check(`the dispatcher passes "${verb}" through`,
         line.split('|').map((s) => s.replace(/[^a-z]/g, '')).includes(verb));
     }
@@ -645,6 +645,8 @@ module.exports = function run() {
       /if \(action === 'filings'\)/.test(cliSrc));
     check('and one for control',
       /if \(action === 'control'\)/.test(cliSrc));
+    check('and one for vendor',
+      /if \(action === 'vendor'\)/.test(cliSrc));
   }
 
   // ══ A MULTI-WORD SUBJECT IS A PHRASE, NOT A BAG OF WORDS ══════════════
