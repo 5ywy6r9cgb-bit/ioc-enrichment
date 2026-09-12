@@ -111,6 +111,17 @@ FULL GUIDES
 EXTRA
 }
 
+# Run a PRA script, or say plainly that it does not exist. Never hand the
+# operator a module-not-found trace for a feature that was simply not written.
+_pra_run() {
+  _f="$1"; _with="$2"; shift 2
+  if [ ! -f "$_f" ]; then
+    echo "  $_f does not exist — that subcommand is not built."
+    exit 2
+  fi
+  if [ "$_with" = "node" ]; then node "$_f" "$@"; else sh "$_f" "$@"; fi
+}
+
 cmd="${1:-help}"; shift || true
 
 case "$cmd" in
@@ -254,16 +265,29 @@ PYSTATUS
     # pass-through to PRA's npm scripts / node scripts
     sub="${1:-brief}"; shift || true
     case "$sub" in
-      setup)   ./scripts/setup_macos.sh "$@" ;;
-      seed)    node scripts/load_seeds.js "$@" ;;
-      brief)   node scripts/daily_brief.js "$@" ;;
-      foia)    node scripts/foia.js "$@" ;;
-      mail)    node scripts/mail.js "$@" ;;
-      portals) node scripts/check_portals.js "$@" ;;
-      backup)  ./scripts/backup.sh "$@" ;;
-      verify)  ./scripts/verify_integrity.sh "$@" ;;
-      test)    node tests/run_all.js ;;
-      *)       echo "pra subcommands: setup seed brief foia mail portals backup verify test" ;;
+      # A DISPATCHER THAT POINTS AT A MISSING FILE IS WORSE THAN ONE THAT
+      # DOES NOT LIST IT. `pra portals`, `pra backup` and `pra verify` were
+      # all advertised here and all threw a Node or shell stack trace,
+      # because the scripts were never written. An operator reads that as
+      # "my install is broken" and goes looking for a problem they do not
+      # have — the same failure shape as every §-numbered defect in the
+      # findings file: the tool's own shape mistaken for a fact.
+      setup)   _pra_run ./scripts/setup_macos.sh sh "$@" ;;
+      seed)    _pra_run scripts/load_seeds.js node "$@" ;;
+      brief)   _pra_run scripts/daily_brief.js node "$@" ;;
+      foia)    _pra_run scripts/foia.js node "$@" ;;
+      mail)    _pra_run scripts/mail.js node "$@" ;;
+      test)    _pra_run tests/run_all.js node "$@" ;;
+      portals|backup|verify)
+        echo "  pra $sub is NOT BUILT — no script exists for it."
+        echo "  It was listed here and dispatched to a missing file, which"
+        echo "  threw a stack trace an operator reads as a broken install."
+        echo ""
+        echo "  Built:    setup seed brief foia mail test"
+        echo "  Not yet:  portals backup verify"
+        exit 2 ;;
+      *)       echo "pra subcommands: setup seed brief foia mail test"
+               echo "  (portals, backup and verify are not built)" ;;
     esac
     ;;
 
