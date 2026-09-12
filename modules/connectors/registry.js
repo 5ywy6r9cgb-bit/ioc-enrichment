@@ -973,6 +973,48 @@ const CONNECTORS = {
   },
 
   /**
+   * THE DOCUMENT ITSELF, SO "WHY DID THIS MATCH" STOPS BEING A GUESS.
+   *
+   * `fedregdoc` returns metadata and the agency's own abstract. That is
+   * enough to say what a document IS and never enough to say why a search
+   * found it — the Somalia TPS termination's abstract is about country
+   * conditions in Somalia and says nothing about Minnesota, yet the phrase
+   * "Feeding Our Future" reached it.
+   *
+   * A Presidential Document usually carries NO abstract at all, so for
+   * 2025-19928 and 2026-05497 the metadata call returned a title, a date and
+   * a page count. Nothing else. The text is the only content there is.
+   *
+   * Takes the raw_text_url from the metadata call. Host-locked: this fetches
+   * whatever URL it is given, so it must only ever be given one of theirs.
+   */
+  fedregtext: {
+    label: 'Federal Register (document text)',
+    keyVar: null,
+    keyRequired: false,
+    calls: 1,
+    describe: (q) => `GET ${q}`,
+    probe: () => ({
+      method: 'GET',
+      url: 'https://www.federalregister.gov/api/v1/documents.json?per_page=1',
+      headers: {},
+    }),
+    run: (q) => {
+      const u = String(q || '').trim();
+      // A connector that fetches an arbitrary URL is a connector that can be
+      // pointed anywhere. This one cannot.
+      if (!/^https:\/\/www\.federalregister\.gov\//.test(u)) {
+        throw new Error(`refusing to fetch a non-federalregister.gov url: ${u.slice(0, 80)}`);
+      }
+      return { method: 'GET', url: u, headers: {} };
+    },
+    // The body is text/plain. Parsing is the caller's job — it reads the
+    // capture, which is the hashed bytes rather than a re-derivation.
+    parse: () => [],
+    identify: (r) => r.external_id,
+  },
+
+  /**
    * THE AUTHORITATIVE CAPTION, WHICH THE SEARCH RESULT IS NOT.
    *
    * §78: the `party` line on a RECAP SEARCH result is a truncated sample

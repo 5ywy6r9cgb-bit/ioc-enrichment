@@ -1838,14 +1838,85 @@ async function cmdFedReg(num, opts = {}) {
   if (d.pdf) console.log(C.dim(`    ${d.pdf}`));
   if (d.raw_text) console.log(C.dim(`    ${d.raw_text}`));
 
+  // ---- the text, if asked for -------------------------------------------
+  if ((opts.grep || opts.text) && d.raw_text) {
+    const t = await R.runConnector('fedregtext', d.raw_text, {});
+    if (!t.ok) {
+      console.log(`\n  ${C.r('text fetch failed:')} ${t.error}`);
+    } else {
+      const body = require('fs').readFileSync(t.capturePath, 'utf8');
+      const lines = body.split(/\r?\n/);
+      console.log(`\n  ${C.b('Document text')}  `
+        + C.dim(`${lines.length} lines · sha256 ${t.captureHash.slice(0, 16)}…`));
+      console.log(C.dim(`    ${t.capturePath}`));
+
+      if (opts.grep) {
+        const needle = String(opts.grep).toLowerCase();
+        const hits = [];
+        lines.forEach((ln, i) => {
+          if (ln.toLowerCase().includes(needle)) hits.push(i);
+        });
+        console.log(`\n  ${C.b(`"${opts.grep}"`)}  `
+          + (hits.length ? C.y(`${hits.length} occurrence(s)`) : C.r('NOT PRESENT')));
+
+        if (!hits.length) {
+          // THE ANSWER THAT MATTERS MOST, AND THE ONE NOBODY LOOKS FOR.
+          for (const l of wrap(
+            'The phrase is NOT in this document. Whatever made the search '
+            + 'return it, it was not this. A co-occurrence that disappears '
+            + 'when you open the file is not a weak finding — it is a '
+            + 'NON-finding, and saying so out loud is the most useful thing '
+            + 'this command can do. Close the lead.', 68)) {
+            console.log(C.dim(`    ${l}`));
+          }
+        } else {
+          for (const i of hits.slice(0, opts.limit || 8)) {
+            console.log(C.dim(`\n    line ${i + 1}`));
+            for (let j = Math.max(0, i - 2); j <= Math.min(lines.length - 1, i + 2); j += 1) {
+              const mark = j === i ? C.y('  > ') : '    ';
+              for (const l of wrap(lines[j].trim(), 62)) console.log(`  ${mark}${l}`);
+            }
+          }
+          if (hits.length > (opts.limit || 8)) {
+            console.log(C.dim(`\n    …and ${hits.length - (opts.limit || 8)} more in the capture`));
+          }
+          console.log(`\n  ${C.y('READ THE SURROUNDING SENTENCE, NOT THE MATCH.')}`);
+          for (const l of wrap(
+            'A phrase can appear in a list of unrelated programmes, in a '
+            + 'commenter\'s quoted letter, or in a footnote citing something '
+            + 'else entirely. The match proves the words are there. Only the '
+            + 'sentence proves what they are doing there.', 68)) {
+            console.log(C.dim(`    ${l}`));
+          }
+        }
+      } else {
+        // No needle: show the opening, which for a Presidential Document is
+        // the only content there is — those carry no abstract at all.
+        const head = lines.filter((l) => l.trim()).slice(0, opts.limit || 60);
+        console.log('');
+        for (const ln of head) {
+          for (const l of wrap(ln.trim(), 66)) console.log(`    ${l}`);
+        }
+        if (lines.filter((l) => l.trim()).length > head.length) {
+          console.log(C.dim(`\n    …truncated. The whole document is in the capture above.`));
+        }
+      }
+    }
+  }
+
   console.log(`\n  ${C.y('AN ABSTRACT IS NOT THE DOCUMENT.')}`);
   for (const l of wrap(
-    'What is printed above is metadata and the agency\'s own summary. If you '
-    + 'are about to say WHY this document matched a search — why a TPS notice '
-    + 'came back for "Feeding Our Future", say — the abstract will not tell '
-    + 'you. Open the raw text and find the sentence. A co-occurrence you '
-    + 'cannot explain is not a finding, it is a coincidence with a citation '
-    + 'stapled to it.', 68)) console.log(C.dim(`    ${l}`));
+    'What is printed above is metadata and the agency\'s own summary. A '
+    + 'Presidential Document usually carries no abstract at all, so for those '
+    + 'the metadata is a title and a page count and nothing else.', 68)) {
+    console.log(C.dim(`    ${l}`));
+  }
+  if (!opts.grep && !opts.text) {
+    console.log(C.dim(`\n      bin/sentinel connect fedreg ${clean} --text`));
+    console.log(C.dim(`      bin/sentinel connect fedreg ${clean} --grep "a phrase"`));
+    console.log(C.dim('\n    --grep answers WHY a search returned this document,'));
+    console.log(C.dim('    which no amount of metadata can.'));
+  }
   console.log('');
 }
 
@@ -1899,11 +1970,40 @@ async function cmdDocket(num, opts = {}) {
     return;
   }
 
+  // A DOCKET NUMBER IS UNIQUE ONLY WITHIN A COURT, and this endpoint matches
+  // the string everywhere. Asking for 1:18-cr-00633 returned FIFTEEN dockets
+  // and put `United States v. Vaca-Mendez` from N.D. Illinois at the top —
+  // above the Methbot case it was actually looking for. Sorted by relevance
+  // to nothing, the first row is not the answer.
+  let pool = out.results;
+  if (opts.court) {
+    const want = String(opts.court).toLowerCase();
+    const kept = pool.filter((d) => String(d.court).toLowerCase() === want);
+    if (!kept.length) {
+      console.log(`\n  ${C.y(`No docket with that number in "${opts.court}".`)}`);
+      console.log(C.dim(`  Courts holding it: ${[...new Set(pool.map((d) => d.court))].join(' · ')}\n`));
+      return;
+    }
+    pool = kept;
+  }
+
   const cap = opts.limit || 3;
-  const shown = out.results.slice(0, cap);
+  const shown = pool.slice(0, cap);
   if (out.results.length > cap) {
-    console.log(C.y(`\n  ${out.results.length} dockets carry that number across courts.`));
-    console.log(C.dim(`  Showing ${cap}. A docket number is unique only within a court.`));
+    console.log(C.y(`\n  ${out.results.length} dockets carry that number`
+      + `${opts.court ? ` (${pool.length} in ${opts.court})` : ' across courts'}.`));
+    console.log(C.dim(`  Showing ${Math.min(cap, pool.length)}. `
+      + 'A docket number is unique only within a court.'));
+    if (!opts.court) {
+      const courts = [...new Set(out.results.map((d) => d.court))].filter(Boolean);
+      console.log(C.dim(`  Courts: ${courts.join(' · ')}`));
+      console.log(C.dim(`      bin/sentinel connect docket "${clean}" --court ${courts[0]}`));
+    }
+    // The same case can be held as SEVERAL docket records — one per
+    // defendant — and only the fullest carries the whole party table.
+    console.log(C.dim('\n  One case may be held as several records, one per'));
+    console.log(C.dim('  defendant. The richest party table is the whole caption;'));
+    console.log(C.dim(`  raise --limit to see the others.`));
   }
 
   for (const d of shown) {
@@ -3988,11 +4088,17 @@ async function main() {
       dryRun: opts.dryRun });
   }
   if (action === 'fedreg') {
-    return cmdFedReg(args[1], { dryRun: opts.dryRun });
+    return cmdFedReg(args[1], {
+      grep: flagVal(argv, '--grep'),
+      text: argv.includes('--text'),
+      limit: flagNum(argv, '--limit'),
+      dryRun: opts.dryRun,
+    });
   }
   if (action === 'docket') {
-    return cmdDocket(subjectFrom(args.slice(1), argv, ['--limit']), {
+    return cmdDocket(subjectFrom(args.slice(1), argv, ['--limit', '--court']), {
       limit: flagNum(argv, '--limit'),
+      court: flagVal(argv, '--court'),
       noParties: argv.includes('--no-parties'),
       dryRun: opts.dryRun,
     });
