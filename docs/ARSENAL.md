@@ -38,9 +38,9 @@ bin/sentinel prov add --file snap_error_rates.csv --label "USDA FNS SNAP QC erro
 |---|---|
 | `connect test` | every connector, key state, live probe |
 | `connect list` | subject sets available |
-| `connect <connector> "X"` | one source, one subject |
+| `connect courtlistener "X"` (any connector name) | one source, one subject |
 | `connect all "X"` | all 8 connectors on one subject |
-| `connect sweep <set> --go` | a whole subject set (plan without `--go`) |
+| `connect sweep minnesota_fraud --go` | a whole subject set (plan without `--go`) |
 | `connect expand --limit N` | walk out from what the sweep found |
 | `connect crosslink` | entities appearing in more than one source |
 | `connect graph --push` | push the entity graph to Neo4j |
@@ -49,11 +49,11 @@ bin/sentinel prov add --file snap_error_rates.csv --label "USDA FNS SNAP QC erro
 ### Reading documents — the gap-closers built tonight
 
 ```bash
-bin/sentinel connect fedreg <DOC-NUMBER>              # metadata + abstract
-bin/sentinel connect fedreg <DOC> --text --limit 200  # full text (Presidential docs have NO abstract)
-bin/sentinel connect fedreg <DOC> --grep "phrase"     # WHY did a search match? occurrences + context
-bin/sentinel connect docket "<DOCKET-NO>"             # caption as the COURT keeps it
-bin/sentinel connect docket "<N>" --court mnd --limit 8   # party table, BY ROLE
+bin/sentinel connect fedreg 2026-00596                # metadata + abstract
+bin/sentinel connect fedreg 2025-19928 --text --limit 200   # full text (Presidential docs have NO abstract)
+bin/sentinel connect fedreg 2026-00596 --grep "Minnesota"   # WHY did a search match?
+bin/sentinel connect docket "0:20-cv-02312"           # caption as the COURT keeps it
+bin/sentinel connect docket "0:22-cr-00223" --court mnd --limit 8   # party table, BY ROLE
 bin/sentinel connect courtlistener "X" --dockets      # RECAP, not published opinions
 ```
 
@@ -62,7 +62,7 @@ leads is worth more than finding new ones.
 
 ### Money
 
-| `connect awards "NAME" --all --pages N` | all 5 instrument families · `--grants --direct --loans --other --contracts` |
+| `connect awards "NAME" --all --pages 15` | all 5 instrument families · `--grants --direct --loans --other --contracts` |
 | `connect vendor "FIRM"` | reverse lookup: which committees PAID this name |
 | `connect fecpac "COMMITTEE"` | one committee's money |
 | `connect donors` · `connect filings` | who gave · what was filed |
@@ -88,14 +88,16 @@ sentence.** You now have documents. This is the half you need.
 ```bash
 bin/sentinel sdesk doctor                     # is the desk healthy
 bin/sentinel sdesk init                       # create it
-bin/sentinel sdesk case new <slug> "<Title>" --jurisdiction US
+bin/sentinel sdesk case new minnesota-fraud "Minnesota program integrity" --jurisdiction US
 bin/sentinel sdesk case list
 ```
 
 ### Put a document in the vault — hashed, classified, shelved
 
 ```bash
-bin/sentinel sdesk ingest <case> <file> \
+# ./scripts/desk_bootstrap.sh does this for every capture already on disk.
+# By hand, with a real path:
+bin/sentinel sdesk ingest minnesota-fraud evidence/captures/FR_2026-00596_text.json \
   --title "FR 2026-00596 Somalia TPS termination" \
   --custodian "Federal Register / DHS-USCIS" \
   --shelf PRIMARY
@@ -108,11 +110,13 @@ the difference between citing a document and citing a summary of it.**
 ### Make a claim, and let the desk tell you what blocks it
 
 ```bash
-bin/sentinel sdesk claim add <case> "DHS cited the Feeding Our Future prosecutions in the Somalia TPS termination" \
+bin/sentinel sdesk claim add minnesota-fraud \
+  "DHS cited the Feeding Our Future prosecutions in the Somalia TPS termination" \
   --tier GREEN --origin human --by "M. Griswold"
 
-bin/sentinel sdesk claim add <case> "Minnesota appears 7 times, 'country conditions' 3, in 943 lines" \
-  --tier ARITH --formula "grep count / grep count / wc -l"
+bin/sentinel sdesk claim add minnesota-fraud \
+  "Minnesota appears 7 times and 'country conditions' 3 times across 943 lines" \
+  --tier ARITH --formula "occurrence counts over line count of the hashed full text"
 
 bin/sentinel sdesk claim list          # every claim, its id, AND WHAT BLOCKS IT
 ```
@@ -123,11 +127,12 @@ news account is **REPORTED**, not GREEN, however confident you feel.
 ### Attach the document to the sentence
 
 ```bash
-bin/sentinel sdesk cite <claim-id> <doc-id> \
+# ids come from `sdesk claim list` — substitute the numbers, no brackets
+bin/sentinel sdesk cite 1 1 \
   --locator "line 741, capture f68e2560…" \
   --quote "under the sponsorship of Feeding Our Future"
 
-bin/sentinel sdesk trace <claim-id>    # everything behind one claim, end to end
+bin/sentinel sdesk trace 1      # everything behind one claim, end to end
 ```
 
 **`trace` is the command that answers a lawyer.** One claim, every document,
@@ -136,9 +141,9 @@ every locator, every hash, in one screen.
 ### The gate
 
 ```bash
-bin/sentinel sdesk gate run --case <case>
-bin/sentinel sdesk ready <case>        # how far from publishable
-bin/sentinel sdesk export <case>       # the dossier
+bin/sentinel sdesk gate run --case minnesota-fraud
+bin/sentinel sdesk ready minnesota-fraud     # how far from publishable
+bin/sentinel sdesk export minnesota-fraud    # the dossier
 ```
 
 **`ready` is the thing to run before you record Episode 01.** Not before you
@@ -148,8 +153,8 @@ still cheap.
 ### When you get it wrong — and you will
 
 ```bash
-bin/sentinel sdesk correct <claim-id> --retire
-bin/sentinel sdesk dispose <claim-id>   # take responsibility for a machine-drafted claim
+bin/sentinel sdesk correct 1 --retire
+bin/sentinel sdesk dispose 1    # take responsibility for a machine-drafted claim
 ```
 
 **§78 and §81 are why `correct` exists.** Thirteen names, one of them a
@@ -163,7 +168,7 @@ trusted with the true parts.**
 ```bash
 bin/sentinel pra foia            # the records desk — what needs you today
 bin/sentinel pra foia --all      # every request tracked
-bin/sentinel pra foia add <REQUEST-ID> ...
+bin/sentinel pra foia add MN-SOS-2026-01 ...
 bin/sentinel pra brief           # daily digest
 bin/sentinel pra mail            # correspondence
 bin/sentinel pra seed · setup · test
@@ -190,13 +195,16 @@ and keep the sent copy.**
 ## 4. Provenance, corpus, the rest
 
 ```bash
-bin/sentinel prov add --file <f> --label "<what it is>"   # hash + ledger anything
-bin/sentinel corpus · shelf · draft · doc
-bin/sentinel case <...>          # research-desk (python)
+bin/sentinel prov add --file snap_error_rates.csv --label "USDA FNS SNAP QC error rates"
+bin/sentinel corpus
+bin/sentinel shelf
+bin/sentinel draft
+bin/sentinel doc
+bin/sentinel case            # research-desk (python)
 bin/sentinel dash                # dashboard, opens in browser
 bin/sentinel desk                # research desk UI
-bin/sentinel watch <...>         # scheduled re-runs — see watchlist.json
-bin/sentinel montage <...>       # video pipeline
+bin/sentinel watch           # scheduled re-runs — see watchlist.json
+bin/sentinel montage         # video pipeline
 bin/sentinel status · test
 ```
 
@@ -207,16 +215,16 @@ bin/sentinel status · test
 | gap | command | status |
 |---|---|---|
 | **SNAP error rate vs national** | USDA FNS lookup → `prov add` | **DO THIS FIRST** |
-| 21-state lawsuit in EO 14395 | `connect courtlistener "..." --dockets` | ready |
+| 21-state lawsuit in EO 14395 | `connect courtlistener "Minnesota" --dockets` | ready |
 | HSS denominator | `pra foia` → MN SoS + DHS | **not sent** |
-| Fors Marsh: firm or market? | `connect awards "Porter Novelli\|Ogilvy\|Ketchum\|IQ Solutions" --all` | ready |
+| Fors Marsh: firm or market? | `connect awards "Porter Novelli" --all` then Ogilvy, Ketchum, IQ Solutions | ready |
 | Quintus FEC complaint | `connect vendor "Quintus" --pages 25` + `connect control` | **complaint-ready** |
-| Meta Ad Library | — | **NOT BUILT** |
-| FCC Public Inspection File | — | **NOT BUILT** |
-| `reconcile.js` ($91,631 gap) | — | **built, tested, NO CLI VERB** |
+| Meta Ad Library | none | **NOT BUILT** |
+| FCC Public Inspection File | none | **NOT BUILT** |
+| `reconcile.js` ($91,631 gap) | none | **built, tested, NO CLI VERB** |
 | Ohio SoS 1191466 / 1604865 | by hand | blocked from tooling |
 | docquery FEC PDFs | by hand | blocked |
-| any name containing "cgi" | — | **permanently blocked** (WAF; CGI FEDERAL invisible) |
+| any name containing "cgi" | none | **permanently blocked** (WAF; CGI FEDERAL invisible) |
 | **FEC key in `provenance.jsonl` cleartext** | **rotate it** | **OPEN — do before showing anyone the ledger** |
 | Episodes 00/01 | `sdesk ready` then `montage` | not recorded |
 
