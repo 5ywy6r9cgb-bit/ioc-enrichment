@@ -15,7 +15,9 @@
       "Vantage Data Centers",
       "Aligned Data Centers",
       "Digital Realty",
-      "DataBank"
+      "DataBank",
+      "Google LLC",
+      "Intel Corporation"
     ]
   },
   "energy": {
@@ -212,6 +214,23 @@
       "TikTok Inc",
       "X Corp",
       "Reddit Inc"
+    ]
+  },
+  "intel_newalbany": {
+    "into": "intel-new-albany",
+    "note": "The Licking County semiconductor and data-centre build, by ENTITY NAME. The federal hooks are real and few: CHIPS money is a federal AWARD, so usaspending can speak to it; the companies lobby, so senatelda can; and large-load interconnection is a FERC matter. Everything else about this story \u2014 the parcels, the abatements, the tax-increment financing, the water and the tariff \u2014 is COUNTY and STATE and appears in no register queried here. An empty federal answer about a land deal is a fact about the register, not about the deal.",
+    "subjects": [
+      "Intel Corporation",
+      "Intel Federal",
+      "New Albany Company",
+      "The Georgetown Company",
+      "Licking County Port Authority",
+      "JobsOhio",
+      "Columbus Regional Airport Authority",
+      "Amazon Data Services",
+      "Google LLC",
+      "Meta Platforms",
+      "AEP Ohio"
     ]
   }
 }
