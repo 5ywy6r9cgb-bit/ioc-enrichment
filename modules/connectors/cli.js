@@ -3560,7 +3560,7 @@ async function cmdSearch(name, query, opts) {
   console.log('\n' + C.b(`${c.label} — authorized run`));
   console.log(`  subject     ${query}`);
   console.log(`  calls       ${c.calls} (exactly)`);
-  console.log(`  request     ${c.describe(query)}`);
+  console.log(`  request     ${c.describe(query, key, { mode: opts.mode })}`);
   console.log(`  key         ${key ? C.g('present, sent in Authorization header only')
     : (keyMissing ? C.r(`MISSING — set ${c.keyVar} in .env`)
       : (c.keyVar ? C.y('none (anonymous)') : C.dim('none needed')))}`);
@@ -3577,7 +3577,7 @@ async function cmdSearch(name, query, opts) {
     process.exit(2);
   }
 
-  const out = await R.runConnector(name, query, { env });
+  const out = await R.runConnector(name, query, { env, mode: opts.mode });
   if (!out.ok) {
     console.error(C.r(`\n  ${out.error} — nothing written.`));
     // "The key was rejected" was printed for a 403 that had nothing to do
@@ -3622,7 +3622,22 @@ async function cmdSearch(name, query, opts) {
 
   console.log('\n  ' + C.b(`${out.results.length} candidate lead(s)`));
   if (!out.results.length) {
-    console.log(C.dim('  No hits. A clean result is not proof of absence — it is one source saying nothing.\n'));
+    console.log(C.dim('  No hits. A clean result is not proof of absence — it is one source saying nothing.'));
+    if (name === 'courtlistener' && opts.mode !== 'dockets') {
+      console.log(`\n  ${C.y('AND THIS SOURCE WAS ASKED THE NARROW QUESTION.')}`);
+      for (const l of wrap(
+        'type=o searches PUBLISHED OPINIONS, which is what a judge writes '
+        + 'about a contested legal question — a small and unrepresentative '
+        + 'slice of what courts do. A criminal case that ends in a jury '
+        + 'verdict or a plea agreement usually produces no opinion at all. '
+        + 'It produces a DOCKET. Asking this way returned one Iowa divorce '
+        + 'for "Feeding Our Future" and zero for "Aimee Bock".', 68)) {
+        console.log(C.dim(`    ${l}`));
+      }
+      console.log(C.dim(`\n      bin/sentinel connect courtlistener "${query}" --dockets\n`));
+    } else {
+      console.log('');
+    }
     return;
   }
   for (const r of out.results.slice(0, 15)) {
@@ -3634,6 +3649,15 @@ async function cmdSearch(name, query, opts) {
     }
   }
   if (out.results.length > 15) console.log(C.dim(`\n    …and ${out.results.length - 15} more (all in the capture)`));
+
+  // Even a FULL opinion page is the narrow question. The Zhukov run returned
+  // twenty confident hits and not one of them was the prosecution being
+  // looked for, because that prosecution has a docket and no opinion.
+  if (name === 'courtlistener' && opts.mode !== 'dockets') {
+    console.log(C.dim('\n    These are PUBLISHED OPINIONS. A case that ended in a verdict'));
+    console.log(C.dim('    or a plea usually has none, and will not be here at all:'));
+    console.log(C.dim(`      bin/sentinel connect courtlistener "${query}" --dockets`));
+  }
 
   console.log('\n  ' + C.y('These are LEADS, not findings.'));
   console.log(C.dim('  A name match is not an identification. Before any of this is used:'));
@@ -3923,13 +3947,28 @@ async function main() {
     return i >= 0 && list[i + 1] && !list[i + 1].startsWith('--') ? list[i + 1] : null;
   };
 
+  // --dockets moves courtlistener off published opinions and onto the RECAP
+  // archive. `courtlistener "Feeding Our Future"` found ONE opinion — an
+  // unrelated Iowa divorce — against a prosecution with roughly seventy
+  // charged defendants, because a criminal case that ends in a verdict or a
+  // plea produces a docket and no opinion.
+  //
+  // BUILT ONCE AND WIRED ONCE, WHICH IS NOT THE SAME AS WIRED. The first
+  // version set this only on the direct-connector branch. `bin/sentinel`
+  // routes an unlisted connector through `search`, so every invocation an
+  // operator can actually type went down the OTHER branch and the flag was
+  // silently dropped — the announcement still read `type=o`. The bin
+  // dispatcher is the surface, and a flag that works only when the module is
+  // called directly is not yet a flag.
+  const searchOpts = Object.assign({}, opts, {
+    into: intoOf(argv),
+    mode: argv.includes('--dockets') ? 'dockets' : opts.mode,
+  });
   if (action === 'search') {
-    return cmdSearch(args[1], positional(2).join(' '),
-      Object.assign({}, opts, { into: intoOf(argv) }));
+    return cmdSearch(args[1], positional(2).join(' '), searchOpts);
   }
   if (R.CONNECTORS[action]) {
-    return cmdSearch(action, positional(1).join(' '),
-      Object.assign({}, opts, { into: intoOf(argv) }));
+    return cmdSearch(action, positional(1).join(' '), searchOpts);
   }
 
   console.error(`unknown action: ${action}`);

@@ -480,26 +480,66 @@ const CONNECTORS = {
     keyVar: 'COURTLISTENER_API_TOKEN',
     // Documented as 5/min, and enforced: a sweep without this lost the source
     // on most subjects. 13s leaves headroom for clock drift.
+    //
+    // THE PER-MINUTE PACE IS NOT THE BINDING LIMIT. A live 429 read
+    // "Rate limit exceeded: 50/hour" — an HOURLY cap that 13s spacing sails
+    // straight through at roughly 277/hour. Two back-to-back sweeps spent
+    // the whole hour's budget and the next single search was refused. The
+    // pacer cannot fix that; only asking for less can. Sweep first, then
+    // run individual searches, and expect roughly fifty an hour in total.
     minIntervalMs: 13000,
     keyRequired: false, // anonymous search works; the token raises rate limits
     calls: 1,
-    describe: (q) => `GET https://www.courtlistener.com/api/rest/v4/search/  (q: ${q})`,
+    describe: (q, key, o = {}) => 'GET https://www.courtlistener.com/api/rest/v4/search/'
+      + `  (q: ${q}, ${o.mode === 'dockets' ? 'type=r — RECAP DOCKETS' : 'type=o — published opinions'})`,
     probe: (key) => ({
       method: 'GET',
       url: 'https://www.courtlistener.com/api/rest/v4/search/?q=test&type=o',
       headers: key ? { Authorization: `Token ${key}` } : {},
     }),
-    run: (q, key) => ({
+    /**
+     * `type=o` IS PUBLISHED OPINIONS, AND MOST PROSECUTIONS DO NOT HAVE ONE.
+     *
+     * The live failure: `courtlistener "Feeding Our Future"` returned exactly
+     * one result — Mart v. Mart, Iowa Court of Appeals, 2012 — against a
+     * prosecution with roughly seventy charged defendants in D. Minn.
+     * `"Aimee Bock"` returned zero.
+     *
+     * Neither is an absence in the courts. A criminal case that ends in a
+     * jury verdict or a plea agreement frequently produces NO published
+     * opinion at all: it produces a DOCKET. Published opinions are what
+     * happens when a judge writes about a contested legal question, which is
+     * a small and badly unrepresentative slice of what courts do.
+     *
+     * So this was the §61 error wearing a robe — a query shape manufacturing
+     * an absence — and it shipped inside the section arguing against exactly
+     * that. `type=r` searches the RECAP archive, which is dockets and the
+     * documents filed in them.
+     *
+     * Opinions stay the default because they are what you cite for a HOLDING.
+     * Dockets are what you cite for the fact that a case EXISTS.
+     */
+    run: (q, key, o = {}) => ({
       method: 'GET',
-      url: `https://www.courtlistener.com/api/rest/v4/search/?q=${encodeURIComponent(phrase(q))}&type=o&order_by=score%20desc`,
+      url: 'https://www.courtlistener.com/api/rest/v4/search/'
+        + `?q=${encodeURIComponent(phrase(q))}`
+        + `&type=${o.mode === 'dockets' ? 'r' : 'o'}`
+        + '&order_by=score%20desc',
       headers: key ? { Authorization: `Token ${key}` } : {},
     }),
     parse: (json) => (json.results || []).map((r) => ({
-      external_id: String(r.id || r.cluster_id || ''),
+      // RECAP results key on docket_id; opinion results on id/cluster_id.
+      external_id: String(r.id || r.cluster_id || r.docket_id || ''),
       name: r.caseName || r.case_name || '(untitled)',
       court: r.court || r.court_id || '',
       date: r.dateFiled || r.date_filed || '',
       docket: r.docketNumber || r.docket_number || '',
+      // A docket hit carries the charge or the filing text; an opinion hit
+      // does not. Keeping it is the difference between "a case exists" and
+      // "a case exists and here is what it says on its face".
+      description: String(r.description || r.suitNature || ''),
+      party: Array.isArray(r.party) ? r.party.slice(0, 6).join('; ') : '',
+      documents: Array.isArray(r.recap_documents) ? r.recap_documents.length : 0,
       url: r.absolute_url ? `https://www.courtlistener.com${r.absolute_url}` : '',
     })),
     identify: (r) => r.external_id,
