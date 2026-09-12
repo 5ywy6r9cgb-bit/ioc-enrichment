@@ -123,6 +123,28 @@ const INSTRUMENTS = [
       + 'over, and not comparable to a contract of the same size. Subsidy '
       + 'Cost is the government\'s own estimate of what it expects to lose.',
   },
+  {
+    // THE FAMILY THE FIRST FIX FORGOT, WHICH IS THE SAME MISTAKE AGAIN.
+    //
+    // §61 said the instrument was now an argument and that `--all` asked
+    // the whole register. It did not. Assistance type 09 (insurance) and
+    // 11 (other financial assistance) were left out, and `--all` printed
+    // four families over a footer claiming completeness.
+    //
+    // 11 is the catch-all an agency uses when the award fits none of the
+    // named forms. If a large, novel industrial-policy payment is going to
+    // be filed anywhere unexpected, it is here — so a CHIPS search that
+    // skips 11 is not a search that can report an absence.
+    key: 'other',
+    codes: ['09', '11'],
+    label: 'insurance and other financial assistance',
+    fields: BASE_FIELDS.concat(['Award Amount', 'Start Date', 'End Date',
+      'Award Type']),
+    sort: 'Award Amount',
+    means: 'The catch-all: 09 is insurance, 11 is assistance that fits none '
+      + 'of the named forms. Rare, and the first place to look when a '
+      + 'payment you know exists is in none of the other families.',
+  },
 ];
 
 function instrument(key) {
@@ -243,8 +265,22 @@ function amountOf(row) {
 function byAgency(rows) {
   const m = new Map();
   let total = 0;
+  // AWARDS THAT CARRY NO AMOUNT AT ALL.
+  //
+  // The live Intel Federal run returned DARPA cooperative agreement
+  // HR00112120015 with a null Award Amount — and a description stating in
+  // words that the value was increased to $9,413,419. It was displayed as
+  // "—" and contributed $0 to the family total, so a $23.1m figure was
+  // printed over a known, unlisted $9.4m.
+  //
+  // A blank is not a zero. Counting it as one silently deflates a total the
+  // reader is invited to trust, which is worse than the page cap: at least
+  // the page cap announces itself.
+  let noAmount = 0;
   for (const r of rows) {
     const a = (r.agency || '(agency not stated)').trim();
+    const blank = !String(r.amount == null ? '' : r.amount).replace(/[^0-9.]/g, '');
+    if (blank) noAmount += 1;
     const amt = amountOf(r);
     total += amt;
     const cur = m.get(a) || { agency: a, amount: 0, count: 0, largest: 0 };
@@ -256,6 +292,7 @@ function byAgency(rows) {
   return {
     agencies: [...m.values()].sort((x, y) => y.amount - x.amount),
     total,
+    noAmount,
   };
 }
 
@@ -357,6 +394,67 @@ function plainDescription(description) {
     .trim();
 }
 
+/**
+ * ─────────────────────────────────────────────────────────────────────
+ * A PROGRAM IS NOT A SET OF DECISIONS
+ * ─────────────────────────────────────────────────────────────────────
+ * `awards "Google LLC" --all` returned 387 direct payments from the FCC.
+ * Every one of them carried the SAME 120-word Affordable Connectivity
+ * Program boilerplate, so:
+ *
+ *   - the word list read "obligation 387 · afford 386 · affordable 386 …",
+ *     which describes the paragraph and nothing about any award
+ *   - the same paragraph was printed twelve times, filling the screen
+ *   - "387 awards" invited the reader to see 387 decisions
+ *
+ * There was ONE decision — a subsidy programme — and 387 monthly
+ * obligations under it. Reporting that as 387 findings is inflation by
+ * formatting, which is the same failure as a page cap read as a count.
+ *
+ * Descriptions are grouped by their normalised text. Numbers come out
+ * (invoice and obligation ids differ on otherwise identical rows) so the
+ * boilerplate collapses to one group and a genuinely distinct description
+ * stays its own.
+ */
+function descriptionKey(description) {
+  return plainDescription(description)
+    .toLowerCase()
+    .replace(/[0-9]+/g, ' ')
+    .replace(/[^a-z ]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function descriptionGroups(rows) {
+  const m = new Map();
+  for (const r of rows) {
+    const k = descriptionKey(r.description);
+    if (!k) continue;
+    const cur = m.get(k) || { text: plainDescription(r.description), count: 0, amount: 0, rows: [] };
+    cur.count += 1;
+    cur.amount += amountOf(r);
+    cur.rows.push(r);
+    m.set(k, cur);
+  }
+  return [...m.values()].sort((a, b) => b.count - a.count || b.amount - a.amount);
+}
+
+/**
+ * The one description that covers most of the register, if there is one.
+ *
+ * Deliberately strict: a single group has to carry at least five awards AND
+ * at least 40% of them before this desk will call a set of awards a
+ * programme. Below that it is a repeated phrase, not a policy.
+ */
+function dominantDescription(rows) {
+  const withText = rows.filter((r) => descriptionKey(r.description));
+  if (withText.length < 5) return null;
+  const g = descriptionGroups(rows)[0];
+  if (!g || g.count < 5) return null;
+  const share = g.count / withText.length;
+  return share >= 0.4 ? { text: g.text, count: g.count, of: withText.length, share } : null;
+}
+
 /** Earliest and latest dates seen, from the "start → end" period string. */
 function span(rows) {
   let first = ''; let last = '';
@@ -375,4 +473,5 @@ module.exports = {
   namesMatch, normaliseName, tooShortToFilter, classify, amountOf, byAgency, byRecipient,
   descriptionWords, span, STOP, SUFFIX, igfMarkers, plainDescription, IGF,
   INSTRUMENTS, instrument, instrumentsFor, isRawFpds,
+  descriptionKey, descriptionGroups, dominantDescription,
 };

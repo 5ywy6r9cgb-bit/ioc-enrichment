@@ -231,9 +231,23 @@ console.log('\n  instruments — the filter that manufactured an absence');
   check('which the label refuses to let the reader forget',
     /FACE VALUE/.test(A.instrument('loans').means));
 
-  eq('--all asks the whole register', A.instrumentsFor({ all: true }).length, 4);
+  // THE SAME MISTAKE, ONE COMMIT LATER. §61 shipped --all over four
+  // families and a footer claiming completeness. Assistance types 09 and 11
+  // were not among them, and 11 is the catch-all an agency reaches for when
+  // an award fits none of the named forms — which is exactly where a large,
+  // novel industrial-policy payment would land.
+  eq('--all asks every family the API defines', A.instrumentsFor({ all: true }).length, 5);
+  check('including the catch-all',
+    A.instrumentsFor({ all: true }).some((i) => i.key === 'other'));
+  eq('which is 09 and 11', A.instrument('other').codes.join(','), '09,11');
+  check('and every assistance code is covered exactly once', (() => {
+    const all = A.INSTRUMENTS.filter((i) => i.key !== 'contracts')
+      .map((i) => i.codes).flat().sort();
+    return all.join(',') === '02,03,04,05,06,07,08,09,10,11'
+      && new Set(all).size === all.length;
+  })());
   eq('and --all beats a single pick',
-    A.instrumentsFor({ all: true, grants: true }).length, 4);
+    A.instrumentsFor({ all: true, grants: true }).length, 5);
   eq('two picks are both honoured',
     A.instrumentsFor({ grants: true, direct: true }).map((i) => i.key).join(','),
     'grants,direct');
@@ -296,6 +310,86 @@ console.log('\n  raw FPDS dumps are not descriptions');
       { description: 'persona management software' },
       { description: 'persona management licences' }], 2)
       .some((x) => x.word === 'persona'));
+}
+
+console.log('\n  a blank amount is not a zero');
+{
+  // THE LIVE ROW. DARPA cooperative agreement HR00112120015 came back with a
+  // null Award Amount and a description stating in words that the value had
+  // been increased to $9,413,419. It displayed as "—", contributed $0, and
+  // a $23,112,150 family total was printed over a known unlisted $9.4m.
+  const g = A.byAgency([
+    row('INTEL FEDERAL LLC', 8353806, 'Department of Energy'),
+    { name: 'INTEL FEDERAL LLC', agency: 'Department of Defense' },   // no amount at all
+    { name: 'INTEL FEDERAL LLC', amount: '', agency: 'Department of Defense' },
+  ]);
+  eq('the blanks are counted', g.noAmount, 2);
+  eq('and not invented into the total', g.total, 8353806);
+  eq('a stated amount is never counted as missing',
+    A.byAgency([row('N', 1, 'X')]).noAmount, 0);
+  check('and the command calls the total a floor when any is blank',
+    /no amount stated/.test(
+      require('fs').readFileSync(require('path').join(__dirname, 'cli.js'), 'utf8')));
+}
+
+console.log('\n  a programme is not a set of decisions');
+{
+  // THE LIVE GOOGLE RUN. 387 FCC direct payments, every one carrying the
+  // same Affordable Connectivity Program paragraph. The word list read
+  // "obligation 387 · afford 386 · affordable 386 …" — a description of the
+  // paragraph — and the paragraph itself was printed twelve times.
+  const acp = 'THE AFFORDABLE CONNECTIVITY PROGRAM IS AN FCC BENEFIT PROGRAM '
+    + 'THAT HELPS ENSURE THAT HOUSEHOLDS CAN AFFORD THE BROADBAND THEY NEED.';
+  const many = [];
+  for (let i = 0; i < 20; i += 1) {
+    many.push(row('GOOGLE LLC', 50000 + i, 'Federal Communications Commission',
+      // the obligation id differs on every otherwise identical row
+      { description: `${acp} 002110528${i} ACP OBLIGATION` }));
+  }
+  eq('differing ids do not split the boilerplate',
+    A.descriptionGroups(many).length, 1);
+  eq('and the group carries the count', A.descriptionGroups(many)[0].count, 20);
+  eq('and their money', A.descriptionGroups(many)[0].amount, 1000190);
+
+  const dom = A.dominantDescription(many);
+  check('it is reported as one description', dom !== null);
+  eq('covering all of them', dom.count, 20);
+  eq('out of all of them', dom.of, 20);
+
+  // A real register of distinct purchases must NOT be collapsed.
+  const distinct = [
+    row('N', 1, 'X', { description: 'PERSONA MANAGEMENT SOFTWARE' }),
+    row('N', 2, 'X', { description: 'VEHICLE LEASE FOR DEA' }),
+    row('N', 3, 'X', { description: 'ANNUAL FREESTATE LICENSE' }),
+    row('N', 4, 'X', { description: 'NETWORK OBFUSCATION SERVICE' }),
+    row('N', 5, 'X', { description: 'MAPPER LICENSES FOR FOXFIRE' }),
+    row('N', 6, 'X', { description: 'TRAINING FOR FBI PERSONNEL' }),
+  ];
+  eq('six different purchases stay six', A.descriptionGroups(distinct).length, 6);
+  eq('and nothing is called a programme', A.dominantDescription(distinct), null);
+
+  // The threshold is deliberately strict — a handful of repeats is a phrase,
+  // not a policy.
+  eq('four identical rows are not enough to call it a programme',
+    A.dominantDescription([
+      row('N', 1, 'X', { description: 'SOFTWARE RENEWAL' }),
+      row('N', 2, 'X', { description: 'SOFTWARE RENEWAL' }),
+      row('N', 3, 'X', { description: 'SOFTWARE RENEWAL' }),
+      row('N', 4, 'X', { description: 'SOFTWARE RENEWAL' }),
+    ]), null);
+  // Half boilerplate, half real work: the boilerplate is still the finding,
+  // but the real work must not be swallowed by it.
+  const mixed = many.slice(0, 10).concat(distinct);
+  eq('a mixed register keeps its distinct rows',
+    A.descriptionGroups(mixed).length, 7);
+  eq('and the dominant group is still named',
+    A.dominantDescription(mixed).count, 10);
+
+  eq('a row with no description forms no group',
+    A.descriptionGroups([{ description: '' }, {}]).length, 0);
+  check('the command says obligations, not decisions',
+    /not\s+\$\{dom\.count\} separate decisions|separate decisions/.test(
+      require('fs').readFileSync(require('path').join(__dirname, 'cli.js'), 'utf8')));
 }
 
 console.log(`\n  ${fail ? 'FAIL' : 'PASS'} — ${pass}/${pass + fail} checks\n`);

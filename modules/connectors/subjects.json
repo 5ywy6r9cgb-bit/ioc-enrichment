@@ -1,5 +1,5 @@
 {
-  "//": "Named subject sets for `sentinel connect sweep <set>`. Edit this file as you learn names \u2014 every abatement agreement and utility filing names the actual contracting entity, and that name is the one worth searching. A subject here is a SEARCH STRING, not a claim that the entity is involved in anything.",
+  "//": "Named subject sets for `sentinel connect sweep <set>`. Edit this file as you learn names — every abatement agreement and utility filing names the actual contracting entity, and that name is the one worth searching. A subject here is a SEARCH STRING, not a claim that the entity is involved in anything.",
   "datacenters": {
     "into": "datacenters",
     "note": "Operators and the single-purpose entities they file under.",
@@ -99,7 +99,7 @@
   },
   "surveillance_platforms": {
     "into": "surveillance-platforms",
-    "note": "Platform companies as ENTITIES. These were written as 'Meta Platforms law enforcement' \u2014 an entity glued to a concept \u2014 which the phrase fix then sent as one exact quoted string that appears in no document, so the sweep returned nothing and the nothing looked like an answer. A subject must be a NAME. The concept belongs in which register you ask, not in the query.",
+    "note": "Platform companies as ENTITIES. These were written as 'Meta Platforms law enforcement' — an entity glued to a concept — which the phrase fix then sent as one exact quoted string that appears in no document, so the sweep returned nothing and the nothing looked like an answer. A subject must be a NAME. The concept belongs in which register you ask, not in the query.",
     "subjects": [
       "Meta Platforms",
       "ByteDance",
@@ -148,7 +148,7 @@
   },
   "outside_oh_senate": {
     "into": "oh-senate-2026",
-    "note": "Committees that spent independently at the Ohio Senate seat, cycle 2026. Support and opposition are listed together because the SET is the subject \u2014 which committees showed up at all \u2014 and separating them here would bake a side into the search. $19.1m moved at this seat against $476k into the candidate's own account: OUTSIDE PRESSURE 40.19x. NOTE: 'The Sentinel Action Fund' is an unrelated national super PAC and has nothing to do with this desk.",
+    "note": "Committees that spent independently at the Ohio Senate seat, cycle 2026. Support and opposition are listed together because the SET is the subject — which committees showed up at all — and separating them here would bake a side into the search. $19.1m moved at this seat against $476k into the candidate's own account: OUTSIDE PRESSURE 40.19x. NOTE: 'The Sentinel Action Fund' is an unrelated national super PAC and has nothing to do with this desk.",
     "subjects": [
       "Americans for Prosperity Action",
       "WinSenate",
@@ -168,7 +168,7 @@
   },
   "outside_oh_house": {
     "into": "oh-house-2024",
-    "note": "Committees spending independently at Ohio House seats, cycle 2024, and the candidate-adjacent vehicles beside them. A victory fund is the member's own joint committee, not an outside group \u2014 it is here to be recognised, not conflated.",
+    "note": "Committees spending independently at Ohio House seats, cycle 2024, and the candidate-adjacent vehicles beside them. A victory fund is the member's own joint committee, not an outside group — it is here to be recognised, not conflated.",
     "subjects": [
       "Jobs & Prosperity PAC",
       "MAHA Alliance",
@@ -182,7 +182,7 @@
   },
   "single_target_pacs": {
     "into": "single-target",
-    "note": "Committees found spending against ONE named member. Concentration is a measured fact and not intent \u2014 see `connect asymmetry`. United for Common Sense is here as the counter-example: 94.9% of its money went against a different candidate entirely, so it is NOT single-target and the set exists partly to keep that visible.",
+    "note": "Committees found spending against ONE named member. Concentration is a measured fact and not intent — see `connect asymmetry`. United for Common Sense is here as the counter-example: 94.9% of its money went against a different candidate entirely, so it is NOT single-target and the set exists partly to keep that visible.",
     "subjects": [
       "Citizens Against AIPAC Corruption",
       "United for Common Sense",
@@ -203,7 +203,7 @@
   },
   "persona_management": {
     "into": "persona-management",
-    "note": "The documented precedent for automated persona operations, and the platforms they run on. HBGARY FEDERAL's 2011 breach put 'persona management' proposals into the public record, and NTREPID held a US CENTCOM contract for online persona management \u2014 that one is federal CONTRACTING, so usaspending can speak to it. Everything here is an entity name. NONE of it is evidence that any platform operates a bot farm: platforms publish takedown reports about third-party networks, which is the opposite claim.",
+    "note": "The documented precedent for automated persona operations, and the platforms they run on. HBGARY FEDERAL's 2011 breach put 'persona management' proposals into the public record, and NTREPID held a US CENTCOM contract for online persona management — that one is federal CONTRACTING, so usaspending can speak to it. Everything here is an entity name. NONE of it is evidence that any platform operates a bot farm: platforms publish takedown reports about third-party networks, which is the opposite claim.",
     "subjects": [
       "HBGary Federal",
       "HBGary",
@@ -218,7 +218,7 @@
   },
   "intel_newalbany": {
     "into": "intel-new-albany",
-    "note": "The Licking County semiconductor and data-centre build, by ENTITY NAME. The federal hooks are real and few: CHIPS money is a federal AWARD, so usaspending can speak to it; the companies lobby, so senatelda can; and large-load interconnection is a FERC matter. Everything else about this story \u2014 the parcels, the abatements, the tax-increment financing, the water and the tariff \u2014 is COUNTY and STATE and appears in no register queried here. An empty federal answer about a land deal is a fact about the register, not about the deal.",
+    "note": "The Licking County semiconductor and data-centre build, by ENTITY NAME. The federal hooks are real and few: CHIPS money is a federal AWARD, so usaspending can speak to it; the companies lobby, so senatelda can; and large-load interconnection is a FERC matter. Everything else about this story — the parcels, the abatements, the tax-increment financing, the water and the tariff — is COUNTY and STATE and appears in no register queried here. An empty federal answer about a land deal is a fact about the register, not about the deal.",
     "subjects": [
       "Intel Corporation",
       "Intel Federal",
@@ -231,6 +231,43 @@
       "Google LLC",
       "Meta Platforms",
       "AEP Ohio"
+    ]
+  },
+  "bot_economy": {
+    "into": "bot-economy",
+    "note": "THE ANSWER TO \"do data centres have a connection to bot farms\" is: not the one the phrase implies. A hyperscale campus is where ad INVENTORY is manufactured and where fraud is DETECTED — not where the bots live. Datacenter-originated traffic is, by industry definition, the marker used to CLASSIFY traffic as non-human, which is why fraud rings rent cloud capacity and why the platforms publish datacenter IP lists to exclude it. The three groups here are the three sides of that trade and they are not the same: firms PAID TO MEASURE fraud, platforms that SELL the inventory, and vendors that BUILD synthetic personas. None of these names is alleged to operate a bot farm.",
+    "subjects": [
+      "Integral Ad Science",
+      "DoubleVerify",
+      "HUMAN Security",
+      "White Ops",
+      "Comscore",
+      "The Nielsen Company",
+      "Oracle America",
+      "Meta Platforms",
+      "Google LLC",
+      "ByteDance",
+      "X Corp",
+      "Reddit Inc",
+      "Ntrepid Corporation",
+      "HBGary Federal"
+    ]
+  },
+  "message_buyers": {
+    "into": "message-buyers",
+    "note": "WHO THE FEDERAL GOVERNMENT PAYS TO DISTRIBUTE A MESSAGE. This is not a covert register — it is appropriated money, competed and published, and that is exactly why it is useful: it establishes that algorithmic reach is a line item with a price. The live Google run found U.S. Agency for Global Media paying $803,070 across 24 awards for Google and YouTube advertising for VOA language services (account 113-548-8374 is printed in the contract text), State Department $239,158 to MARKET TO PUBLIC DIPLOMACY PROGRAMS AND PRODUCTS, and FDA $206,454 for GOOGLE ADWORDS CAMPAIGNS tagged IGF::CT::IGF — the contracting officer classifying ad buying as a CRITICAL function. Consensus-building with a federal appropriation behind it, bought through the same auction as everything else.",
+    "subjects": [
+      "Google LLC",
+      "Meta Platforms",
+      "X Corp",
+      "ByteDance",
+      "Reddit Inc",
+      "Snap Inc",
+      "GMMB",
+      "Fors Marsh Group",
+      "Rescue Agency",
+      "Weber Shandwick",
+      "Edelman"
     ]
   }
 }

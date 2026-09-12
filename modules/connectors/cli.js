@@ -1479,8 +1479,23 @@ async function cmdAwards(name, opts = {}) {
       console.log(C.dim('    the same as an absence in the register. The rest:'));
       console.log(C.dim(`      bin/sentinel connect awards "${name}" --all\n`));
     } else {
-      console.log(C.dim('\n    Every instrument family was asked. Subsidiaries file under'));
-      console.log(C.dim('    their own names, so this is a fact about the STRING.\n'));
+      console.log(C.dim('\n    Every instrument family was asked, so this is a fact about'));
+      console.log(C.dim('    the STRING and not about the company.'));
+      // "Amazon Data Services" returned nothing in all five families. That
+      // is not Amazon's federal footprint, it is the wrong filed name —
+      // recipient_search_text is fuzzy but it is not a synonym dictionary.
+      const words = String(name).trim().split(/\s+/);
+      if (words.length > 1) {
+        for (const l of wrap(
+          'Every word you supply must appear. recipient_search_text is fuzzy '
+          + 'about word BOUNDARIES, not about vocabulary — a company that '
+          + 'contracts as "AMAZON WEB SERVICES, INC." will never answer to '
+          + '"Amazon Data Services". Drop back to the stem and read the '
+          + 'names that come out:', 68)) console.log(C.dim(`    ${l}`));
+        console.log(C.dim(`\n      bin/sentinel connect awards "${words[0]}" --all --pages 3`));
+        console.log(C.dim(`      bin/sentinel connect opencorporates "${name}"`));
+      }
+      console.log('');
     }
     return;
   }
@@ -1511,9 +1526,9 @@ async function cmdAwards(name, opts = {}) {
     }
 
     const { clean, substring } = A.classify(name, g.rows);
-    const { agencies, total } = A.byAgency(clean);
+    const { agencies, total, noAmount } = A.byAgency(clean);
     const sp = A.span(clean);
-    ledger.push({ inst, count: clean.length, total, truncated: g.truncated, sp });
+    ledger.push({ inst, count: clean.length, total, truncated: g.truncated, sp, noAmount });
 
     console.log(`\n  ${C.b(inst.label.toUpperCase())}`
       + C.dim(`  ${inst.codes.join('/')}`));
@@ -1524,7 +1539,14 @@ async function cmdAwards(name, opts = {}) {
     if (substring.length) {
       console.log(C.y(`    substring hits    ${substring.length} — NOT counted, NOT summed`));
     }
-    console.log(`    value of those    ${usd(total)}`);
+    console.log(`    value of those    ${usd(total)}`
+      + `${noAmount ? C.y('  — a FLOOR, see below') : ''}`);
+    if (noAmount) {
+      console.log(C.y(`    no amount stated  ${noAmount} award(s) — counted as $0 in that total`));
+      console.log(C.dim('    A blank is not a zero. DARPA agreement HR00112120015 came'));
+      console.log(C.dim('    back with a null amount and a description saying in words'));
+      console.log(C.dim('    that the value had risen to $9,413,419. Open those awards.'));
+    }
     if (sp.first) console.log(`    period            ${sp.first} → ${sp.last}`);
 
     if (!clean.length) {
@@ -1549,9 +1571,27 @@ async function cmdAwards(name, opts = {}) {
       console.log(C.dim('    established as one company and are not merged here.'));
     }
 
+    // A PROGRAMME IS NOT A SET OF DECISIONS. The FCC's 387 payments to
+    // Google Fiber all carry one paragraph of Affordable Connectivity
+    // Program boilerplate; printing it 12 times and counting its words 387
+    // times describes the paragraph, not the money.
+    const dom = A.dominantDescription(clean);
+    if (dom) {
+      console.log(`\n  ${C.y('ONE DESCRIPTION COVERS '
+        + `${dom.count} OF ${dom.of} AWARDS (${(dom.share * 100).toFixed(0)}%)`)}`);
+      for (const l of wrap(dom.text, 66)) console.log(C.dim(`    ${l}`));
+      for (const l of wrap(
+        'That is a PROGRAMME with recurring obligations under it, not '
+        + `${dom.count} separate decisions. The word count below and the `
+        + 'award count above both describe one paragraph. Read the count as '
+        + 'obligations; read the programme as the finding.', 68)) {
+        console.log(C.dim(`    ${l}`));
+      }
+    }
+
     // THE FIELD THE SWEEP WAS DROPPING.
     const words = A.descriptionWords(clean, 2);
-    if (words.length) {
+    if (words.length && !dom) {
       console.log(`\n  ${C.b('Words recurring across descriptions')}  ${C.dim('(documents, not repetitions)')}`);
       console.log('  ' + words.slice(0, 24).map((w) => `${w.word} ${C.dim(w.awards)}`).join('  ·  '));
       console.log(C.dim('\n    A frequency count over a field the government wrote.'));
@@ -1562,9 +1602,23 @@ async function cmdAwards(name, opts = {}) {
       .sort((a, b) => A.amountOf(b) - A.amountOf(a));
     const dumps = withDesc.filter((r) => A.isRawFpds(r.description)).length;
     if (withDesc.length) {
-      console.log(`\n  ${C.b('What the money bought')}  ${C.dim(`${withDesc.length} of ${clean.length} carry a description`)}`);
-      for (const r of withDesc.slice(0, opts.limit || 12)) {
-        console.log(`\n  ${usd(A.amountOf(r))}  ${C.dim(r.agency)}`);
+      // Grouped, so a repeated boilerplate paragraph is printed ONCE with
+      // its count and its total instead of filling the screen twelve times
+      // while the reader scrolls looking for the award that differs.
+      const groups = A.descriptionGroups(withDesc)
+        .sort((a, b) => b.amount - a.amount);
+      console.log(`\n  ${C.b('What the money bought')}  `
+        + C.dim(`${withDesc.length} of ${clean.length} carry a description`
+          + `${groups.length < withDesc.length ? `, ${groups.length} distinct` : ''}`));
+      for (const grp of groups.slice(0, opts.limit || 12)) {
+        const r = grp.rows.slice().sort((a, b) => A.amountOf(b) - A.amountOf(a))[0];
+        if (grp.count > 1) {
+          console.log(`\n  ${usd(grp.amount)}  ${C.dim(r.agency)}`
+            + C.y(`   × ${grp.count} awards, identical description`));
+          console.log(C.dim(`    largest ${usd(A.amountOf(r))}`));
+        } else {
+          console.log(`\n  ${usd(A.amountOf(r))}  ${C.dim(r.agency)}`);
+        }
         if (r.sub_agency) console.log(C.dim(`    ${r.sub_agency}`));
         if (r.award_type) console.log(C.dim(`    ${r.award_type}`));
         // On a loan the headline figure is face value. The government's own
@@ -1599,12 +1653,28 @@ async function cmdAwards(name, opts = {}) {
     }
 
     if (substring.length) {
-      console.log(`\n  ${C.y('SUBSTRING MATCHES — separated, not deleted')}`);
+      // GROUPED BY NAME. Ungrouped, SCIENTIFIC MONITORING INC filled four of
+      // the eight visible rows and MCAFEE — a company Intel owned outright
+      // from 2011 to 2017 — was one line among its repeats.
+      const others = A.byRecipient(substring);
+      console.log(`\n  ${C.y('SUBSTRING MATCHES — separated, not deleted')}`
+        + C.dim(`  ${substring.length} row(s), ${others.length} name(s)`));
       console.log(C.dim('    You cannot audit what you never saw. None of these is'));
       console.log(C.dim('    counted above, and none is in any total.'));
-      for (const r of substring.slice(0, 8)) {
-        console.log(C.dim(`    ${usd(A.amountOf(r)).padStart(16)}  ${String(r.name).slice(0, 48)}`));
+      for (const r of others.slice(0, 10)) {
+        console.log(C.dim(`    ${usd(r.amount).padStart(16)}  ${String(r.name).slice(0, 46)}`
+          + `  ${r.count}`));
       }
+      for (const l of wrap(
+        'A namesake and a SUBSIDIARY look identical here, and the register '
+        + 'cannot tell them apart: Intel owned McAfee outright from 2011 to '
+        + '2017 and Wind River from 2009 to 2018, and both are in this list '
+        + 'as noise. Excluding them from the total is correct — the query '
+        + 'asked about a string. Whether they belong to the same company is '
+        + 'a corporate-registry question, asked separately:', 68)) {
+        console.log(C.dim(`    ${l}`));
+      }
+      console.log(C.dim(`      bin/sentinel connect opencorporates "${others[0].name}"`));
     }
   }
 
@@ -1612,8 +1682,9 @@ async function cmdAwards(name, opts = {}) {
   if (ledger.length > 1) {
     console.log(`\n  ${C.b('BY INSTRUMENT')}  ${C.dim('— reported separately, never summed')}`);
     for (const l of ledger) {
-      console.log(`  ${usd(l.total).padStart(16)}  ${l.inst.label.padEnd(34)}`
-        + C.dim(`${l.count} award(s)${l.truncated ? '  FLOOR' : ''}`));
+      console.log(`  ${usd(l.total).padStart(16)}  ${l.inst.label.padEnd(36)}`
+        + C.dim(`${l.count} award(s)${l.truncated ? '  FLOOR' : ''}`)
+        + (l.noAmount ? C.y(`  ${l.noAmount} with no amount`) : ''));
     }
     for (const line of wrap(
       'There is no row for the sum and there will not be one. A contract, a '
