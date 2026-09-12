@@ -141,5 +141,41 @@ console.log('\n  amounts');
   eq('so is unparseable text', A.amountOf({ amount: 'n/a' }), 0);
 }
 
+
+console.log('\n  a query that shrinks to nothing must not match everything');
+{
+  // THE LIVE X CORP RUN. "X Corp" normalises to "x" once the suffix comes
+  // off, and usaspending returned RTX CORPORATION at $8.69bn, $7.91bn,
+  // $7.50bn and $4.87bn — plus CONDUENT EDUCATION SOLUTIONS at $2.25bn,
+  // which the substring guard did not even flag.
+  eq('"X Corp" is flagged as too short to filter', A.tooShortToFilter('X Corp'), true);
+  eq('so is a bare initial', A.tooShortToFilter('X'), true);
+  eq('but a real name is not', A.tooShortToFilter('Ntrepid Corporation'), false);
+  eq('nor a short real name', A.tooShortToFilter('Snap Inc'), false);
+
+  eq('RTX CORPORATION is not X Corp', A.namesMatch('X Corp', 'RTX CORPORATION'), false);
+  eq('nor is XEROX', A.namesMatch('X Corp', 'XEROX HOLDINGS CORPORATION'), false);
+  eq('nor XERION', A.namesMatch('X Corp', 'XERION ADVANCED BATTERY CORP.'), false);
+  // The one the substring guard missed entirely.
+  eq('nor CONDUENT at $2.25bn',
+    A.namesMatch('X Corp', 'CONDUENT EDUCATION SOLUTIONS, LLC'), false);
+  eq('the exact name still matches', A.namesMatch('X Corp', 'X Corp.'), true);
+
+  const { clean, substring } = A.classify('X Corp', [
+    row('RTX CORPORATION', 8688654906, 'Department of Defense'),
+    row('CONDUENT EDUCATION SOLUTIONS, LLC', 2245583010, 'Department of Education'),
+    row('X Corp.', 190000, 'n/a'),
+  ]);
+  eq('only the exact stem survives', clean.length, 1);
+  eq('and it is the right one', clean[0].name, 'X Corp.');
+  eq('the billions are separated', substring.length, 2);
+  // The whole point: a headline total must never carry $8.69bn of RTX.
+  eq('and excluded from the total', A.byAgency(clean).total, 190000);
+
+  check('the command warns before showing anything',
+    /leaves almost nothing to match on/.test(
+      require('fs').readFileSync(require('path').join(__dirname, 'cli.js'), 'utf8')));
+}
+
 console.log(`\n  ${fail ? 'FAIL' : 'PASS'} — ${pass}/${pass + fail} checks\n`);
 process.exit(fail ? 1 : 0);

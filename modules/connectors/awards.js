@@ -75,7 +75,28 @@ function namesMatch(query, name) {
   const q = normaliseName(query);
   const n = normaliseName(name);
   if (!q || !n) return false;
+
+  // A QUERY THAT SHRINKS TO ALMOST NOTHING MUST NOT MATCH ALMOST ANYTHING.
+  //
+  // "X Corp" normalises to "x" once the suffix comes off. A one- or
+  // two-character token matches on sight, and the live X Corp run shows
+  // what the register does with that name: RTX CORPORATION at $8.69bn,
+  // $7.91bn, $7.50bn and $4.87bn, XEROX, XERION, and CONDUENT EDUCATION
+  // SOLUTIONS at $2.25bn — the last of which the substring guard did not
+  // even flag.
+  //
+  // So a short stem demands the WHOLE normalised name, not a word inside
+  // it. "X Corp" then matches "X Corp." and "X CORP (FORMERLY TWITTER,
+  // INC.)" and nothing else — and the operator is told the query was too
+  // short to filter rather than handed a billion-dollar namesake.
+  if (q.length <= 2) return q === n;
+
   return q.split(/\s+/).every((w) => new RegExp(`(^| )${w}( |$)`).test(n));
+}
+
+/** True when a name has no distinguishing stem left after suffix removal. */
+function tooShortToFilter(query) {
+  return normaliseName(query).length <= 2;
 }
 
 function classify(query, rows) {
@@ -181,6 +202,6 @@ function span(rows) {
 }
 
 module.exports = {
-  namesMatch, normaliseName, classify, amountOf, byAgency, byRecipient,
+  namesMatch, normaliseName, tooShortToFilter, classify, amountOf, byAgency, byRecipient,
   descriptionWords, span, STOP, SUFFIX,
 };

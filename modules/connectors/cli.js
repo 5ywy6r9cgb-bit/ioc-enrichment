@@ -1461,6 +1461,20 @@ async function cmdAwards(name, opts = {}) {
     return;
   }
 
+  if (A.tooShortToFilter(name)) {
+    console.log(`\n  ${C.y(`"${name}" leaves almost nothing to match on.`)}`);
+    for (const line of wrap(
+      'Once the corporate suffix is removed this query is one or two '
+      + 'characters, and recipient_search_text is fuzzy — the live run for '
+      + 'this name returned RTX CORPORATION at $8.69bn, XEROX, XERION and '
+      + 'CONDUENT EDUCATION SOLUTIONS at $2.25bn. Only names matching the '
+      + 'whole stem exactly are kept below; everything else is listed as a '
+      + 'substring match. Use the fuller filed name instead.', 68)) {
+      console.log(C.dim(`    ${line}`));
+    }
+    console.log(C.dim(`\n      bin/sentinel connect awards "X Corp. (formerly Twitter, Inc.)"\n`));
+  }
+
   const { clean, substring } = A.classify(name, rows);
   const { agencies, total } = A.byAgency(clean);
   const sp = A.span(clean);
