@@ -853,6 +853,16 @@ const CONNECTORS = {
     // PAGED. One page of 25 sorted by amount is a CEILING on what was asked,
     // not a floor on what exists — NTREPID returned 25 and the run reported
     // 25, which is the page size. `connect awards` walks the pages.
+    //
+    // THE INSTRUMENT IS AN ARGUMENT, NOT A CONSTANT. This defaulted to
+    // A/B/C/D — contracts — and nothing else could be asked for. The live
+    // consequence: `awards "Intel Corporation"` returned NASA software
+    // licence renewals and no CHIPS money, because CHIPS is financial
+    // assistance. A filter that cannot be changed reports an absence it
+    // created. One group per request, with that group's own fields and
+    // sort: USAspending validates `fields` against the award types asked
+    // for, "Contract Award Type" is not legal on an assistance query, and
+    // a loan has no Award Amount at all.
     run: (q, key, o = {}) => ({
       method: 'POST',
       url: 'https://api.usaspending.gov/api/v2/search/spending_by_award/',
@@ -860,13 +870,15 @@ const CONNECTORS = {
       body: JSON.stringify({
         filters: {
           recipient_search_text: [q],
-          // A, B, C, D are contracts. Grants and loans are different
-          // instruments with different meanings and are not mixed in.
-          award_type_codes: ['A', 'B', 'C', 'D'],
+          award_type_codes: Array.isArray(o.instruments) && o.instruments.length
+            ? o.instruments
+            : ['A', 'B', 'C', 'D'],
         },
-        fields: ['Award ID', 'Recipient Name', 'Award Amount', 'Awarding Agency',
-                 'Awarding Sub Agency', 'Start Date', 'End Date', 'Description'],
-        sort: 'Award Amount',
+        fields: Array.isArray(o.fields) && o.fields.length ? o.fields
+          : ['Award ID', 'Recipient Name', 'Award Amount', 'Awarding Agency',
+             'Awarding Sub Agency', 'Start Date', 'End Date', 'Description',
+             'Contract Award Type'],
+        sort: o.sort || 'Award Amount',
         order: 'desc',
         limit: 100,
         page: o.page && o.page > 1 ? o.page : 1,
@@ -876,10 +888,23 @@ const CONNECTORS = {
       external_id: r.generated_internal_id || r['Award ID'] || '',
       name: r['Recipient Name'] || '(unnamed recipient)',
       award_id: r['Award ID'] || '',
-      amount: r['Award Amount'] != null ? `$${Number(r['Award Amount']).toLocaleString()}` : '',
+      // Loans have no Award Amount. They have a Loan Value, which is FACE
+      // VALUE of credit and not money that changed hands — it is carried
+      // here under the same key so the display works, and the instrument
+      // label above it is what stops the two being read as one thing.
+      amount: r['Award Amount'] != null ? `$${Number(r['Award Amount']).toLocaleString()}`
+        : (r['Loan Value'] != null ? `$${Number(r['Loan Value']).toLocaleString()}` : ''),
+      subsidy_cost: r['Subsidy Cost'] != null
+        ? `$${Number(r['Subsidy Cost']).toLocaleString()}` : '',
       agency: r['Awarding Agency'] || '',
       sub_agency: r['Awarding Sub Agency'] || '',
-      period: [r['Start Date'], r['End Date']].filter(Boolean).join(' → '),
+      period: [r['Start Date'] || r['Issued Date'], r['End Date']]
+        .filter(Boolean).join(' → '),
+      // What the government calls this transaction — "BPA CALL",
+      // "DEFINITIVE CONTRACT", "DIRECT PAYMENT FOR SPECIFIED USE". It is
+      // the answer to "is this money bought, given, or lent", and this
+      // desk was not asking for it.
+      award_type: r['Contract Award Type'] || r['Award Type'] || '',
       has_more: json && json.page_metadata ? !!json.page_metadata.hasNext : undefined,
       // NOT truncated at parse time: the capture is the evidence and a
       // display limit is a display's business. 140 chars cut the end off
@@ -912,7 +937,13 @@ async function runConnector(name, query, opts = {}) {
     return { ok: false, error: `${names} is not set`, keyMissing: true, results: [] };
   }
 
-  const spec = c.run(query, key, { mode: opts.mode, page: opts.page });
+  const spec = c.run(query, key, {
+    mode: opts.mode,
+    page: opts.page,
+    instruments: opts.instruments,
+    fields: opts.fields,
+    sort: opts.sort,
+  });
 
   if (opts.dryRun) {
     return { ok: true, dryRun: true, announced: c.describe(query), url: spec.url, results: [] };

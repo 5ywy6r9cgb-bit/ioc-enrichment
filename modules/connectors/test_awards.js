@@ -206,5 +206,97 @@ console.log('\n  IGF:: is the government classifying its own purchase');
       .some((w) => /^igf$/.test(w.word)));
 }
 
+console.log('\n  instruments — the filter that manufactured an absence');
+{
+  // THE LIVE DEFECT. `awards "Intel Corporation"` returned 37 awards worth
+  // $2,877,287 of NASA software licence renewals and no CHIPS money, and the
+  // reader's only available conclusion was that there is none. CHIPS is
+  // financial assistance; the query asked for contracts and could not be
+  // told otherwise.
+  eq('the default is still contracts', A.instrumentsFor({})[0].key, 'contracts');
+  eq('and only contracts', A.instrumentsFor({}).length, 1);
+  eq('because a silent change of denominator between runs is its own lie',
+    A.instrumentsFor({}).map((i) => i.codes).flat().join(','), 'A,B,C,D');
+
+  eq('--grants asks for assistance', A.instrumentsFor({ grants: true })[0].key, 'grants');
+  eq('with the codes the API wants',
+    A.instrumentsFor({ grants: true })[0].codes.join(','), '02,03,04,05');
+  // The one that matters for CHIPS.
+  eq('--direct is where CHIPS incentives are reported',
+    A.instrumentsFor({ direct: true })[0].codes.join(','), '06,10');
+  check('and the command says so',
+    /CHIPS/.test(A.instrument('direct').means));
+  eq('--loans is face value, not money',
+    A.instrumentsFor({ loans: true })[0].codes.join(','), '07,08');
+  check('which the label refuses to let the reader forget',
+    /FACE VALUE/.test(A.instrument('loans').means));
+
+  eq('--all asks the whole register', A.instrumentsFor({ all: true }).length, 4);
+  eq('and --all beats a single pick',
+    A.instrumentsFor({ all: true, grants: true }).length, 4);
+  eq('two picks are both honoured',
+    A.instrumentsFor({ grants: true, direct: true }).map((i) => i.key).join(','),
+    'grants,direct');
+
+  // USAspending validates `fields` against the award types asked for, so one
+  // request per family is not a style choice — a mixed list returns 400.
+  check('a contract query asks for the contract type field',
+    A.instrument('contracts').fields.includes('Contract Award Type'));
+  check('and not the assistance one',
+    !A.instrument('contracts').fields.includes('Award Type'));
+  check('an assistance query asks for the other one',
+    A.instrument('grants').fields.includes('Award Type'));
+  check('and not the contract one',
+    !A.instrument('grants').fields.includes('Contract Award Type'));
+  // A loan is not a purchase and the API does not pretend it is: there is
+  // no Award Amount and no Start Date in that family at all.
+  check('a loan query does not ask for an Award Amount',
+    !A.instrument('loans').fields.includes('Award Amount'));
+  check('it asks for the face value', A.instrument('loans').fields.includes('Loan Value'));
+  check('and for the expected loss', A.instrument('loans').fields.includes('Subsidy Cost'));
+  check('and it does not ask for a Start Date',
+    !A.instrument('loans').fields.includes('Start Date'));
+  eq('so it sorts by the field it actually has',
+    A.instrument('loans').sort, 'Loan Value');
+  eq('while the rest sort by amount', A.instrument('grants').sort, 'Award Amount');
+  check('every family asks for the description',
+    A.INSTRUMENTS.every((i) => i.fields.includes('Description')));
+  check('and for who bought',
+    A.INSTRUMENTS.every((i) => i.fields.includes('Awarding Agency')));
+  eq('an unknown family is not invented', A.instrument('bonds'), null);
+
+  check('the command warns about what it did NOT ask for',
+    /NOT ASKED FOR/.test(
+      require('fs').readFileSync(require('path').join(__dirname, 'cli.js'), 'utf8')));
+  check('and refuses a cross-instrument sum in so many words',
+    /never summed/.test(
+      require('fs').readFileSync(require('path').join(__dirname, 'cli.js'), 'utf8')));
+}
+
+console.log('\n  raw FPDS dumps are not descriptions');
+{
+  // The live row: SCIENTIFIC MONITORING's Description field held the
+  // pipe-delimited FPDS transaction record, which was being wrapped across
+  // four lines under the heading "What the money bought".
+  const dump = '200505!000720!5700!FA8104!F33615-03-D-2354!0!FA810405F0037!0!'
+    + '2005-05-11!25000.00!!SCIENTIFIC MONITORING INC';
+  check('a pipe-delimited transaction record is detected', A.isRawFpds(dump));
+  check('ordinary prose is not',
+    !A.isRawFpds('RENEWAL OF MAPPER LICENSES IN SUPPORT OF FOXFIRE'));
+  check('nor is a description with one emphatic mark',
+    !A.isRawFpds('URGENT! SOFTWARE MAINTENANCE'));
+  check('nor an empty field', !A.isRawFpds(''));
+
+  // The reason it matters: every numeric stem in that dump was being fed to
+  // a list the reader is told describes subject matter.
+  const w = A.descriptionWords([{ description: dump }, { description: dump }], 2);
+  eq('a dump contributes no words at all', w.length, 0);
+  check('while real descriptions beside it still count',
+    A.descriptionWords([{ description: dump },
+      { description: 'persona management software' },
+      { description: 'persona management licences' }], 2)
+      .some((x) => x.word === 'persona'));
+}
+
 console.log(`\n  ${fail ? 'FAIL' : 'PASS'} — ${pass}/${pass + fail} checks\n`);
 process.exit(fail ? 1 : 0);

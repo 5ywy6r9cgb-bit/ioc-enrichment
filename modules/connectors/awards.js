@@ -38,6 +38,128 @@
  */
 
 /**
+ * ─────────────────────────────────────────────────────────────────────
+ * INSTRUMENTS — AND WHY THE DEFAULT WAS HIDING THE ANSWER
+ * ─────────────────────────────────────────────────────────────────────
+ * This command filtered to `award_type_codes: ['A','B','C','D']` and said
+ * so in its own footer: "Grants and loans are excluded: different
+ * instruments, different meaning." That is true and it was still a defect,
+ * because the operator was never told what the excluded register CONTAINED.
+ *
+ * The live run proves the cost. `awards "Intel Corporation"` returned 37
+ * awards worth $2,877,287 — NASA software licence renewals — and
+ * `awards "Intel Federal"` returned 9 worth $27,667,237 of DoD research.
+ * No CHIPS money appeared anywhere, and the reader's only available
+ * conclusion was that there is none.
+ *
+ * CHIPS money is financial assistance. It is award type 06 or 02, not A-D.
+ * The filter was not reporting an absence, it was manufacturing one.
+ *
+ * So the instruments are named, queried separately, and reported
+ * separately. They are NEVER summed together, because the amounts do not
+ * mean the same thing:
+ *
+ *   contracts     the government bought something and owes for it
+ *   grants        the government gave money toward a purpose
+ *   direct        a payment to a recipient (CHIPS incentives sit here)
+ *   loans         FACE VALUE of credit extended, not money handed over
+ *
+ * A $500m loan guarantee and a $500m contract are both "$500m" in this API
+ * and are not the same fact. Adding them would produce a number with no
+ * referent, which is the thing this desk exists to refuse.
+ *
+ * THE FIELD NAMES DIFFER BY GROUP, and USAspending validates `fields`
+ * against the award types asked for. A contract query must ask for
+ * "Contract Award Type"; an assistance query for "Award Type". Loans do not
+ * have an Award Amount or a Start Date at all — they have a Loan Value and
+ * an Issued Date, because a guarantee is not a purchase and the API does
+ * not pretend it is. Sending one list for all of them returns 400, which is
+ * why each group is its own request with its own fields and its own sort.
+ */
+const BASE_FIELDS = ['Award ID', 'Recipient Name', 'Description',
+  'Awarding Agency', 'Awarding Sub Agency'];
+
+const INSTRUMENTS = [
+  {
+    key: 'contracts',
+    codes: ['A', 'B', 'C', 'D'],
+    label: 'contracts',
+    fields: BASE_FIELDS.concat(['Award Amount', 'Start Date', 'End Date',
+      'Contract Award Type']),
+    sort: 'Award Amount',
+    means: 'The government bought something and owes for it. The amount is '
+      + 'obligated-plus-potential value, not cash paid.',
+  },
+  {
+    key: 'grants',
+    codes: ['02', '03', '04', '05'],
+    label: 'grants and cooperative agreements',
+    fields: BASE_FIELDS.concat(['Award Amount', 'Start Date', 'End Date',
+      'Award Type']),
+    sort: 'Award Amount',
+    means: 'Money given toward a stated purpose. A cooperative agreement '
+      + 'means the agency is substantially involved in the work.',
+  },
+  {
+    key: 'direct',
+    codes: ['06', '10'],
+    label: 'direct payments',
+    fields: BASE_FIELDS.concat(['Award Amount', 'Start Date', 'End Date',
+      'Award Type']),
+    sort: 'Award Amount',
+    means: 'A payment to a named recipient. CHIPS Act incentive awards are '
+      + 'reported in this family, not among contracts.',
+  },
+  {
+    key: 'loans',
+    codes: ['07', '08'],
+    label: 'loans and loan guarantees',
+    // No Award Amount and no Start Date in this family. Asking for them is
+    // a 400, and the reason is the finding: the register does not treat a
+    // guarantee as a purchase.
+    fields: BASE_FIELDS.concat(['Loan Value', 'Subsidy Cost', 'Issued Date']),
+    sort: 'Loan Value',
+    means: 'FACE VALUE of credit extended or guaranteed — NOT money handed '
+      + 'over, and not comparable to a contract of the same size. Subsidy '
+      + 'Cost is the government\'s own estimate of what it expects to lose.',
+  },
+];
+
+function instrument(key) {
+  return INSTRUMENTS.find((i) => i.key === key) || null;
+}
+
+/**
+ * Which instruments a run asked for.
+ *
+ * Default is contracts, because that is what every previous run of this
+ * command meant and a silent change of denominator between runs is its own
+ * kind of lie. `--all` asks the whole register.
+ */
+function instrumentsFor(opts = {}) {
+  if (opts.all) return INSTRUMENTS.slice();
+  const picked = INSTRUMENTS.filter((i) => opts[i.key]);
+  return picked.length ? picked : [instrument('contracts')];
+}
+
+/**
+ * RAW FPDS DUMPS IN THE DESCRIPTION FIELD.
+ *
+ * Some rows carry no description at all — the Description field holds the
+ * pipe-delimited FPDS transaction record instead:
+ *
+ *   200505!000720!5700!FA8104!...
+ *
+ * That is not prose and it is not a purpose. It was being wrapped into the
+ * "What the money bought" block as gibberish, and every numeric-looking
+ * token in it was being fed to the word count. It is detected, kept
+ * (the capture is the evidence), and reported as what it is.
+ */
+function isRawFpds(description) {
+  return String(description || '').split('!').length >= 5;
+}
+
+/**
  * A CORPORATE SUFFIX IS NOT PART OF THE NAME.
  *
  * The first version of `namesMatch` required every query word to appear, and
@@ -173,6 +295,10 @@ const STOP = new Set(('the and for of to a in on with by from at or as is are be
 function descriptionWords(rows, min = 2) {
   const counts = new Map();
   for (const r of rows) {
+    // A raw FPDS transaction dump is not a description. Counting its
+    // fragments puts agency codes and PIID stems into a list the reader is
+    // told describes subject matter.
+    if (isRawFpds(r.description)) continue;
     const seen = new Set();
     for (const w of plainDescription(r.description).toLowerCase().split(/[^a-z0-9]+/)) {
       if (w.length < 4 || STOP.has(w) || /^\d+$/.test(w)) continue;
@@ -248,4 +374,5 @@ function span(rows) {
 module.exports = {
   namesMatch, normaliseName, tooShortToFilter, classify, amountOf, byAgency, byRecipient,
   descriptionWords, span, STOP, SUFFIX, igfMarkers, plainDescription, IGF,
+  INSTRUMENTS, instrument, instrumentsFor, isRawFpds,
 };

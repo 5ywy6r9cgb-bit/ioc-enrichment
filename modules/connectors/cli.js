@@ -1426,38 +1426,62 @@ async function cmdControl(ids, opts = {}) {
  * meant nobody knew how many awards exist, nobody could total them, and the
  * DESCRIPTION — the field that says what the money bought — was parsed,
  * hashed, and never printed.
+ *
+ * IT ALSO ASKED ONLY FOR CONTRACTS, and could not be told otherwise. The
+ * footer said grants were excluded, which is honest about the filter and
+ * silent about what the filter hid: `awards "Intel Corporation"` returned
+ * $2,877,287 of NASA software licences and no CHIPS money, because CHIPS is
+ * financial assistance. The instrument is now an argument, each family is
+ * its own request, and the families are never summed into one another.
  */
 async function cmdAwards(name, opts = {}) {
   const A = require('./awards.js');
   const usd = (n) => (n ? '$' + Math.round(n).toLocaleString('en-US') : '—');
   const cap = opts.pages || 5;
+  const want = A.instrumentsFor(opts);
 
-  console.log(`\n  ${C.b(name)}  ${C.dim('federal contract awards')}`);
+  console.log(`\n  ${C.b(name)}  ${C.dim('federal awards')}`);
+  console.log(C.dim(`  instruments: ${want.map((i) => i.label).join(' · ')}`));
   console.log(C.dim('  asked as: recipient_search_text — a FUZZY field, so the'));
   console.log(C.dim('  substring problem is worse here than anywhere else.'));
   if (opts.dryRun) { console.log(C.dim('\n  DRY RUN — nothing requested.\n')); return; }
 
-  const rows = [];
-  let truncated = false;
-  for (let page = 1; page <= cap; page += 1) {
-    process.stdout.write(`\r    page ${page}/${cap} · ${String(rows.length).padStart(4)} award(s)`);
-    const out = await R.runConnector('usaspending', name, { page });
-    if (!out.ok) {
-      console.log(`\n  ${C.r('page ' + page + ' failed:')} ${out.error}`);
-      break;
+  // One request family at a time. Rows are tagged with the family they came
+  // from so nothing can be silently added to anything else later.
+  const byInstrument = new Map();
+  for (const inst of want) {
+    const rows = [];
+    let truncated = false;
+    let failed = null;
+    for (let page = 1; page <= cap; page += 1) {
+      process.stdout.write(`\r    ${inst.key} · page ${page}/${cap} · `
+        + `${String(rows.length).padStart(4)} award(s)`.padEnd(20));
+      const out = await R.runConnector('usaspending', name,
+        { page, instruments: inst.codes, fields: inst.fields, sort: inst.sort });
+      if (!out.ok) { failed = out.error; break; }
+      if (!out.results.length) break;
+      rows.push(...out.results);
+      // page_metadata.hasNext is the API's own answer to "is there more".
+      if (out.results[0] && out.results[0].has_more === false) break;
+      if (page === cap) truncated = true;
     }
-    if (!out.results.length) break;
-    rows.push(...out.results);
-    // page_metadata.hasNext is the API's own answer to "is there more".
-    if (out.results[0] && out.results[0].has_more === false) break;
-    if (page === cap) truncated = true;
+    process.stdout.write('\r'.padEnd(66) + '\r');
+    if (failed) console.log(`  ${C.r(`${inst.key}: request failed`)} — ${failed}`);
+    byInstrument.set(inst.key, { inst, rows, truncated, failed });
   }
-  process.stdout.write('\r'.padEnd(56) + '\r');
 
-  if (!rows.length) {
-    console.log(`\n  ${C.y('No federal contract awards under that recipient name.')}`);
-    console.log(C.dim('  That is a fact about the contracting register. Grants and'));
-    console.log(C.dim('  loans are different instruments and are NOT included here.\n'));
+  const anyRows = [...byInstrument.values()].some((g) => g.rows.length);
+  if (!anyRows) {
+    console.log(`\n  ${C.y('No federal awards under that recipient name,')}`);
+    console.log(`  ${C.y(`in: ${want.map((i) => i.label).join(', ')}.`)}`);
+    if (want.length < A.INSTRUMENTS.length) {
+      console.log(C.dim('\n    That is an absence in the families ASKED FOR, which is not'));
+      console.log(C.dim('    the same as an absence in the register. The rest:'));
+      console.log(C.dim(`      bin/sentinel connect awards "${name}" --all\n`));
+    } else {
+      console.log(C.dim('\n    Every instrument family was asked. Subsidiaries file under'));
+      console.log(C.dim('    their own names, so this is a fact about the STRING.\n'));
+    }
     return;
   }
 
@@ -1475,67 +1499,139 @@ async function cmdAwards(name, opts = {}) {
     console.log(C.dim(`\n      bin/sentinel connect awards "X Corp. (formerly Twitter, Inc.)"\n`));
   }
 
-  const { clean, substring } = A.classify(name, rows);
-  const { agencies, total } = A.byAgency(clean);
-  const sp = A.span(clean);
+  const ledger = [];   // one line per instrument, never added together
 
-  console.log(`\n    awards            ${clean.length}`
-    + `${truncated ? C.y('  (page cap reached — a FLOOR)') : ''}`);
-  if (substring.length) {
-    console.log(C.y(`    substring hits    ${substring.length} — NOT counted, NOT summed`));
-  }
-  console.log(`    value of those    ${usd(total)}`);
-  if (sp.first) console.log(`    period            ${sp.first} → ${sp.last}`);
-
-  console.log(`\n  ${C.b('Who bought')}`);
-  for (const a of agencies.slice(0, 12)) {
-    console.log(`  ${usd(a.amount).padStart(16)}  ${String(a.agency).slice(0, 48)}`
-      + C.dim(`  ${a.count} award(s)`));
-  }
-
-  const recips = A.byRecipient(clean);
-  if (recips.length > 1) {
-    console.log(`\n  ${C.b('Filed under')}  ${C.dim(`${recips.length} recipient name(s) — not merged`)}`);
-    for (const r of recips.slice(0, 8)) {
-      console.log(`  ${usd(r.amount).padStart(16)}  ${r.name}  ${C.dim(`${r.count}`)}`);
-    }
-    console.log(C.dim('    A fuzzy search returns several names. They are not'));
-    console.log(C.dim('    established as one company and are not merged here.'));
-  }
-
-  // THE FIELD THE SWEEP WAS DROPPING.
-  const words = A.descriptionWords(clean, 2);
-  if (words.length) {
-    console.log(`\n  ${C.b('Words recurring across descriptions')}  ${C.dim('(documents, not repetitions)')}`);
-    console.log('  ' + words.slice(0, 24).map((w) => `${w.word} ${C.dim(w.awards)}`).join('  ·  '));
-    console.log(C.dim('\n    A frequency count over a field the government wrote.'));
-    console.log(C.dim('    Not a topic model, and not an inference about purpose.'));
-  }
-
-  const withDesc = clean.filter((r) => r.description).sort((a, b) => A.amountOf(b) - A.amountOf(a));
-  if (withDesc.length) {
-    console.log(`\n  ${C.b('What the money bought')}  ${C.dim(`${withDesc.length} of ${clean.length} carry a description`)}`);
-    for (const r of withDesc.slice(0, opts.limit || 12)) {
-      console.log(`\n  ${usd(A.amountOf(r))}  ${C.dim(r.agency)}`);
-      if (r.sub_agency) console.log(C.dim(`    ${r.sub_agency}`));
-      for (const l of wrap(A.plainDescription(r.description), 66)) console.log(`    ${l}`);
-      // The government's own classification of the work, decoded — never
-      // interpreted. "Closely associated" is a procurement category.
-      for (const g of A.igfMarkers(r.description)) {
-        console.log(C.y(`    IGF::${g.code}::  ${g.means}`));
+  for (const inst of want) {
+    const g = byInstrument.get(inst.key);
+    if (!g || !g.rows.length) {
+      if (!g || !g.failed) {
+        ledger.push({ inst, count: 0, total: 0, empty: true });
       }
-      if (r.award_id) console.log(C.dim(`    award ${r.award_id}${r.period ? '  ·  ' + r.period : ''}`));
-      if (r.url) console.log(C.dim(`    ${r.url}`));
+      continue;
+    }
+
+    const { clean, substring } = A.classify(name, g.rows);
+    const { agencies, total } = A.byAgency(clean);
+    const sp = A.span(clean);
+    ledger.push({ inst, count: clean.length, total, truncated: g.truncated, sp });
+
+    console.log(`\n  ${C.b(inst.label.toUpperCase())}`
+      + C.dim(`  ${inst.codes.join('/')}`));
+    for (const l of wrap(inst.means, 68)) console.log(C.dim(`    ${l}`));
+
+    console.log(`\n    awards            ${clean.length}`
+      + `${g.truncated ? C.y('  (page cap reached — a FLOOR)') : ''}`);
+    if (substring.length) {
+      console.log(C.y(`    substring hits    ${substring.length} — NOT counted, NOT summed`));
+    }
+    console.log(`    value of those    ${usd(total)}`);
+    if (sp.first) console.log(`    period            ${sp.first} → ${sp.last}`);
+
+    if (!clean.length) {
+      console.log(C.dim('\n    Every row returned was a substring hit on another'));
+      console.log(C.dim('    company. Nothing under this name in this family.'));
+      continue;
+    }
+
+    console.log(`\n  ${C.b('Who bought')}`);
+    for (const a of agencies.slice(0, 12)) {
+      console.log(`  ${usd(a.amount).padStart(16)}  ${String(a.agency).slice(0, 48)}`
+        + C.dim(`  ${a.count} award(s)`));
+    }
+
+    const recips = A.byRecipient(clean);
+    if (recips.length > 1) {
+      console.log(`\n  ${C.b('Filed under')}  ${C.dim(`${recips.length} recipient name(s) — not merged`)}`);
+      for (const r of recips.slice(0, 8)) {
+        console.log(`  ${usd(r.amount).padStart(16)}  ${r.name}  ${C.dim(`${r.count}`)}`);
+      }
+      console.log(C.dim('    A fuzzy search returns several names. They are not'));
+      console.log(C.dim('    established as one company and are not merged here.'));
+    }
+
+    // THE FIELD THE SWEEP WAS DROPPING.
+    const words = A.descriptionWords(clean, 2);
+    if (words.length) {
+      console.log(`\n  ${C.b('Words recurring across descriptions')}  ${C.dim('(documents, not repetitions)')}`);
+      console.log('  ' + words.slice(0, 24).map((w) => `${w.word} ${C.dim(w.awards)}`).join('  ·  '));
+      console.log(C.dim('\n    A frequency count over a field the government wrote.'));
+      console.log(C.dim('    Not a topic model, and not an inference about purpose.'));
+    }
+
+    const withDesc = clean.filter((r) => r.description)
+      .sort((a, b) => A.amountOf(b) - A.amountOf(a));
+    const dumps = withDesc.filter((r) => A.isRawFpds(r.description)).length;
+    if (withDesc.length) {
+      console.log(`\n  ${C.b('What the money bought')}  ${C.dim(`${withDesc.length} of ${clean.length} carry a description`)}`);
+      for (const r of withDesc.slice(0, opts.limit || 12)) {
+        console.log(`\n  ${usd(A.amountOf(r))}  ${C.dim(r.agency)}`);
+        if (r.sub_agency) console.log(C.dim(`    ${r.sub_agency}`));
+        if (r.award_type) console.log(C.dim(`    ${r.award_type}`));
+        // On a loan the headline figure is face value. The government's own
+        // estimate of what it expects to LOSE is a different number and is
+        // the one a reader should have beside it.
+        if (r.subsidy_cost) {
+          console.log(C.y(`    subsidy cost ${r.subsidy_cost}`
+            + ' — the expected loss, not the face value above'));
+        }
+        // A raw FPDS transaction record is not a purpose, and printing it
+        // wrapped across four lines pretended it was one.
+        if (A.isRawFpds(r.description)) {
+          console.log(C.y('    NO DESCRIPTION — the field holds a raw FPDS record.'));
+          console.log(C.dim(`    ${String(r.description).slice(0, 62)}…`));
+          console.log(C.dim('    Read the award page for what was bought.'));
+        } else {
+          for (const l of wrap(A.plainDescription(r.description), 66)) console.log(`    ${l}`);
+        }
+        // The government's own classification of the work, decoded — never
+        // interpreted. "Closely associated" is a procurement category.
+        for (const gm of A.igfMarkers(r.description)) {
+          console.log(C.y(`    IGF::${gm.code}::  ${gm.means}`));
+        }
+        if (r.award_id) console.log(C.dim(`    award ${r.award_id}${r.period ? '  ·  ' + r.period : ''}`));
+        if (r.url) console.log(C.dim(`    ${r.url}`));
+      }
+      if (dumps) {
+        console.log(C.dim(`\n    ${dumps} of ${withDesc.length} descriptions are raw FPDS`));
+        console.log(C.dim('    records rather than prose. They are excluded from the'));
+        console.log(C.dim('    word count above — agency codes are not subject matter.'));
+      }
+    }
+
+    if (substring.length) {
+      console.log(`\n  ${C.y('SUBSTRING MATCHES — separated, not deleted')}`);
+      console.log(C.dim('    You cannot audit what you never saw. None of these is'));
+      console.log(C.dim('    counted above, and none is in any total.'));
+      for (const r of substring.slice(0, 8)) {
+        console.log(C.dim(`    ${usd(A.amountOf(r)).padStart(16)}  ${String(r.name).slice(0, 48)}`));
+      }
     }
   }
 
-  if (substring.length) {
-    console.log(`\n  ${C.y('SUBSTRING MATCHES — separated, not deleted')}`);
-    console.log(C.dim('    You cannot audit what you never saw. None of these is'));
-    console.log(C.dim('    counted above, and none is in any total.'));
-    for (const r of substring.slice(0, 8)) {
-      console.log(C.dim(`    ${usd(A.amountOf(r)).padStart(16)}  ${String(r.name).slice(0, 48)}`));
+  // ---- the ledger, which is the point of asking for more than one --------
+  if (ledger.length > 1) {
+    console.log(`\n  ${C.b('BY INSTRUMENT')}  ${C.dim('— reported separately, never summed')}`);
+    for (const l of ledger) {
+      console.log(`  ${usd(l.total).padStart(16)}  ${l.inst.label.padEnd(34)}`
+        + C.dim(`${l.count} award(s)${l.truncated ? '  FLOOR' : ''}`));
     }
+    for (const line of wrap(
+      'There is no row for the sum and there will not be one. A contract, a '
+      + 'grant and the face value of a loan guarantee are three different '
+      + 'facts that the API reports in the same units. Adding them produces '
+      + 'a number that refers to nothing.', 68)) console.log(C.dim(`    ${line}`));
+  }
+
+  if (want.length < A.INSTRUMENTS.length) {
+    const missing = A.INSTRUMENTS.filter((i) => !want.includes(i));
+    console.log(`\n  ${C.y('NOT ASKED FOR: ' + missing.map((i) => i.label).join(', '))}`);
+    for (const line of wrap(
+      'This run says nothing about those families. It is the exact mistake '
+      + 'this command used to make silently: a contracts-only query returned '
+      + '$2,877,287 of NASA software licences for Intel Corporation, and the '
+      + 'CHIPS money — which is financial assistance, not a contract — was '
+      + 'absent because it was never requested.', 68)) console.log(C.dim(`    ${line}`));
+    console.log(C.dim(`\n      bin/sentinel connect awards "${name}" --all`));
   }
 
   console.log(`\n  ${C.y('THE TOTAL IS NOT WHAT THIS COMPANY WAS PAID.')}`);
@@ -1544,8 +1640,8 @@ async function cmdAwards(name, opts = {}) {
     + 'award as USAspending reports it. Summing them gives the value of the '
     + 'awards listed — NOT what was actually paid, NOT what one company '
     + 'received (subsidiaries file under their own names), and NOT a career '
-    + 'total. Grants and loans are excluded: different instruments, '
-    + 'different meaning.', 68)) console.log(C.dim(`    ${line}`));
+    + 'total. On a loan or guarantee it is face value, which is not money '
+    + 'that changed hands at all.', 68)) console.log(C.dim(`    ${line}`));
   console.log(C.dim('\n    These records are UNCLASSIFIED award data, published by law.'));
   console.log(C.dim('    Nothing here carries or reports a classification marking.\n'));
 }
@@ -3511,14 +3607,26 @@ async function main() {
     const q = subjectFrom(args.slice(1), argv, ['--pages', '--limit']);
     if (!q) {
       console.error('\n  usage: sentinel connect awards "RECIPIENT NAME" [--pages 5]');
-      console.error('\n  Federal CONTRACT awards, paged past the 25-row sweep cap,');
-      console.error('  with the DESCRIPTION of what each one bought.');
+      console.error('     or: sentinel connect awards "NAME" --grants | --direct | --loans | --all');
+      console.error('\n  Federal awards, paged past the 25-row sweep cap, with the');
+      console.error('  DESCRIPTION of what each one bought.');
+      console.error('\n  DEFAULT IS CONTRACTS ONLY. CHIPS Act money is financial');
+      console.error('  assistance, so a contracts-only run reports it as absent:');
+      console.error('  "Intel Corporation" returned $2,877,287 of NASA software');
+      console.error('  licences and nothing else. --all asks every family, and the');
+      console.error('  families are reported separately and never summed.');
       console.error('\n  recipient_search_text is fuzzy: "Ntrepid" returns INTREPID LLC');
       console.error('  at $441m. Substring hits are separated and never summed.\n');
       process.exit(2);
     }
     return cmdAwards(q, { pages: flagNum(argv, '--pages'),
-      limit: flagNum(argv, '--limit'), dryRun: opts.dryRun });
+      limit: flagNum(argv, '--limit'),
+      grants: argv.includes('--grants'),
+      direct: argv.includes('--direct'),
+      loans: argv.includes('--loans'),
+      contracts: argv.includes('--contracts'),
+      all: argv.includes('--all'),
+      dryRun: opts.dryRun });
   }
   if (action === 'vendor') {
     const q = subjectFrom(args.slice(1), argv, ['--cycle', '--limit', '--pages']);
