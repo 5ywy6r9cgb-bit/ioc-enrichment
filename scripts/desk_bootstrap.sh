@@ -57,24 +57,45 @@ sdesk case new "$CASE" "$TITLE" --jurisdiction US 2>/dev/null \
 # off the document number. Fixed going forward; for files already on disk the
 # only reliable identifier is inside the bytes. `FR Doc No: 2026-00596`
 # appears in every Federal Register full text.
+# METADATA IS NOT THE DOCUMENT, AND MUST NOT BE SHELVED AS IF IT WERE.
+#
+# The first run of this script vaulted three FEDREGDOC captures — 1,828 and
+# 1,966 bytes of JSON metadata — under titles like "FR 2026-00512 — CMS
+# hearing" and the PRIMARY shelf. A four-page Federal Register notice is not
+# 1,828 bytes. Cite "line 200" of that and there is no line 200.
+#
+# PRIMARY is reserved for the document text (fedregtext). A metadata capture
+# goes on DERIVED with "metadata only" in its title, so the vault cannot lie
+# about what it is holding.
 ingest_fr() {
   num="$1"; label="$2"; custodian="$3"
-  f=""
-  for c in "$CAPTURES"/*fedregtext*.json "$CAPTURES"/*fedregdoc*"${num//-/_}"*.json; do
+  txt=""; meta=""
+  for c in "$CAPTURES"/*fedregtext*.json "$CAPTURES"/*FR_"$num"_text*.json; do
     [ -f "$c" ] || continue
-    if grep -q "FR Doc No: $num" "$c" 2>/dev/null || grep -q "\"$num\"" "$c" 2>/dev/null; then
-      f="$c"; break
-    fi
+    grep -q "FR Doc No: $num" "$c" 2>/dev/null && { txt="$c"; break; }
   done
-  if [ -z "$f" ]; then
-    dim "  $num — no capture on disk yet"
-    dim "      bin/sentinel connect fedreg $num --text"
-    return
+  for c in "$CAPTURES"/*fedregdoc*.json; do
+    [ -f "$c" ] || continue
+    grep -q "\"$num\"" "$c" 2>/dev/null && { meta="$c"; break; }
+  done
+
+  if [ -n "$txt" ]; then
+    sdesk ingest "$CASE" "$txt" \
+      --title "FR $num — $label (full text)" \
+      --custodian "$custodian" \
+      --shelf PRIMARY 2>&1 | sed 's/^/  /'
   fi
-  sdesk ingest "$CASE" "$f" \
-    --title "FR $num — $label" \
-    --custodian "$custodian" \
-    --shelf PRIMARY 2>&1 | sed 's/^/  /'
+  if [ -n "$meta" ]; then
+    sdesk ingest "$CASE" "$meta" \
+      --title "FR $num — $label (METADATA ONLY, not the document)" \
+      --custodian "$custodian" \
+      --shelf DERIVED \
+      --note "Federal Register API metadata and abstract. NOT the notice text. Do not cite a line number against this." 2>&1 | sed 's/^/  /'
+  fi
+  if [ -z "$txt" ]; then
+    warn "  $num — NO FULL TEXT on disk. Metadata only is not citable."
+    dim  "      bin/sentinel connect fedreg $num --text"
+  fi
 }
 
 b "  Federal Register — PRIMARY shelf"
@@ -86,7 +107,8 @@ ingest_fr 2025-19928 "Proclamation 10989, 2020 election pardons" "Federal Regist
 ingest_fr 2026-10817 "OMB Regulation for Federal Financial Assistance" "Federal Register / OMB"
 
 echo ""
-b "  Court records — PRIMARY shelf"
+b "  Court records — SECONDARY shelf"
+dim "  RECAP is a mirror of PACER. The court is the primary; this is a copy."
 for c in "$CAPTURES"/*cldocket*.json "$CAPTURES"/*clparties*.json; do
   [ -f "$c" ] || continue
   sdesk ingest "$CASE" "$c" \
@@ -140,13 +162,14 @@ cat <<GUIDE
 
   Then attach documents. Get ids from:  python3 -m sentinel claim list
 
-  python3 -m sentinel cite <CLAIM_ID> <DOC_ID> \\
+  # substitute the two numbers. NO ANGLE BRACKETS — zsh reads < as redirection.
+  python3 -m sentinel cite 1 1 \\
     --locator "line 741 of the hashed full text" \\
     --quote "under the sponsorship of Feeding Our Future"
 
   And before you record anything:
 
   python3 -m sentinel ready $CASE
-  python3 -m sentinel trace <CLAIM_ID>
+  python3 -m sentinel trace 1
 
 GUIDE
