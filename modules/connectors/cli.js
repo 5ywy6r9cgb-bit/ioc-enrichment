@@ -1844,8 +1844,20 @@ async function cmdFedReg(num, opts = {}) {
     if (!t.ok) {
       console.log(`\n  ${C.r('text fetch failed:')} ${t.error}`);
     } else {
+      // The raw_text_url returns the text WRAPPED IN HTML — <html><head>,
+      // a <pre> block, and <a href> anchors around every citation URL. The
+      // footnote that resolved 2026-00596 arrived as 180 characters of
+      // markup around a DOJ press-release link, which is unreadable on a
+      // terminal and worse in a screenshot. Tags out, entities decoded, and
+      // the capture on disk stays the bytes that were hashed.
       const body = require('fs').readFileSync(t.capturePath, 'utf8');
-      const lines = body.split(/\r?\n/);
+      const lines = body
+        .replace(/<a\s[^>]*href="([^"]*)"[^>]*>[\s\S]*?<\/a>/gi, '$1')
+        .replace(/<[^>]+>/g, '')
+        .replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+        .replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#39;/g, "'")
+        .replace(/&nbsp;/g, ' ')
+        .split(/\r?\n/);
       console.log(`\n  ${C.b('Document text')}  `
         + C.dim(`${lines.length} lines · sha256 ${t.captureHash.slice(0, 16)}…`));
       console.log(C.dim(`    ${t.capturePath}`));
