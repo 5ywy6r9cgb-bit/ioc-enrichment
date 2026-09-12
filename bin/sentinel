@@ -48,6 +48,7 @@
 #   sentinel connect control C00… C00…  what several committees SHARE (treasurer, address)
 #   sentinel connect vendor "FIRM"        the REVERSE lookup: who PAYS this firm
 #   sentinel connect matrix               the library as CSVs, plus a ranked worklist
+#   sentinel connect awards "NAME"        federal contracts, paged, with what they bought
 #   sentinel connect asymmetry "NAME" how concentrated is its spending, and on what
 #
 #   sentinel doc get URL            fetch a primary source, hashed + text-extracted
@@ -303,7 +304,7 @@ PYSTATUS
     # works when the module is called directly is not yet a command that works.
     action="${1:-test}"; shift || true
     case "$action" in
-      test|list|all|crosslink|lobby|graph|expand|sweep|brief|fecpac|delegation|member|asymmetry|donors|filings|control|vendor|matrix)
+      test|list|all|crosslink|lobby|graph|expand|sweep|brief|fecpac|delegation|member|asymmetry|donors|filings|control|vendor|matrix|awards)
         node "$ROOT/modules/connectors/cli.js" "$action" "$@"
         ;;
       *)

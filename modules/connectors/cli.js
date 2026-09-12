@@ -429,6 +429,20 @@ async function cmdAll(query, opts) {
       console.log(sub ? C.dim(`    ${text}   ← substring, probably not it`)
                       : `    ${text}`);
       if (extra) console.log(C.dim(`      ${extra.slice(0, 68)}`));
+      // WHAT THE CONTRACT WAS FOR.
+      //
+      // The usaspending connector has parsed `description` since it was
+      // written, and this display never printed it — so a sweep showed
+      // "NTREPID, LLC · $6,919,191 · Department of Defense" and withheld
+      // the one field that says what the money bought. The subject matter
+      // was on disk, hashed, and invisible.
+      //
+      // Suppressed for substring matches: an ENGINEERING LLC description
+      // is noise about a company that was never asked for.
+      if (!sub && hit.description) {
+        for (const l of wrap(String(hit.description), 64)) console.log(C.dim(`      ${l}`));
+      }
+      if (!sub && hit.url) console.log(C.dim(`      ${hit.url}`));
     }
     if (!opts.verbose && marked.length > 5) {
       console.log(C.dim(`    …and ${marked.length - 5} more (all in the capture)`));
@@ -1400,6 +1414,121 @@ async function cmdControl(ids, opts = {}) {
   console.log(C.dim('    one place. What it does NOT establish: who decided anything,'));
   console.log(C.dim('    why, or that any rule was broken. Control is not motive, and'));
   console.log(C.dim('    no register contains motive.\n'));
+}
+
+
+/**
+ * connect awards — federal contracts, past the first page, with what they
+ * bought.
+ *
+ * The sweep asked usaspending for one page of 25 sorted by amount and
+ * reported "25 leads". That is the page size. For NTREPID CORPORATION it
+ * meant nobody knew how many awards exist, nobody could total them, and the
+ * DESCRIPTION — the field that says what the money bought — was parsed,
+ * hashed, and never printed.
+ */
+async function cmdAwards(name, opts = {}) {
+  const A = require('./awards.js');
+  const usd = (n) => (n ? '$' + Math.round(n).toLocaleString('en-US') : '—');
+  const cap = opts.pages || 5;
+
+  console.log(`\n  ${C.b(name)}  ${C.dim('federal contract awards')}`);
+  console.log(C.dim('  asked as: recipient_search_text — a FUZZY field, so the'));
+  console.log(C.dim('  substring problem is worse here than anywhere else.'));
+  if (opts.dryRun) { console.log(C.dim('\n  DRY RUN — nothing requested.\n')); return; }
+
+  const rows = [];
+  let truncated = false;
+  for (let page = 1; page <= cap; page += 1) {
+    process.stdout.write(`\r    page ${page}/${cap} · ${String(rows.length).padStart(4)} award(s)`);
+    const out = await R.runConnector('usaspending', name, { page });
+    if (!out.ok) {
+      console.log(`\n  ${C.r('page ' + page + ' failed:')} ${out.error}`);
+      break;
+    }
+    if (!out.results.length) break;
+    rows.push(...out.results);
+    // page_metadata.hasNext is the API's own answer to "is there more".
+    if (out.results[0] && out.results[0].has_more === false) break;
+    if (page === cap) truncated = true;
+  }
+  process.stdout.write('\r'.padEnd(56) + '\r');
+
+  if (!rows.length) {
+    console.log(`\n  ${C.y('No federal contract awards under that recipient name.')}`);
+    console.log(C.dim('  That is a fact about the contracting register. Grants and'));
+    console.log(C.dim('  loans are different instruments and are NOT included here.\n'));
+    return;
+  }
+
+  const { clean, substring } = A.classify(name, rows);
+  const { agencies, total } = A.byAgency(clean);
+  const sp = A.span(clean);
+
+  console.log(`\n    awards            ${clean.length}`
+    + `${truncated ? C.y('  (page cap reached — a FLOOR)') : ''}`);
+  if (substring.length) {
+    console.log(C.y(`    substring hits    ${substring.length} — NOT counted, NOT summed`));
+  }
+  console.log(`    value of those    ${usd(total)}`);
+  if (sp.first) console.log(`    period            ${sp.first} → ${sp.last}`);
+
+  console.log(`\n  ${C.b('Who bought')}`);
+  for (const a of agencies.slice(0, 12)) {
+    console.log(`  ${usd(a.amount).padStart(16)}  ${String(a.agency).slice(0, 48)}`
+      + C.dim(`  ${a.count} award(s)`));
+  }
+
+  const recips = A.byRecipient(clean);
+  if (recips.length > 1) {
+    console.log(`\n  ${C.b('Filed under')}  ${C.dim(`${recips.length} recipient name(s) — not merged`)}`);
+    for (const r of recips.slice(0, 8)) {
+      console.log(`  ${usd(r.amount).padStart(16)}  ${r.name}  ${C.dim(`${r.count}`)}`);
+    }
+    console.log(C.dim('    A fuzzy search returns several names. They are not'));
+    console.log(C.dim('    established as one company and are not merged here.'));
+  }
+
+  // THE FIELD THE SWEEP WAS DROPPING.
+  const words = A.descriptionWords(clean, 2);
+  if (words.length) {
+    console.log(`\n  ${C.b('Words recurring across descriptions')}  ${C.dim('(documents, not repetitions)')}`);
+    console.log('  ' + words.slice(0, 24).map((w) => `${w.word} ${C.dim(w.awards)}`).join('  ·  '));
+    console.log(C.dim('\n    A frequency count over a field the government wrote.'));
+    console.log(C.dim('    Not a topic model, and not an inference about purpose.'));
+  }
+
+  const withDesc = clean.filter((r) => r.description).sort((a, b) => A.amountOf(b) - A.amountOf(a));
+  if (withDesc.length) {
+    console.log(`\n  ${C.b('What the money bought')}  ${C.dim(`${withDesc.length} of ${clean.length} carry a description`)}`);
+    for (const r of withDesc.slice(0, opts.limit || 12)) {
+      console.log(`\n  ${usd(A.amountOf(r))}  ${C.dim(r.agency)}`);
+      if (r.sub_agency) console.log(C.dim(`    ${r.sub_agency}`));
+      for (const l of wrap(r.description, 66)) console.log(`    ${l}`);
+      if (r.award_id) console.log(C.dim(`    award ${r.award_id}${r.period ? '  ·  ' + r.period : ''}`));
+      if (r.url) console.log(C.dim(`    ${r.url}`));
+    }
+  }
+
+  if (substring.length) {
+    console.log(`\n  ${C.y('SUBSTRING MATCHES — separated, not deleted')}`);
+    console.log(C.dim('    You cannot audit what you never saw. None of these is'));
+    console.log(C.dim('    counted above, and none is in any total.'));
+    for (const r of substring.slice(0, 8)) {
+      console.log(C.dim(`    ${usd(A.amountOf(r)).padStart(16)}  ${String(r.name).slice(0, 48)}`));
+    }
+  }
+
+  console.log(`\n  ${C.y('THE TOTAL IS NOT WHAT THIS COMPANY WAS PAID.')}`);
+  for (const line of wrap(
+    'Award Amount is the current obligated-plus-potential value of each '
+    + 'award as USAspending reports it. Summing them gives the value of the '
+    + 'awards listed — NOT what was actually paid, NOT what one company '
+    + 'received (subsidiaries file under their own names), and NOT a career '
+    + 'total. Grants and loans are excluded: different instruments, '
+    + 'different meaning.', 68)) console.log(C.dim(`    ${line}`));
+  console.log(C.dim('\n    These records are UNCLASSIFIED award data, published by law.'));
+  console.log(C.dim('    Nothing here carries or reports a classification marking.\n'));
 }
 
 /**
@@ -3358,6 +3487,19 @@ async function main() {
   if (action === 'matrix') {
     return cmdMatrix({ out: flagVal(argv, '--out'), limit: flagNum(argv, '--limit'),
       dryRun: opts.dryRun });
+  }
+  if (action === 'awards') {
+    const q = subjectFrom(args.slice(1), argv, ['--pages', '--limit']);
+    if (!q) {
+      console.error('\n  usage: sentinel connect awards "RECIPIENT NAME" [--pages 5]');
+      console.error('\n  Federal CONTRACT awards, paged past the 25-row sweep cap,');
+      console.error('  with the DESCRIPTION of what each one bought.');
+      console.error('\n  recipient_search_text is fuzzy: "Ntrepid" returns INTREPID LLC');
+      console.error('  at $441m. Substring hits are separated and never summed.\n');
+      process.exit(2);
+    }
+    return cmdAwards(q, { pages: flagNum(argv, '--pages'),
+      limit: flagNum(argv, '--limit'), dryRun: opts.dryRun });
   }
   if (action === 'vendor') {
     const q = subjectFrom(args.slice(1), argv, ['--cycle', '--limit', '--pages']);

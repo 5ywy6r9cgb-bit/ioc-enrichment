@@ -635,7 +635,7 @@ module.exports = function run() {
     const line = (disp.match(/^\s*test\|list\|.*\)$/m) || [''])[0];
     for (const verb of ['test', 'list', 'all', 'crosslink', 'lobby', 'graph',
       'expand', 'sweep', 'brief', 'fecpac', 'delegation', 'member',
-      'asymmetry', 'donors', 'filings', 'control', 'vendor', 'matrix']) {
+      'asymmetry', 'donors', 'filings', 'control', 'vendor', 'matrix', 'awards']) {
       check(`the dispatcher passes "${verb}" through`,
         line.split('|').map((s) => s.replace(/[^a-z]/g, '')).includes(verb));
     }

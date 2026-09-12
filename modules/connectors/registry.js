@@ -850,21 +850,26 @@ const CONNECTORS = {
       url: 'https://api.usaspending.gov/api/v2/references/toptier_agencies/',
       headers: {},
     }),
-    run: (q) => ({
+    // PAGED. One page of 25 sorted by amount is a CEILING on what was asked,
+    // not a floor on what exists — NTREPID returned 25 and the run reported
+    // 25, which is the page size. `connect awards` walks the pages.
+    run: (q, key, o = {}) => ({
       method: 'POST',
       url: 'https://api.usaspending.gov/api/v2/search/spending_by_award/',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         filters: {
           recipient_search_text: [q],
-          award_type_codes: ['A', 'B', 'C', 'D'],   // contracts
+          // A, B, C, D are contracts. Grants and loans are different
+          // instruments with different meanings and are not mixed in.
+          award_type_codes: ['A', 'B', 'C', 'D'],
         },
         fields: ['Award ID', 'Recipient Name', 'Award Amount', 'Awarding Agency',
-                 'Start Date', 'End Date', 'Description'],
+                 'Awarding Sub Agency', 'Start Date', 'End Date', 'Description'],
         sort: 'Award Amount',
         order: 'desc',
-        limit: 25,
-        page: 1,
+        limit: 100,
+        page: o.page && o.page > 1 ? o.page : 1,
       }),
     }),
     parse: (json) => (json.results || []).map((r) => ({
@@ -873,8 +878,13 @@ const CONNECTORS = {
       award_id: r['Award ID'] || '',
       amount: r['Award Amount'] != null ? `$${Number(r['Award Amount']).toLocaleString()}` : '',
       agency: r['Awarding Agency'] || '',
+      sub_agency: r['Awarding Sub Agency'] || '',
       period: [r['Start Date'], r['End Date']].filter(Boolean).join(' → '),
-      description: (r.Description || '').slice(0, 140),
+      has_more: json && json.page_metadata ? !!json.page_metadata.hasNext : undefined,
+      // NOT truncated at parse time: the capture is the evidence and a
+      // display limit is a display's business. 140 chars cut the end off
+      // every contract description before any reader or word count saw it.
+      description: String(r.Description || ''),
       url: r.generated_internal_id ? `https://www.usaspending.gov/award/${r.generated_internal_id}` : '',
     })),
     identify: (r) => r.external_id,
