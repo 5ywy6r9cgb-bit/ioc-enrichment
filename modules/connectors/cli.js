@@ -1566,18 +1566,30 @@ async function cmdAwards(name, opts = {}) {
     }
     if (sp.first) console.log(`    period            ${sp.first} → ${sp.last}`);
 
-    // IS THE COMPANY YOU ASKED FOR IN THE ANSWER AT ALL?
-    const ex = A.exactShare(name, clean);
-    if (clean.length && ex.share < 0.5) {
-      console.log(`\n  ${C.r('THE NAME YOU ASKED FOR HOLDS '
-        + `${(ex.share * 100).toFixed(0)}% OF THIS MONEY.`)}`);
+    // IS THE COMPANY YOU ASKED FOR AT THE HEAD OF THESE NAMES?
+    //
+    // The caveat names the rows from THIS run. It used to quote the Intel
+    // example, and then printed "none of which is Intel" underneath a search
+    // for Rescue Agency — the third time in this file a worked example from
+    // another subject has been dressed up as a statement about the one on
+    // screen. An example belongs in the source, not on the operator's screen.
+    const hs = A.headShare(name, clean);
+    if (clean.length && hs.share < 0.5) {
+      const strangers = [...new Set(clean.filter((r) => !A.sameHead(name, r.name))
+        .map((r) => r.name))].slice(0, 3);
+      console.log(`\n  ${C.y(`"${name}" IS NOT AT THE HEAD OF THESE NAMES.`)}`);
       for (const l of wrap(
-        `${ex.exact} of ${ex.of} awards are filed under a name that IS "${name}". `
-        + 'The rest are filed under names that CONTAIN it as a word — which is '
-        + 'a correct string match and the wrong company. Asking "Intel" this '
-        + 'way returned $198,000 of COVID disaster aid to BLAC INTEL LLC, '
-        + 'PALADIN INTEL LLC and BEVERAGE INTEL, none of which is Intel. Read '
-        + '"Filed under" below before you read the total above.', 68)) {
+        `${hs.head} of ${hs.of} awards — ${(hs.share * 100).toFixed(0)}% of the money — `
+        + `are filed under a name beginning with "${name}". In the rest the `
+        + 'word sits in the middle or at the end, which is where a stranger '
+        + 'using it as an ordinary word puts it, not where a company extends '
+        + `its own name${strangers.length ? `: ${strangers.join(' · ')}` : ''}.`, 68)) {
+        console.log(C.dim(`    ${l}`));
+      }
+      for (const l of wrap(
+        'A head match does not establish one company either — read "Filed '
+        + 'under" below. This flag exists to make you look there before you '
+        + 'read the total above as belonging to your subject.', 68)) {
         console.log(C.dim(`    ${l}`));
       }
     }

@@ -266,21 +266,57 @@ function tooShortToFilter(query) {
  * than a name that CONTAINS it? Below a threshold the command says so
  * before showing any total.
  */
-function exactShare(query, rows) {
+/**
+ * WHERE IN THE NAME DOES THE QUERY SIT?
+ *
+ * The first version of this demanded an EXACT match and immediately produced
+ * a false positive: `awards "Rescue Agency"` reported "THE NAME YOU ASKED
+ * FOR HOLDS 0% OF THIS MONEY" over rows filed as **RESCUE AGENCY PUBLIC
+ * BENEFIT, LLC** — which is the company's actual registered name. The
+ * warning was louder than the thing it warned about and it was wrong.
+ *
+ * The real signal is POSITION. Companies extend their name to the RIGHT:
+ *
+ *     INTEL FEDERAL LLC          AMAZON WEB SERVICES, INC.
+ *     RESCUE AGENCY PUBLIC BENEFIT LLC
+ *
+ * Strangers who merely share a word put it anywhere else, usually last,
+ * because they are using it as a common noun:
+ *
+ *     BLAC INTEL LLC    PALADIN INTEL LLC    BEVERAGE INTEL
+ *     INTEL MUSIC GROUP (the head is a person's name, ELIZABETH SCALISE)
+ *
+ * So this reports the share of money under names that BEGIN with the query.
+ * It is a cheap heuristic and it is honest about being one: a head match is
+ * CONSISTENT with one operation and does not establish it — AMAZON HOSE &
+ * RUBBER CO OF MIAMI begins with "Amazon" and sells hose. What the metric
+ * reliably catches is the other direction, where the query is buried in the
+ * middle or tail of every name and the total belongs to strangers.
+ *
+ * "Filed under" is what settles it. This decides whether to make the reader
+ * look there.
+ */
+function sameHead(query, name) {
   const q = normaliseName(query);
-  let exact = 0;
-  let exactAmount = 0;
+  const n = normaliseName(name);
+  if (!q || !n) return false;
+  return n === q || n.startsWith(`${q} `);
+}
+
+function headShare(query, rows) {
+  let head = 0;
+  let headAmount = 0;
   let total = 0;
   for (const r of rows) {
     const amt = amountOf(r);
     total += amt;
-    if (q && normaliseName(r.name) === q) { exact += 1; exactAmount += amt; }
+    if (sameHead(query, r.name)) { head += 1; headAmount += amt; }
   }
   return {
-    exact,
-    exactAmount,
+    head,
+    headAmount,
     of: rows.length,
-    share: total > 0 ? exactAmount / total : (rows.length ? exact / rows.length : 0),
+    share: total > 0 ? headAmount / total : (rows.length ? head / rows.length : 0),
   };
 }
 
@@ -539,5 +575,5 @@ module.exports = {
   descriptionWords, span, STOP, SUFFIX, igfMarkers, plainDescription, IGF,
   INSTRUMENTS, instrument, instrumentsFor, isRawFpds,
   descriptionKey, descriptionGroups, dominantDescription,
-  exactShare, noiseVerdict,
+  headShare, sameHead, noiseVerdict,
 };

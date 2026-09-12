@@ -392,37 +392,62 @@ console.log('\n  a programme is not a set of decisions');
       require('fs').readFileSync(require('path').join(__dirname, 'cli.js'), 'utf8')));
 }
 
-console.log('\n  is the company you asked for in the answer at all');
+console.log('\n  where in the name does the query sit');
 {
-  // THE LIVE RUN. `awards "Intel" --all` reported 18 direct payments worth
-  // $198,000 — and the eighteen names were BLAC INTEL LLC, PALADIN INTEL
-  // LLC, BEVERAGE INTEL, INTEL MUSIC GROUP. Not one was Intel Corporation.
-  // Every one passed namesMatch legitimately.
-  const smallFry = [
+  // THE FALSE POSITIVE THIS REPLACED. An exact-match rule printed "THE NAME
+  // YOU ASKED FOR HOLDS 0% OF THIS MONEY" over rows filed as RESCUE AGENCY
+  // PUBLIC BENEFIT, LLC — the company's actual registered name. The warning
+  // was louder than the thing it warned about, and it was wrong.
+  check('a company that extended its own name is the same head',
+    A.sameHead('Rescue Agency', 'RESCUE AGENCY PUBLIC BENEFIT, LLC'));
+  check('so is a federal subsidiary vehicle',
+    A.sameHead('Intel', 'INTEL FEDERAL LLC'));
+  check('and the plain filed name', A.sameHead('Intel Corporation', 'INTEL CORPORATION'));
+  check('and a suffix difference', A.sameHead('Intel Corporation', 'INTEL CORP'));
+  check('and the operating company', A.sameHead('Amazon', 'AMAZON WEB SERVICES, INC.'));
+
+  // Strangers put the word last, because they are using it as a noun.
+  check('a stranger using the word as a noun is not',
+    !A.sameHead('Intel', 'BLAC INTEL LLC'));
+  check('nor when the head is a person',
+    !A.sameHead('Intel', 'ELIZABETH SCALISE DBA INTEL MUSIC GROUP'));
+  check('nor a beverage company', !A.sameHead('Intel', 'BEVERAGE INTEL'));
+  check('nor a joint venture with another firm at the head',
+    !A.sameHead('Fors Marsh', 'BLN FORS MARSH JV LLC'));
+  check('an empty query heads nothing', !A.sameHead('', 'ANYTHING'));
+
+  // The metric is deliberately weighted by MONEY: one $1m award among a
+  // hundred $1 namesakes is not a 1% answer.
+  const mixed = [
+    row('INTEL FEDERAL LLC', 1000000, 'DoD'),
+    row('BLAC INTEL LLC', 15000, 'SBA'),
+  ];
+  check('the share follows the money, not the row count',
+    A.headShare('Intel', mixed).share > 0.98);
+  eq('and the head count is reported', A.headShare('Intel', mixed).head, 1);
+
+  const allStrangers = [
     row('BLAC INTEL LLC DBA BLAC INTEL LLC', 15000, 'SBA'),
     row('PALADIN INTEL LLC', 15000, 'SBA'),
     row('BEVERAGE INTEL', 10000, 'SBA'),
   ];
-  const e = A.exactShare('Intel', smallFry);
-  eq('none of them is the company asked for', e.exact, 0);
-  eq('so the exact share is zero', e.share, 0);
-  eq('and the count is still reported', e.of, 3);
+  eq('a register of strangers scores zero', A.headShare('Intel', allStrangers).share, 0);
+  eq('no rows, no share', A.headShare('Intel', []).share, 0);
 
-  const real = [
-    row('INTEL CORPORATION', 1000000, 'DoD'),
-    row('BLAC INTEL LLC', 15000, 'SBA'),
-  ];
-  eq('the real filer is recognised', A.exactShare('Intel Corporation', real).exact, 1);
-  check('and holds nearly all the money',
-    A.exactShare('Intel Corporation', real).share > 0.98);
-  // Share is weighted by MONEY, not by row count: one $1m award among a
-  // hundred $1 namesakes is not a 1% answer.
-  eq('a suffix difference is not a different company',
-    A.exactShare('Intel Corporation', [row('INTEL CORP', 500, 'X')]).exact, 1);
-  eq('no rows, no share', A.exactShare('Intel', []).share, 0);
-
-  check('the command warns before the total',
-    /HOLDS/.test(require('fs').readFileSync(require('path').join(__dirname, 'cli.js'), 'utf8')));
+  // The honesty requirement: a head match is CONSISTENT with one company and
+  // does not establish it. This one begins with "Amazon" and sells hose.
+  check('a head match is not an identification',
+    A.sameHead('Amazon', 'AMAZON HOSE & RUBBER CO OF MIAMI INC'));
+  check('and the command says so rather than claiming otherwise',
+    /does not establish one company/.test(
+      require('fs').readFileSync(require('path').join(__dirname, 'cli.js'), 'utf8')));
+  // The example may survive in a COMMENT — that is where a worked example
+  // belongs. What must not survive is the example reaching the screen.
+  check('the warning names the rows from THIS run, not another subject',
+    require('fs').readFileSync(require('path').join(__dirname, 'cli.js'), 'utf8')
+      .split('\n')
+      .filter((l) => /none of which is Intel|BLAC INTEL/.test(l))
+      .every((l) => l.trim().startsWith('//')));
 }
 
 console.log('\n  when the page budget is spent on namesakes');
