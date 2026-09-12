@@ -3650,6 +3650,25 @@ async function cmdSearch(name, query, opts) {
   }
   if (out.results.length > 15) console.log(C.dim(`\n    …and ${out.results.length - 15} more (all in the capture)`));
 
+  // ⚠ THE DOCKET MODE HAS ITS OWN TRAP, AND IT IS WORSE THAN AN EMPTY PAGE.
+  // The `party` field is a truncated sample and has been caught carrying
+  // another case's parties. Printed without a warning it reads exactly like
+  // a caption, which is how a real person's name ends up under a criminal
+  // docket number in someone's video.
+  if (name === 'courtlistener' && opts.mode === 'dockets'
+      && out.results.some((r) => r.party)) {
+    console.log(`\n  ${C.r('THE "party" LINE IS NOT THE CAPTION.')}`);
+    for (const l of wrap(
+      'It is a truncated sample, and in a live run it carried the wrong '
+      + "case's parties: O'Rourke v. Dominion (D. Colo.) came back listing "
+      + "Wisconsin's governor and election commissioners, who are parties to "
+      + 'a different case in a different state. King v. Whitmer came back '
+      + 'listing neither King nor Whitmer. Use these rows to decide what to '
+      + 'OPEN. Never to decide who was charged.', 68)) {
+      console.log(C.dim(`    ${l}`));
+    }
+  }
+
   // Even a FULL opinion page is the narrow question. The Zhukov run returned
   // twenty confident hits and not one of them was the prosecution being
   // looked for, because that prosecution has a docket and no opinion.

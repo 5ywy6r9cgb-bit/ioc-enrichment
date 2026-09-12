@@ -538,6 +538,32 @@ const CONNECTORS = {
       // does not. Keeping it is the difference between "a case exists" and
       // "a case exists and here is what it says on its face".
       description: String(r.description || r.suitNature || ''),
+      // ⚠ DO NOT CITE THIS FIELD. IT IS NOT THE CAPTION.
+      //
+      // Three things observed in one live run:
+      //
+      //   - `King v. Whitmer` (2:20-cv-13134) came back with parties
+      //     "Robert Davis; Daren Rubingh; Charles Ritchard; James Hooper;
+      //     Jocelyn Benson; Brandon Johnson" — and NEITHER King NOR Whitmer.
+      //
+      //   - `O'Rourke v. Dominion Voting Systems` (D. Colo. 1:20-cv-03747)
+      //     came back carrying Tony Evers, Mark Thomsen and Robert Spindell
+      //     — the GOVERNOR and ELECTION COMMISSIONERS OF WISCONSIN, who are
+      //     parties to Feehan in E.D. Wis. and have no business in a
+      //     Colorado case.
+      //
+      //   - `Adoptee Rights Law Center PLLC v. USCIS` came back with docket
+      //     `0:23-cr-00160` — a CRIMINAL number — under the description
+      //     "895 Freedom of Information Act".
+      //
+      // Whatever the cause, the operational rule is absolute: this is a
+      // TRUNCATED and sometimes CROSS-CONTAMINATED sample, useful only for
+      // deciding whether a row is worth opening. Publishing a person's name
+      // from it puts a real individual next to a criminal docket on the
+      // strength of a field that has already been caught carrying the wrong
+      // state's officials.
+      //
+      // The caption lives on the docket page. Open it.
       party: Array.isArray(r.party) ? r.party.slice(0, 6).join('; ') : '',
       documents: Array.isArray(r.recap_documents) ? r.recap_documents.length : 0,
       url: r.absolute_url ? `https://www.courtlistener.com${r.absolute_url}` : '',
