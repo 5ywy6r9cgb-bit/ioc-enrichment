@@ -1768,6 +1768,194 @@ async function cmdAwards(name, opts = {}) {
   console.log(C.dim('    Nothing here carries or reports a classification marking.\n'));
 }
 
+
+/**
+ * connect fedreg — READ a Federal Register document, do not search for one.
+ *
+ * Six documents have sat in the findings file as titles only, under a rule
+ * this desk wrote for itself and then could not follow because it had no
+ * command for it: UNREAD IS UNSAYABLE.
+ *
+ * The sharpest one is 2026-00596 — a Somalia TPS termination returned by a
+ * full-text search for "Feeding Our Future". Nobody knows why it matched. A
+ * co-occurrence between a fraud prosecution and an immigration action is
+ * exactly the shape a frame gets built on, and exactly the shape that
+ * collapses the moment somebody opens the document.
+ */
+async function cmdFedReg(num, opts = {}) {
+  const clean = String(num || '').trim();
+  if (!/^[0-9]{4}-[0-9]{3,6}$/.test(clean)) {
+    console.error(`\n  ${C.r(`"${clean}" is not a Federal Register document number.`)}`);
+    console.error(C.dim('  They look like 2026-00512 — a year, a hyphen, and a serial.'));
+    console.error(C.dim('  This command READS one document. To SEARCH, use:'));
+    console.error(C.dim(`      bin/sentinel connect federalregister "${clean}"\n`));
+    process.exit(2);
+  }
+  console.log(`\n  ${C.b(clean)}  ${C.dim('Federal Register — reading one document')}`);
+  if (opts.dryRun) { console.log(C.dim('\n  DRY RUN — nothing requested.\n')); return; }
+
+  const out = await R.runConnector('fedregdoc', clean, {});
+  if (!out.ok) {
+    console.error(`\n  ${C.r(out.error)} — nothing written.`);
+    if (out.status === 404) {
+      console.error(C.dim('  No document with that number. Check the digits against the URL.'));
+    }
+    console.error('');
+    process.exit(1);
+  }
+  if (!out.results.length) {
+    console.log(C.y('\n  The API answered but carried no document.\n'));
+    return;
+  }
+  const d = out.results[0];
+  console.log(C.dim(`  capture   ${out.capturePath}`));
+  console.log(C.dim(`  sha256    ${out.captureHash}`));
+
+  console.log(`\n  ${C.b(d.name)}`);
+  const row = (k, v) => { if (v) console.log(`    ${k.padEnd(16)}${v}`); };
+  row('type', d.type);
+  row('published', d.published);
+  row('agencies', d.agencies);
+  row('action', d.action);
+  row('effective', d.effective);
+  row('comments close', d.comments_close);
+  row('docket ids', d.docket_ids);
+  row('RIN', d.rin);
+  if (d.significant) console.log(C.y(`    ${'significant'.padEnd(16)}YES`));
+  row('pages', d.pages);
+
+  if (d.abstract) {
+    console.log(`\n  ${C.b('Abstract')}  ${C.dim('— the agency\'s own summary')}`);
+    for (const l of wrap(d.abstract, 68)) console.log(`    ${l}`);
+  }
+  if (d.dates) {
+    console.log(`\n  ${C.b('Dates')}`);
+    for (const l of wrap(d.dates, 68)) console.log(`    ${l}`);
+  }
+
+  console.log(`\n  ${C.b('Read it')}`);
+  if (d.url) console.log(`    ${d.url}`);
+  if (d.pdf) console.log(C.dim(`    ${d.pdf}`));
+  if (d.raw_text) console.log(C.dim(`    ${d.raw_text}`));
+
+  console.log(`\n  ${C.y('AN ABSTRACT IS NOT THE DOCUMENT.')}`);
+  for (const l of wrap(
+    'What is printed above is metadata and the agency\'s own summary. If you '
+    + 'are about to say WHY this document matched a search — why a TPS notice '
+    + 'came back for "Feeding Our Future", say — the abstract will not tell '
+    + 'you. Open the raw text and find the sentence. A co-occurrence you '
+    + 'cannot explain is not a finding, it is a coincidence with a citation '
+    + 'stapled to it.', 68)) console.log(C.dim(`    ${l}`));
+  console.log('');
+}
+
+/**
+ * connect docket — the AUTHORITATIVE caption, and who is actually on it.
+ *
+ * §78: the `party` line on a RECAP search result is a truncated sample, and
+ * it was caught carrying Wisconsin's governor and election commissioners
+ * into a Colorado docket. Thirteen names were published off it before that
+ * was noticed, and they had to be withdrawn.
+ *
+ * This asks the dockets endpoint by docket number and then asks the parties
+ * endpoint for the party table as the court keeps it — WITH ROLES. The role
+ * is the whole difference between "named on a case" and "charged", and no
+ * search result in this toolkit carries it.
+ */
+async function cmdDocket(num, opts = {}) {
+  const clean = String(num || '').trim();
+  if (!clean) {
+    console.error('\n  usage: sentinel connect docket "0:22-cr-00223"');
+    console.error('\n  The docket record as the COURT keeps it, plus the party table.');
+    console.error('  Search results carry a truncated party sample that has been');
+    console.error('  caught listing another case\'s parties. This does not.\n');
+    process.exit(2);
+  }
+  console.log(`\n  ${C.b(clean)}  ${C.dim('CourtListener — docket record')}`);
+  console.log(C.dim('  measuring: the caption as the court records it, not as a'));
+  console.log(C.dim('  search index summarises it.'));
+  if (opts.dryRun) { console.log(C.dim('\n  DRY RUN — nothing requested.\n')); return; }
+
+  const out = await R.runConnector('cldocket', clean, {});
+  if (!out.ok) {
+    console.error(`\n  ${C.r(out.error)} — nothing written.`);
+    if (out.status === 429) {
+      console.error(C.dim('  CourtListener allows 50/hour. Sweeps spend that fast.'));
+    }
+    console.error('');
+    process.exit(1);
+  }
+  if (!out.results.length) {
+    console.log(`\n  ${C.y('No docket with that number.')}`);
+    for (const l of wrap(
+      'Docket numbers are only unique WITHIN a court — 0:22-cr-00223 in '
+      + 'D. Minn. and the same string elsewhere are different cases, and this '
+      + 'endpoint matches the string across every court it holds. Nothing '
+      + 'back means the string is wrong, or RECAP does not hold that case. '
+      + 'Neither is a fact about whether the case exists.', 68)) {
+      console.log(C.dim(`    ${l}`));
+    }
+    console.log('');
+    return;
+  }
+
+  const cap = opts.limit || 3;
+  const shown = out.results.slice(0, cap);
+  if (out.results.length > cap) {
+    console.log(C.y(`\n  ${out.results.length} dockets carry that number across courts.`));
+    console.log(C.dim(`  Showing ${cap}. A docket number is unique only within a court.`));
+  }
+
+  for (const d of shown) {
+    console.log(`\n  ${C.b(d.name)}`);
+    const row = (k, v) => { if (v) console.log(`    ${k.padEnd(16)}${v}`); };
+    row('docket', d.docket);
+    row('court', d.court);
+    row('filed', d.filed);
+    row('terminated', d.terminated);
+    row('nature of suit', d.nature_of_suit);
+    row('cause', d.cause);
+    row('judge', d.judge);
+    row('referred to', d.referred_to);
+    row('docket id', d.external_id);
+    if (d.url) console.log(C.dim(`    ${d.url}`));
+
+    if (opts.noParties || !d.external_id) continue;
+
+    const pr = await R.runConnector('clparties', d.external_id, {});
+    if (!pr.ok) {
+      console.log(C.y(`    parties: ${pr.error}`));
+      continue;
+    }
+    if (!pr.results.length) {
+      console.log(C.dim('    No party table held for this docket.'));
+      continue;
+    }
+    // Grouped by ROLE, because "named on a case" and "charged" are not the
+    // same fact and the flat list invites reading them as one.
+    const byRole = new Map();
+    for (const p of pr.results) {
+      const k = p.role || '(role not stated)';
+      if (!byRole.has(k)) byRole.set(k, []);
+      byRole.get(k).push(p.name);
+    }
+    console.log(`\n    ${C.b('Parties')}  ${C.dim(`${pr.results.length}, as the court records them`)}`);
+    for (const [role, names] of [...byRole.entries()].sort((a, b) => b[1].length - a[1].length)) {
+      console.log(`      ${C.y(role)}  ${C.dim(names.length)}`);
+      for (const n of names) console.log(`        ${n}`);
+    }
+  }
+
+  console.log(`\n  ${C.y('A ROLE IS NOT A VERDICT.')}`);
+  for (const l of wrap(
+    'Defendant means charged, not convicted. A party table says who the case '
+    + 'is against; it does not say how it came out, and a person listed here '
+    + 'may have been acquitted, dismissed, or never tried. For an outcome you '
+    + 'need the judgment document, not this table.', 68)) console.log(C.dim(`    ${l}`));
+  console.log(C.dim('\n    This IS the field §78 should have used. The search'));
+  console.log(C.dim('    result\'s "party" line is not this and never was.\n'));
+}
+
 /**
  * connect vendor — the reverse lookup. WHO PAYS THIS FIRM.
  *
@@ -3798,6 +3986,16 @@ async function main() {
       other: argv.includes('--other'),
       all: argv.includes('--all'),
       dryRun: opts.dryRun });
+  }
+  if (action === 'fedreg') {
+    return cmdFedReg(args[1], { dryRun: opts.dryRun });
+  }
+  if (action === 'docket') {
+    return cmdDocket(subjectFrom(args.slice(1), argv, ['--limit']), {
+      limit: flagNum(argv, '--limit'),
+      noParties: argv.includes('--no-parties'),
+      dryRun: opts.dryRun,
+    });
   }
   if (action === 'vendor') {
     const q = subjectFrom(args.slice(1), argv, ['--cycle', '--limit', '--pages']);

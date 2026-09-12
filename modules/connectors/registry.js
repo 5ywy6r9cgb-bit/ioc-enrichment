@@ -530,6 +530,10 @@ const CONNECTORS = {
     parse: (json) => (json.results || []).map((r) => ({
       // RECAP results key on docket_id; opinion results on id/cluster_id.
       external_id: String(r.id || r.cluster_id || r.docket_id || ''),
+      // SURFACED SEPARATELY because `external_id` on a RECAP row may be the
+      // docket-ENTRY id, and only the docket id can be handed to `clparties`
+      // to get the real caption. §78 is unfixable without this number.
+      docket_id: r.docket_id != null ? String(r.docket_id) : '',
       name: r.caseName || r.case_name || '(untitled)',
       court: r.court || r.court_id || '',
       date: r.dateFiled || r.date_filed || '',
@@ -902,6 +906,155 @@ const CONNECTORS = {
     // jurisdiction + number, never the name. Names collide across registries
     // and change on re-registration; the pair is the registrar's own identity
     // for the filing and is what a later reader can check.
+    identify: (r) => r.external_id,
+  },
+
+  /**
+   * ─────────────────────────────────────────────────────────────────────
+   * READING A DOCUMENT, NOT SEARCHING FOR ONE
+   * ─────────────────────────────────────────────────────────────────────
+   * Every connector above answers "does this string appear anywhere". None
+   * of them answers "what does THIS document say" — so six Federal Register
+   * documents have been sitting in the findings file as TITLES ONLY, under
+   * a rule this desk wrote for itself: unread is unsayable.
+   *
+   * Chief among them, 2026-00596: a Somalia TPS termination returned by a
+   * full-text search for "Feeding Our Future". Nobody knows why it matched.
+   * A co-occurrence between a fraud case and an immigration action is
+   * exactly the shape a frame gets built on, and exactly the shape that
+   * collapses when someone opens the document. **So open it.**
+   *
+   * Takes a DOCUMENT NUMBER (2026-00512), not a search term.
+   */
+  fedregdoc: {
+    label: 'Federal Register (one document)',
+    keyVar: null,
+    keyRequired: false,
+    calls: 1,
+    describe: (q) => `GET https://www.federalregister.gov/api/v1/documents/${q}.json`,
+    probe: () => ({
+      method: 'GET',
+      url: 'https://www.federalregister.gov/api/v1/documents/2026-00512.json?fields[]=title',
+      headers: {},
+    }),
+    run: (q) => ({
+      method: 'GET',
+      url: `https://www.federalregister.gov/api/v1/documents/${encodeURIComponent(String(q).trim())}.json`
+        + ['title', 'abstract', 'action', 'agencies', 'publication_date',
+           'effective_on', 'comments_close_on', 'docket_ids', 'document_number',
+           'type', 'html_url', 'pdf_url', 'raw_text_url', 'dates',
+           'regulation_id_numbers', 'cfr_references', 'significant', 'page_length']
+          .map((f) => `&fields[]=${f}`).join('').replace('&', '?'),
+      headers: {},
+    }),
+    // One document, returned as one row, so the generic display prints every
+    // field it carries instead of a truncated list of leads.
+    parse: (json) => (json && json.document_number ? [{
+      external_id: json.document_number,
+      name: json.title || '(untitled)',
+      type: json.type || '',
+      published: json.publication_date || '',
+      agencies: Array.isArray(json.agencies)
+        ? json.agencies.map((a) => a.name || a.raw_name).filter(Boolean).join('; ') : '',
+      action: json.action || '',
+      abstract: json.abstract || '',
+      dates: json.dates || '',
+      effective: json.effective_on || '',
+      comments_close: json.comments_close_on || '',
+      docket_ids: Array.isArray(json.docket_ids) ? json.docket_ids.join('; ') : '',
+      rin: Array.isArray(json.regulation_id_numbers) ? json.regulation_id_numbers.join('; ') : '',
+      significant: json.significant === true ? 'YES' : '',
+      pages: json.page_length || '',
+      url: json.html_url || '',
+      pdf: json.pdf_url || '',
+      raw_text: json.raw_text_url || '',
+    }] : []),
+    identify: (r) => r.external_id,
+  },
+
+  /**
+   * THE AUTHORITATIVE CAPTION, WHICH THE SEARCH RESULT IS NOT.
+   *
+   * §78: the `party` line on a RECAP SEARCH result is a truncated sample
+   * and was caught carrying Wisconsin's governor into a Colorado docket.
+   * Thirteen names were published off it before that was noticed.
+   *
+   * This hits the DOCKETS endpoint by docket number, which returns the case
+   * as the court records it — case_name_full, cause, nature of suit, the
+   * judge, the filing and termination dates. Paired with `clparties` below
+   * it is the only combination in this toolkit that can answer "who is on
+   * this case" without guessing.
+   */
+  cldocket: {
+    label: 'CourtListener (docket record)',
+    keyVar: 'COURTLISTENER_API_TOKEN',
+    minIntervalMs: 13000,
+    keyRequired: false,
+    calls: 1,
+    describe: (q) => `GET https://www.courtlistener.com/api/rest/v4/dockets/?docket_number=${q}`,
+    probe: (key) => ({
+      method: 'GET',
+      url: 'https://www.courtlistener.com/api/rest/v4/dockets/?docket_number=2%3A20-cv-13134',
+      headers: key ? { Authorization: `Token ${key}` } : {},
+    }),
+    run: (q, key) => ({
+      method: 'GET',
+      url: 'https://www.courtlistener.com/api/rest/v4/dockets/'
+        + `?docket_number=${encodeURIComponent(String(q).trim())}`,
+      headers: key ? { Authorization: `Token ${key}` } : {},
+    }),
+    parse: (json) => (json.results || []).map((d) => ({
+      external_id: String(d.id || ''),
+      name: d.case_name_full || d.case_name || '(untitled)',
+      short_name: d.case_name || '',
+      docket: d.docket_number || '',
+      court: d.court_id || d.court || '',
+      filed: d.date_filed || '',
+      terminated: d.date_terminated || '',
+      nature_of_suit: d.nature_of_suit || '',
+      cause: d.cause || '',
+      judge: d.assigned_to_str || '',
+      referred_to: d.referred_to_str || '',
+      pacer_id: d.pacer_case_id || '',
+      url: d.absolute_url ? `https://www.courtlistener.com${d.absolute_url}` : '',
+    })),
+    identify: (r) => r.external_id,
+  },
+
+  /**
+   * WHO IS ACTUALLY ON THE CASE. Takes a numeric DOCKET ID from `cldocket`.
+   *
+   * This is the field §78 should have used. It is the party table as the
+   * court keeps it, not a relevance-ranked sample from a search index.
+   */
+  clparties: {
+    label: 'CourtListener (parties on a docket)',
+    keyVar: 'COURTLISTENER_API_TOKEN',
+    minIntervalMs: 13000,
+    keyRequired: false,
+    calls: 1,
+    describe: (q) => `GET https://www.courtlistener.com/api/rest/v4/parties/?docket=${q}`,
+    probe: (key) => ({
+      method: 'GET',
+      url: 'https://www.courtlistener.com/api/rest/v4/parties/?docket=18693929',
+      headers: key ? { Authorization: `Token ${key}` } : {},
+    }),
+    run: (q, key) => ({
+      method: 'GET',
+      url: `https://www.courtlistener.com/api/rest/v4/parties/?docket=${encodeURIComponent(String(q).trim())}`,
+      headers: key ? { Authorization: `Token ${key}` } : {},
+    }),
+    parse: (json) => (json.results || []).map((p) => ({
+      external_id: String(p.id || ''),
+      name: p.name || '(unnamed party)',
+      // party_types carries the ROLE — Defendant, Plaintiff, Movant. That
+      // distinction is the whole difference between "named on a case" and
+      // "charged", and no search result carries it.
+      role: Array.isArray(p.party_types)
+        ? [...new Set(p.party_types.map((t) => t.name).filter(Boolean))].join('; ') : '',
+      terminated: Array.isArray(p.party_types)
+        ? (p.party_types.map((t) => t.date_terminated).filter(Boolean)[0] || '') : '',
+    })),
     identify: (r) => r.external_id,
   },
 
