@@ -392,5 +392,79 @@ console.log('\n  a programme is not a set of decisions');
       require('fs').readFileSync(require('path').join(__dirname, 'cli.js'), 'utf8')));
 }
 
+console.log('\n  is the company you asked for in the answer at all');
+{
+  // THE LIVE RUN. `awards "Intel" --all` reported 18 direct payments worth
+  // $198,000 — and the eighteen names were BLAC INTEL LLC, PALADIN INTEL
+  // LLC, BEVERAGE INTEL, INTEL MUSIC GROUP. Not one was Intel Corporation.
+  // Every one passed namesMatch legitimately.
+  const smallFry = [
+    row('BLAC INTEL LLC DBA BLAC INTEL LLC', 15000, 'SBA'),
+    row('PALADIN INTEL LLC', 15000, 'SBA'),
+    row('BEVERAGE INTEL', 10000, 'SBA'),
+  ];
+  const e = A.exactShare('Intel', smallFry);
+  eq('none of them is the company asked for', e.exact, 0);
+  eq('so the exact share is zero', e.share, 0);
+  eq('and the count is still reported', e.of, 3);
+
+  const real = [
+    row('INTEL CORPORATION', 1000000, 'DoD'),
+    row('BLAC INTEL LLC', 15000, 'SBA'),
+  ];
+  eq('the real filer is recognised', A.exactShare('Intel Corporation', real).exact, 1);
+  check('and holds nearly all the money',
+    A.exactShare('Intel Corporation', real).share > 0.98);
+  // Share is weighted by MONEY, not by row count: one $1m award among a
+  // hundred $1 namesakes is not a 1% answer.
+  eq('a suffix difference is not a different company',
+    A.exactShare('Intel Corporation', [row('INTEL CORP', 500, 'X')]).exact, 1);
+  eq('no rows, no share', A.exactShare('Intel', []).share, 0);
+
+  check('the command warns before the total',
+    /HOLDS/.test(require('fs').readFileSync(require('path').join(__dirname, 'cli.js'), 'utf8')));
+}
+
+console.log('\n  when the page budget is spent on namesakes');
+{
+  // `awards "Intel" --all --pages 8` returned 4 clean contracts against 796
+  // substring hits. Asking "Intel Corporation" and "Intel Federal"
+  // separately, the same day, found 46.
+  const v = A.noiseVerdict({
+    clean: new Array(4).fill(0), substring: new Array(796).fill(0), truncated: true,
+  });
+  check('the failure is detected', v !== null);
+  check('and the ratio is reported', v.ratio > 0.99);
+
+  eq('a clean run is not called a failure',
+    A.noiseVerdict({ clean: new Array(37).fill(0), substring: [], truncated: true }), null);
+  // Noise alone is not failure — only noise that ATE THE BUDGET is. A run
+  // that finished has seen everything there was, however noisy.
+  eq('noise without a page cap is just noise',
+    A.noiseVerdict({
+      clean: new Array(4).fill(0), substring: new Array(796).fill(0), truncated: false,
+    }), null);
+  eq('and a cap with a workable ratio passes',
+    A.noiseVerdict({
+      clean: new Array(480).fill(0), substring: new Array(20).fill(0), truncated: true,
+    }), null);
+  eq('nothing at all is not a verdict',
+    A.noiseVerdict({ clean: [], substring: [], truncated: true }), null);
+}
+
+console.log('\n  a caveat must not carry another investigation\'s example');
+{
+  // The substring caveat named Intel and McAfee outright, and then printed
+  // that sentence under a search for Amazon and one for Google — a worked
+  // example from another subject presented as a statement about this one.
+  // Same defect as the hardcoded committee name in `connect control`.
+  const cli = require('fs').readFileSync(require('path').join(__dirname, 'cli.js'), 'utf8');
+  const caveat = cli.slice(cli.indexOf('A namesake and a SUBSIDIARY'),
+    cli.indexOf('A namesake and a SUBSIDIARY') + 700);
+  check('the caveat no longer names McAfee', !/McAfee/.test(caveat));
+  check('nor Wind River', !/Wind River/.test(caveat));
+  check('but still states the principle', /corporate-registry question/.test(caveat));
+}
+
 console.log(`\n  ${fail ? 'FAIL' : 'PASS'} — ${pass}/${pass + fail} checks\n`);
 process.exit(fail ? 1 : 0);

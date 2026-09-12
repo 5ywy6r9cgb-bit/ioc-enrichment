@@ -243,6 +243,71 @@ function tooShortToFilter(query) {
   return normaliseName(query).length <= 2;
 }
 
+/**
+ * ─────────────────────────────────────────────────────────────────────
+ * IS THE COMPANY YOU ASKED FOR ACTUALLY IN THE ANSWER?
+ * ─────────────────────────────────────────────────────────────────────
+ * `awards "Intel" --all` reported, under DIRECT PAYMENTS:
+ *
+ *     awards            18
+ *     value of those    $198,000
+ *
+ * and the eighteen names were BLAC INTEL LLC, PALADIN INTEL LLC,
+ * BEVERAGE INTEL, INTEL MUSIC GROUP, HUMINT INTEL INVESTIGATION
+ * SERVICES — eighteen small businesses collecting COVID disaster aid.
+ * **Not one of them was Intel Corporation.**
+ *
+ * Every one passed `namesMatch` legitimately: "intel" is a whole word in
+ * "blac intel". The string test is right and the headline is still a lie,
+ * because the reader came looking for a company and the number on screen
+ * belongs to eighteen other ones.
+ *
+ * So: what share of this money sits under a name that IS the query, rather
+ * than a name that CONTAINS it? Below a threshold the command says so
+ * before showing any total.
+ */
+function exactShare(query, rows) {
+  const q = normaliseName(query);
+  let exact = 0;
+  let exactAmount = 0;
+  let total = 0;
+  for (const r of rows) {
+    const amt = amountOf(r);
+    total += amt;
+    if (q && normaliseName(r.name) === q) { exact += 1; exactAmount += amt; }
+  }
+  return {
+    exact,
+    exactAmount,
+    of: rows.length,
+    share: total > 0 ? exactAmount / total : (rows.length ? exact / rows.length : 0),
+  };
+}
+
+/**
+ * WHEN THE PAGE BUDGET IS SPENT ON NAMESAKES.
+ *
+ * `awards "Intel" --all --pages 8` returned FOUR clean contracts against
+ * 796 substring hits — INTELSAT at $930m, POLARIS ALPHA, CACI INTELLIGENCE
+ * SOLUTIONS, INTELLIDYNE. The list is sorted by amount, so eight pages of
+ * budget bought eight pages of namesakes and the real rows never arrived.
+ *
+ * The run before it, asking "Intel Corporation" and "Intel Federal"
+ * separately, found 46. The same register, the same day, eleven times the
+ * answer — because the stem was too generic for a sorted, capped query.
+ *
+ * "4 awards (page cap reached — a FLOOR)" is true and nobody reads it as
+ * "your query failed". This says so.
+ */
+function noiseVerdict({ clean, substring, truncated }) {
+  const c = clean.length;
+  const s = substring.length;
+  if (!truncated || s + c === 0) return null;
+  const ratio = s / (s + c);
+  if (ratio < 0.8) return null;
+  return { ratio, clean: c, substring: s };
+}
+
 function classify(query, rows) {
   const clean = [];
   const substring = [];
@@ -474,4 +539,5 @@ module.exports = {
   descriptionWords, span, STOP, SUFFIX, igfMarkers, plainDescription, IGF,
   INSTRUMENTS, instrument, instrumentsFor, isRawFpds,
   descriptionKey, descriptionGroups, dominantDescription,
+  exactShare, noiseVerdict,
 };

@@ -1539,6 +1539,23 @@ async function cmdAwards(name, opts = {}) {
     if (substring.length) {
       console.log(C.y(`    substring hits    ${substring.length} — NOT counted, NOT summed`));
     }
+
+    // THE PAGE BUDGET SPENT ON NAMESAKES. Printed BEFORE the total,
+    // because after it the reader has already believed the number.
+    const noise = A.noiseVerdict({ clean, substring, truncated: g.truncated });
+    if (noise) {
+      console.log(`\n  ${C.r('THIS QUERY FAILED. The count below is not an answer.')}`);
+      for (const l of wrap(
+        `${(noise.ratio * 100).toFixed(0)}% of everything returned was a namesake, and the `
+        + 'list is sorted by amount, so the page budget bought pages of other '
+        + 'companies and the rows you asked for never arrived. Asking "Intel" '
+        + 'this way found 4 contracts; asking "Intel Corporation" and "Intel '
+        + 'Federal" separately found 46 — same register, same day. Use the '
+        + 'fuller filed name, or raise --pages until the ratio falls.', 68)) {
+        console.log(C.dim(`    ${l}`));
+      }
+      console.log(C.dim(`\n      bin/sentinel connect awards "${name}" --all --pages ${cap * 3}`));
+    }
     console.log(`    value of those    ${usd(total)}`
       + `${noAmount ? C.y('  — a FLOOR, see below') : ''}`);
     if (noAmount) {
@@ -1548,6 +1565,22 @@ async function cmdAwards(name, opts = {}) {
       console.log(C.dim('    that the value had risen to $9,413,419. Open those awards.'));
     }
     if (sp.first) console.log(`    period            ${sp.first} → ${sp.last}`);
+
+    // IS THE COMPANY YOU ASKED FOR IN THE ANSWER AT ALL?
+    const ex = A.exactShare(name, clean);
+    if (clean.length && ex.share < 0.5) {
+      console.log(`\n  ${C.r('THE NAME YOU ASKED FOR HOLDS '
+        + `${(ex.share * 100).toFixed(0)}% OF THIS MONEY.`)}`);
+      for (const l of wrap(
+        `${ex.exact} of ${ex.of} awards are filed under a name that IS "${name}". `
+        + 'The rest are filed under names that CONTAIN it as a word — which is '
+        + 'a correct string match and the wrong company. Asking "Intel" this '
+        + 'way returned $198,000 of COVID disaster aid to BLAC INTEL LLC, '
+        + 'PALADIN INTEL LLC and BEVERAGE INTEL, none of which is Intel. Read '
+        + '"Filed under" below before you read the total above.', 68)) {
+        console.log(C.dim(`    ${l}`));
+      }
+    }
 
     if (!clean.length) {
       console.log(C.dim('\n    Every row returned was a substring hit on another'));
@@ -1665,13 +1698,19 @@ async function cmdAwards(name, opts = {}) {
         console.log(C.dim(`    ${usd(r.amount).padStart(16)}  ${String(r.name).slice(0, 46)}`
           + `  ${r.count}`));
       }
+      // GENERIC. This paragraph used to name Intel and McAfee outright, and
+      // then printed that sentence under a search for Amazon and one for
+      // Google — a worked example from another investigation presented as a
+      // statement about this one. The principle is general; the example is
+      // not, and only the principle belongs in a caveat.
       for (const l of wrap(
-        'A namesake and a SUBSIDIARY look identical here, and the register '
-        + 'cannot tell them apart: Intel owned McAfee outright from 2011 to '
-        + '2017 and Wind River from 2009 to 2018, and both are in this list '
-        + 'as noise. Excluding them from the total is correct — the query '
-        + 'asked about a string. Whether they belong to the same company is '
-        + 'a corporate-registry question, asked separately:', 68)) {
+        'A namesake and a SUBSIDIARY look identical here and the register '
+        + 'cannot tell them apart — a parent company\'s wholly-owned units '
+        + 'contract under their own names, and so do strangers who happen to '
+        + 'share a syllable. Excluding all of them from the total is correct, '
+        + 'because the query asked about a STRING. Which of them belong to '
+        + 'the same company is a corporate-registry question, asked '
+        + 'separately:', 68)) {
         console.log(C.dim(`    ${l}`));
       }
       console.log(C.dim(`      bin/sentinel connect opencorporates "${others[0].name}"`));
@@ -1682,7 +1721,7 @@ async function cmdAwards(name, opts = {}) {
   if (ledger.length > 1) {
     console.log(`\n  ${C.b('BY INSTRUMENT')}  ${C.dim('— reported separately, never summed')}`);
     for (const l of ledger) {
-      console.log(`  ${usd(l.total).padStart(16)}  ${l.inst.label.padEnd(36)}`
+      console.log(`  ${usd(l.total).padStart(16)}  ${l.inst.label.padEnd(41)}`
         + C.dim(`${l.count} award(s)${l.truncated ? '  FLOOR' : ''}`)
         + (l.noAmount ? C.y(`  ${l.noAmount} with no amount`) : ''));
     }
@@ -3678,7 +3717,7 @@ async function main() {
     const q = subjectFrom(args.slice(1), argv, ['--pages', '--limit']);
     if (!q) {
       console.error('\n  usage: sentinel connect awards "RECIPIENT NAME" [--pages 5]');
-      console.error('     or: sentinel connect awards "NAME" --grants | --direct | --loans | --all');
+      console.error('     or: sentinel connect awards "NAME" --grants | --direct | --loans | --other | --all');
       console.error('\n  Federal awards, paged past the 25-row sweep cap, with the');
       console.error('  DESCRIPTION of what each one bought.');
       console.error('\n  DEFAULT IS CONTRACTS ONLY. CHIPS Act money is financial');
@@ -3696,6 +3735,12 @@ async function main() {
       direct: argv.includes('--direct'),
       loans: argv.includes('--loans'),
       contracts: argv.includes('--contracts'),
+      // ADDED TO THE TABLE AND NEVER TO THE PARSER. `--other` was accepted
+      // silently and fell back to contracts, so a run asking for the 09/11
+      // family printed "instruments: contracts" and then scolded the
+      // operator for not asking about the family they had just asked about.
+      // A flag that is ignored quietly is worse than one that errors.
+      other: argv.includes('--other'),
       all: argv.includes('--all'),
       dryRun: opts.dryRun });
   }
