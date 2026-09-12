@@ -222,6 +222,33 @@ bin/sentinel status · test
 
 ---
 
+## 5b. ⚠ COPY-PASTE WARNING — this bit me and then bit you
+
+`<case>` and `<file>` in a command block are **placeholders, not syntax.**
+zsh reads `<` as input redirection and kills the entire paste with
+`parse error near '<'` — including the real commands above it.
+
+**Never paste a block containing angle brackets.** Everything in this file
+that needs a value has one filled in, or is behind `scripts/desk_bootstrap.sh`.
+
+```bash
+bin/sentinel sdesk doctor
+bin/sentinel sdesk case new minnesota-fraud "Minnesota program integrity"
+./scripts/desk_bootstrap.sh
+```
+
+**`desk_bootstrap.sh` does the mechanical half only** — init, case, and
+ingest every capture already on disk with correct titles, custodians and
+PRIMARY/SECONDARY shelving. It identifies Federal Register captures **by
+content** (`FR Doc No: …` inside the bytes), because the filenames could not
+tell them apart.
+
+**It deliberately does not add claims.** A script that writes claims launders
+authorship. It prints the exact `claim add` and `cite` lines with real ids
+for you to read and run.
+
+---
+
 ## 6. THE ORDER, IF YOU ONLY DO SIX THINGS
 
 ```bash
@@ -233,8 +260,7 @@ bin/sentinel sdesk doctor
 bin/sentinel sdesk case new minnesota-fraud "Minnesota program integrity" --jurisdiction US
 
 # 3 — vault what you already hold, hashed
-bin/sentinel sdesk ingest minnesota-fraud evidence/captures/live_capture_fedregtext_*2026*.json \
-  --title "FR 2026-00596 full text" --custodian "Federal Register / DHS" --shelf PRIMARY
+./scripts/desk_bootstrap.sh
 
 # 4 — find out what blocks publication BEFORE you record
 bin/sentinel sdesk claim list

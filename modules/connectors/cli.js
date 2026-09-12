@@ -1840,7 +1840,8 @@ async function cmdFedReg(num, opts = {}) {
 
   // ---- the text, if asked for -------------------------------------------
   if ((opts.grep || opts.text) && d.raw_text) {
-    const t = await R.runConnector('fedregtext', d.raw_text, {});
+    // Named for the DOCUMENT, not for the URL it was fetched from.
+    const t = await R.runConnector('fedregtext', d.raw_text, { slug: `FR_${clean}_text` });
     if (!t.ok) {
       console.log(`\n  ${C.r('text fetch failed:')} ${t.error}`);
     } else {

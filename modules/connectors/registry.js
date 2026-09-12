@@ -1236,7 +1236,15 @@ async function runConnector(name, query, opts = {}) {
   fs.mkdirSync(captureDir, { recursive: true });
 
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-  const slug = query.replace(/[^A-Za-z0-9]+/g, '_').slice(0, 60);
+  // A CAPTURE FILENAME MUST SAY WHICH DOCUMENT IT IS.
+  //
+  // `fedregtext` is queried with a URL, and the slug is the query truncated
+  // to 60 characters — so every Federal Register full-text capture landed as
+  // `..._documents_full_text_text_2026__<timestamp>.json`. The document
+  // number is past the cut. Two documents pulled in the same session were
+  // indistinguishable by filename, in a directory whose entire purpose is
+  // telling you what you are holding.
+  const slug = String(opts.slug || query).replace(/[^A-Za-z0-9]+/g, '_').slice(0, 60);
   const capturePath = path.join(captureDir, `live_capture_${name}_${slug}_${stamp}.json`);
   fs.writeFileSync(capturePath, res.body);
 
