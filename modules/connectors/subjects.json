@@ -269,5 +269,50 @@
       "Weber Shandwick",
       "Edelman"
     ]
+  },
+  "election_record": {
+    "into": "election-record",
+    "note": "THE ADJUDICATED RECORD OF THE 2020 ELECTION CLAIMS. This set exists because \"election fraud\" is the exact shape of query that returns confident wrong answers — the Zhukov/Methbot/Devumi run got 3 of 4 wrong. The fix is to stop searching for a conclusion and start reading DOCKETS. These are the parties to litigation that actually produced findings of fact. A court ruling on falsity is evidence of a different and much stronger kind than a news report, because it survived discovery and cross-examination. DENOMINATOR RULE APPLIES HARDEST HERE: documented individual voter-fraud prosecutions do exist, and a count of them means nothing without the number of ballots cast beside it.",
+    "subjects": [
+      "US Dominion Voting Systems",
+      "Dominion Voting Systems",
+      "Smartmatic USA",
+      "Fox News Network",
+      "Newsmax Media",
+      "Sidney Powell",
+      "Rudolph Giuliani",
+      "My Pillow",
+      "Patrick Byrne",
+      "Cyber Ninjas",
+      "Election Systems and Software",
+      "Konnech"
+    ]
+  },
+  "platform_moderation": {
+    "into": "platform-moderation",
+    "note": "THE LAPTOP AND THE THROTTLING, AS LITIGATION AND AS PRIMARY DOCUMENTS. Three separate questions that get told as one story: (1) are the emails genuine, (2) did platforms suppress the story, (3) did government cause them to. Each has a different register and a different answer, and conflating them is how both sides of this argument go wrong. The federal prosecution is where laptop-derived evidence was actually litigated; Murthy v. Missouri is where the jawboning question was actually decided, and it was decided on STANDING, which is the most misreported fact in the whole affair.",
+    "subjects": [
+      "Robert Hunter Biden",
+      "John Paul Mac Isaac",
+      "Twitter Inc",
+      "X Corp",
+      "Meta Platforms",
+      "Burisma Holdings",
+      "Stanford Internet Observatory",
+      "Election Integrity Partnership"
+    ]
+  },
+  "minnesota_fraud": {
+    "into": "minnesota-fraud",
+    "note": "FEEDING OUR FUTURE AND THE MINNESOTA PROGRAM PROSECUTIONS. The fraud here is REAL, CHARGED AND IN LARGE PART CONVICTED — the largest pandemic-relief prosecution in the country, roughly 70 defendants in D. Minn., and a juror in the first trial was offered a bag of cash. None of that is in dispute and none of it needs a viral video to establish it. What a viral video adds is a FRAME, and the frame is the part to check separately: a federal indictment names defendants, amounts and programs, and it does not name a community. Read the docket for what was charged; read the Legislative Auditor for what oversight failed; treat any claim that outruns both as a claim.",
+    "subjects": [
+      "Feeding Our Future",
+      "Aimee Bock",
+      "Partners in Nutrition",
+      "Safari Restaurant",
+      "Minnesota Department of Education",
+      "Minnesota Department of Human Services",
+      "Housing Stabilization Services"
+    ]
   }
 }
