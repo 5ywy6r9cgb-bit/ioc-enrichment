@@ -174,7 +174,7 @@ function descriptionWords(rows, min = 2) {
   const counts = new Map();
   for (const r of rows) {
     const seen = new Set();
-    for (const w of String(r.description || '').toLowerCase().split(/[^a-z0-9]+/)) {
+    for (const w of plainDescription(r.description).toLowerCase().split(/[^a-z0-9]+/)) {
       if (w.length < 4 || STOP.has(w) || /^\d+$/.test(w)) continue;
       if (seen.has(w)) continue;   // count DOCUMENTS, not repetitions
       seen.add(w);
@@ -185,6 +185,50 @@ function descriptionWords(rows, min = 2) {
     .filter(([, n]) => n >= min)
     .map(([word, awards]) => ({ word, awards }))
     .sort((a, b) => b.awards - a.awards || a.word.localeCompare(b.word));
+}
+
+
+/**
+ * IGF:: MARKERS — the government's own statement about the work.
+ *
+ * Ntrepid's DEA descriptions carry `IGF::CL::IGF` and `IGF::OT::IGF`. Those
+ * are not noise and not a product code: under OFPP Policy Letter 11-01 and
+ * FAR 7.503 the contracting officer must tag a service contract with how
+ * close the work sits to an inherently governmental function.
+ *
+ *   IGF::CT::IGF   a CRITICAL function
+ *   IGF::CL::IGF   CLOSELY ASSOCIATED with an inherently governmental function
+ *   IGF::OT::IGF   OTHER — neither of the above
+ *
+ * It is the government classifying its own purchase, in a field it wrote,
+ * and this desk had been rendering it as gibberish in the middle of a
+ * description. It is decoded, never interpreted: "closely associated" is a
+ * procurement category, not a finding about anybody.
+ */
+const IGF = {
+  CT: 'CRITICAL function',
+  CL: 'CLOSELY ASSOCIATED with an inherently governmental function',
+  OT: 'OTHER — not critical, not closely associated',
+};
+
+function igfMarkers(description) {
+  const out = [];
+  const re = /IGF::([A-Z]{2})::IGF/g;
+  let m;
+  while ((m = re.exec(String(description || '')))) {
+    if (IGF[m[1]] && !out.some((x) => x.code === m[1])) {
+      out.push({ code: m[1], means: IGF[m[1]] });
+    }
+  }
+  return out;
+}
+
+/** The description with the markers taken out, so the text reads. */
+function plainDescription(description) {
+  return String(description || '')
+    .replace(/IGF::[A-Z]{2}::IGF/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 /** Earliest and latest dates seen, from the "start → end" period string. */
@@ -203,5 +247,5 @@ function span(rows) {
 
 module.exports = {
   namesMatch, normaliseName, tooShortToFilter, classify, amountOf, byAgency, byRecipient,
-  descriptionWords, span, STOP, SUFFIX,
+  descriptionWords, span, STOP, SUFFIX, igfMarkers, plainDescription, IGF,
 };

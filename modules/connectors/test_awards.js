@@ -177,5 +177,34 @@ console.log('\n  a query that shrinks to nothing must not match everything');
       require('fs').readFileSync(require('path').join(__dirname, 'cli.js'), 'utf8')));
 }
 
+
+console.log('\n  IGF:: is the government classifying its own purchase');
+{
+  // Ntrepid's DEA descriptions carry these. Under OFPP Policy Letter 11-01
+  // the contracting officer must tag how close the work sits to an
+  // inherently governmental function. This desk was rendering it as
+  // gibberish in the middle of a sentence.
+  eq('CL is decoded', A.igfMarkers('IGF::CL::IGF')[0].code, 'CL');
+  check('with its meaning spelled out',
+    /CLOSELY ASSOCIATED/.test(A.igfMarkers('IGF::CL::IGF')[0].means));
+  eq('OT too', A.igfMarkers('IGF::OT::IGF SOFTWARE')[0].code, 'OT');
+  eq('and CT', A.igfMarkers('IGF::CT::IGF')[0].code, 'CT');
+  eq('an unknown code is not invented', A.igfMarkers('IGF::ZZ::IGF').length, 0);
+  eq('no marker, nothing claimed', A.igfMarkers('SOFTWARE LICENSE').length, 0);
+  eq('a repeated marker is reported once', A.igfMarkers('IGF::CL::IGF IGF::CL::IGF').length, 1);
+
+  eq('the description reads without the marker',
+    A.plainDescription('IGF::OT::IGF RENEWAL OF MAPPER LICENSES IN SUPPORT OF FOXFIRE'),
+    'RENEWAL OF MAPPER LICENSES IN SUPPORT OF FOXFIRE');
+  eq('a description that is ONLY a marker becomes empty',
+    A.plainDescription('IGF::CL::IGF'), '');
+  // The markers must not dominate a frequency count: they appear on every
+  // service contract and say nothing about subject matter.
+  check('marker tokens are kept out of the word count',
+    !A.descriptionWords([{ description: 'IGF::CL::IGF software' },
+      { description: 'IGF::OT::IGF software' }], 2)
+      .some((w) => /^igf$/.test(w.word)));
+}
+
 console.log(`\n  ${fail ? 'FAIL' : 'PASS'} — ${pass}/${pass + fail} checks\n`);
 process.exit(fail ? 1 : 0);

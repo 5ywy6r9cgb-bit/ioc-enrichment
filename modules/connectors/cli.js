@@ -1518,7 +1518,12 @@ async function cmdAwards(name, opts = {}) {
     for (const r of withDesc.slice(0, opts.limit || 12)) {
       console.log(`\n  ${usd(A.amountOf(r))}  ${C.dim(r.agency)}`);
       if (r.sub_agency) console.log(C.dim(`    ${r.sub_agency}`));
-      for (const l of wrap(r.description, 66)) console.log(`    ${l}`);
+      for (const l of wrap(A.plainDescription(r.description), 66)) console.log(`    ${l}`);
+      // The government's own classification of the work, decoded — never
+      // interpreted. "Closely associated" is a procurement category.
+      for (const g of A.igfMarkers(r.description)) {
+        console.log(C.y(`    IGF::${g.code}::  ${g.means}`));
+      }
       if (r.award_id) console.log(C.dim(`    award ${r.award_id}${r.period ? '  ·  ' + r.period : ''}`));
       if (r.url) console.log(C.dim(`    ${r.url}`));
     }
