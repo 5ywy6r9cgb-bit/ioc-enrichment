@@ -40,6 +40,9 @@
 #   sentinel connect nexus          entities crossing two DOMAINS, graded
 #   sentinel connect coverage       OF HOW MANY? the denominator under every number
 #   sentinel connect box            one HTML page: coverage, chart, denominators
+#   sentinel connect edges          rows become EDGES: who, how, on whose word
+#   sentinel connect explain "X"    what this desk ACTUALLY knows about an entity
+#   sentinel connect challenge "X"  the anti-confirmation engine — run it LAST
 #   sentinel connect lobby --chart  read the captured lobbying filings, charted
 #   sentinel connect expand         ask every registrant who else they file for
 #   sentinel connect sweep SET      run a whole named subject list
@@ -269,6 +272,9 @@ PYSTATUS
     echo "== coverage + the box =="
     node "$ROOT/modules/connectors/test_coverage.js" || FAILED=1
     echo ""
+    echo "== edges, explain, challenge =="
+    node "$ROOT/modules/connectors/test_edges.js" || FAILED=1
+    echo ""
     [ "$FAILED" = "0" ] && bold "All present suites passed." || bold "One or more suites FAILED."
     exit "$FAILED"
     ;;
@@ -350,7 +356,7 @@ PYSTATUS
     # works when the module is called directly is not yet a command that works.
     action="${1:-test}"; shift || true
     case "$action" in
-      test|list|all|crosslink|nexus|coverage|box|lobby|graph|expand|sweep|brief|fecpac|delegation|member|asymmetry|donors|filings|control|vendor|matrix|awards|fedreg|docket)
+      test|list|all|crosslink|nexus|coverage|box|explain|challenge|edges|lobby|graph|expand|sweep|brief|fecpac|delegation|member|asymmetry|donors|filings|control|vendor|matrix|awards|fedreg|docket)
         node "$ROOT/modules/connectors/cli.js" "$action" "$@"
         ;;
       *)

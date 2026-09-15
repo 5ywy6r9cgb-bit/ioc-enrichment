@@ -1036,6 +1036,249 @@ function cmdBox(opts = {}) {
   console.log(C.dim('  with the network off — nothing in it is fetched.\n'));
 }
 
+/**
+ * connect explain "ENTITY" — what does this desk ACTUALLY know about it.
+ *
+ * Not a search. A query against the edges already derived, answering: how
+ * many relationships, of what kind, on whose authority, and how much of it
+ * is a sworn filing rather than two names in one document.
+ */
+function cmdExplain(query, opts = {}) {
+  const X = require('./crosslink.js');
+  const E = require('./edges.js');
+  const path = require('path');
+  const dir = path.join(R.EVIDENCE, 'captures');
+  const captures = opts.captures || X.readCaptures(dir);
+  const edges = E.build(captures);
+  const hits = E.forEntity(edges, query);
+  const named = hits.filter((h) => h.verdict === 'NAME');
+  const groups = E.byRelationship(named);
+
+  console.log(`\n  ${C.b('EXPLAIN')}  ${C.b(query)}`);
+  console.log(C.dim(`  ${edges.length} edge(s) in the library · no network call`));
+
+  if (!hits.length) {
+    console.log(`\n  ${C.y('This desk holds no edge naming that entity.')}`);
+    for (const l of wrap(
+      'That is a statement about this library, NOT about the entity. Nothing '
+      + 'has been asked about it yet, or what was asked returned rows that '
+      + 'name somebody else. Check which registers have been asked:', 68)) {
+      console.log(C.dim(`    ${l}`));
+    }
+    console.log(C.dim(`\n      bin/sentinel connect coverage`));
+    console.log(C.dim(`      bin/sentinel connect all "${query}"\n`));
+    return;
+  }
+
+  // ---- the inventory ---------------------------------------------------
+  const count = (t) => named.filter((h) => h.assertion_type === t).length;
+  console.log(`\n  ${C.b('WHAT IS BEHIND IT')}`);
+  console.log(`    ${C.g(String(count(E.ASSERTED)).padStart(5))}  ASSERTED       `
+    + C.dim('somebody swore to it — a filing, an award, a docket'));
+  console.log(`    ${C.y(String(count(E.REGISTRY)).padStart(5))}  REGISTRY       `
+    + C.dim('the entity exists as filed, in a jurisdiction'));
+  console.log(`    ${C.dim(String(count(E.COOCCURRENCE)).padStart(5))}  CO-OCCURRENCE  `
+    + C.dim('a string in an index. NOT a fact about the entity.'));
+  const contains = hits.filter((h) => h.verdict === 'CONTAINS').length;
+  const other = hits.filter((h) => h.verdict === 'OTHER').length;
+  if (contains) {
+    console.log(`    ${C.dim(String(contains).padStart(5))}  set aside      `
+      + C.dim('name is not at the front — could be a namesake'));
+  }
+  if (other) {
+    console.log(`    ${C.dim(String(other).padStart(5))}  set aside      `
+      + C.dim('the document does not name the entity in its title'));
+  }
+
+  // ---- by relationship -------------------------------------------------
+  for (const g of groups) {
+    const badge = g.assertion_type === E.ASSERTED ? C.g(g.assertion_type)
+      : (g.assertion_type === E.REGISTRY ? C.y(g.assertion_type) : C.dim(g.assertion_type));
+    console.log(`\n  ${C.b(g.relationship)}  ${C.dim(`${g.edges.length}`)}  ${badge}`);
+    console.log(C.dim(`    ${g.label} · ${g.register}`));
+    const seen = new Set();
+    for (const e of g.edges.slice(0, opts.limit || 10)) {
+      // For `mentioned_in` the interesting end is always the DOCUMENT, not
+      // the subject — the subject is on the a-side by construction, so
+      // "the other end" resolves to the query itself and prints it back.
+      const other = e.relationship === 'mentioned_in' ? e.entity_b
+        : (e.side === 'a' ? e.entity_b : e.entity_a);
+      const k = `${other}|${e.amount}`;
+      if (seen.has(k)) continue;
+      seen.add(k);
+      console.log(`      ${String(other).slice(0, 52)}`
+        + (e.amount ? C.dim(`  ${e.amount}`) : '')
+        + (e.effective_date ? C.dim(`  ${e.effective_date}`) : ''));
+      // THE DENOMINATOR, ON THE ROW. "Retained Mindset Advocacy" means one
+      // thing if Mindset files for two clients and another if it files for
+      // eight hundred, and the filing alone cannot tell you which.
+      if (e.side === 'a' && g.assertion_type === E.ASSERTED) {
+        const pop = E.counterpartyShare(edges, e.relationship, other);
+        if (pop.entities > 1) {
+          console.log(C.dim(`        ${pop.entities} entit${pop.entities === 1 ? 'y' : 'ies'}`
+            + ` in this library stand in the same relationship to it`));
+        }
+      }
+    }
+    if (g.edges.length > (opts.limit || 10)) {
+      console.log(C.dim(`      …and ${g.edges.length - (opts.limit || 10)} more`));
+    }
+  }
+
+  // ---- what cannot be asked at all -------------------------------------
+  console.log(`\n  ${C.y('RELATIONSHIPS THIS DESK CANNOT EVIDENCE AT ALL')}`);
+  for (const [rel, why] of Object.entries(E.UNBUILT)) {
+    console.log(`    ${C.y(rel.padEnd(22))}${C.dim(String(why).slice(0, 44))}…`);
+  }
+  console.log(C.dim('\n    Full text: bin/sentinel connect explain --unbuilt'));
+
+  console.log(`\n  ${C.y('AN EDGE IS A RECORD, NOT A RELATIONSHIP.')}`);
+  for (const l of wrap(
+    'ASSERTED means a named party filed a statement under penalty. It does '
+    + 'not mean the relationship is current, exclusive, or that either side '
+    + 'got what they wanted. CO-OCCURRENCE means a search index matched a '
+    + 'string, and its authority field literally reads NONE.', 68)) {
+    console.log(C.dim(`    ${l}`));
+  }
+  console.log('');
+}
+
+/**
+ * connect challenge "ENTITY" — the anti-confirmation engine.
+ *
+ * Every other command in this toolkit looks for connections. This one looks
+ * for the reasons the connections might not mean what they appear to, and it
+ * runs LAST on purpose — after a theory has formed and before it is said out
+ * loud.
+ */
+function cmdChallenge(query, opts = {}) {
+  const X = require('./crosslink.js');
+  const E = require('./edges.js');
+  const path = require('path');
+  const dir = path.join(R.EVIDENCE, 'captures');
+  const captures = opts.captures || X.readCaptures(dir);
+  const edges = E.build(captures);
+  const hits = E.forEntity(edges, query);
+  const named = hits.filter((h) => h.verdict === 'NAME');
+
+  console.log(`\n  ${C.b('CHALLENGE')}  ${C.b(query)}`);
+  for (const l of wrap(
+    'Every other command here looks for connections. This one looks for the '
+    + 'reasons they might not mean what they appear to. Run it after you '
+    + 'have a theory and before you say it out loud.', 70)) {
+    console.log(C.dim(`  ${l}`));
+  }
+
+  const problems = [];
+
+  // 1. Is the theory resting on the weakest kind of record?
+  const co = named.filter((h) => h.assertion_type === E.COOCCURRENCE).length;
+  if (named.length && co / named.length >= 0.5) {
+    problems.push(['MOST OF THIS IS A SEARCH INDEX',
+      `${co} of ${named.length} edges are CO-OCCURRENCE — a string matched in a `
+      + 'document, with no asserted relationship behind it. Two names in one '
+      + 'Federal Register notice have no relationship whatsoever; they were '
+      + 'both in a list.',
+      `bin/sentinel connect explain "${query}"`]);
+  }
+
+  // 2. Namesakes. The defect that produced a 1980 hotel and a food mart.
+  const contains = hits.filter((h) => h.verdict === 'CONTAINS' || h.verdict === 'OTHER');
+  if (contains.length) {
+    const ex = contains.slice(0, 3).map((h) =>
+      (h.side === 'a' ? h.entity_a : h.entity_b)).join('; ');
+    problems.push(['SOME OF THESE MAY BE A DIFFERENT COMPANY',
+      `${contains.length} row(s) carry the name somewhere other than the front. `
+      + `A live run turned up a 1980 hotel and a food mart under "Blackstone". `
+      + `CHECK THE DATE — a record older than the entity is not that entity. `
+      + `Examples: ${ex}`,
+      'open each one before it is used']);
+  }
+
+  // 3. A shared counterparty that is shared with everybody.
+  const shared = [];
+  for (const h of named) {
+    if (h.assertion_type !== E.ASSERTED || h.side !== 'a') continue;
+    const pop = E.counterpartyShare(edges, h.relationship, h.entity_b);
+    if (pop.entities >= 3) shared.push(pop);
+  }
+  const uniq = [...new Map(shared.map((s) => [s.counterparty, s])).values()]
+    .sort((a, b) => b.entities - a.entities);
+  if (uniq.length) {
+    problems.push(['A SHARED COUNTERPARTY IS NOT A SHARED PURPOSE',
+      uniq.slice(0, 4).map((s) => `${s.counterparty} stands in the same `
+        + `relationship to ${s.entities} entities in this library`).join('. ')
+      + '. A firm serving many clients is a SERVICE, not a network. The same '
+      + 'is true of a registered agent and of a compliance treasurer.',
+      `bin/sentinel connect nexus --asserted`]);
+  }
+
+  // 4. The denominator that has not been established.
+  const V = require('./coverage.js');
+  const subjects = require('./subjects.json');
+  const sets = V.setCoverage(captures, subjects);
+  const never = V.neverAsked(sets);
+  const partial = sets.filter((s) => s.asked > 0 && s.asked < s.defined);
+  if (never.length || partial.length) {
+    problems.push(['THE COMPARISON UNIVERSE DOES NOT EXIST YET',
+      `${never.length} set(s) never asked and ${partial.length} only partly asked. `
+      + 'Until comparable entities have been run through the same registers, '
+      + '"unusual" has nothing to be unusual AGAINST. A narrow library ranks '
+      + 'ordinary relationships as rare.',
+      'bin/sentinel connect coverage']);
+  }
+
+  // 5. Floors read as totals.
+  const floors = V.flooredCaptures(captures).filter((f) =>
+    require('./namematch.js').bestVerdict(query, f.subject) === 'NAME');
+  if (floors.length) {
+    problems.push(['A NUMBER HERE IS A FLOOR, NOT A TOTAL',
+      floors.slice(0, 3).map((f) => `${f.subject} via ${f.connector}: held `
+        + `${f.held} of ${f.declared} declared`).join('. ')
+      + '. Any figure derived from those is smaller than the truth by an '
+      + 'unknown amount, and it will be read as a total.',
+      'page past it, or write FLOOR beside the number']);
+  }
+
+  // 6. The joins that do not exist for anyone.
+  problems.push(['THE RELATIONSHIPS MOST LIKELY TO MATTER ARE NOT HERE',
+    'Ownership, officers, property, enforcement and foreign-principal edges '
+    + 'have NO register in this toolkit. An absence in this graph is an '
+    + 'absence of a CONNECTOR. It is not evidence that the relationship does '
+    + 'not exist, and it must never be reported as one.',
+    'bin/sentinel connect nexus --gaps']);
+
+  console.log('');
+  for (const [head, body, next] of problems) {
+    console.log(`  ${C.y(head)}`);
+    for (const l of wrap(body, 68)) console.log(C.dim(`    ${l}`));
+    if (next) console.log(C.dim(`      ${next}`));
+    console.log('');
+  }
+
+  // ---- the standing alternatives ---------------------------------------
+  console.log(`  ${C.b('ALTERNATIVE EXPLANATIONS THAT FIT THE SAME RECORD')}`);
+  for (const alt of [
+    'Both entities hired the same firm because it is the firm that does this work.',
+    'The money moved for the service named in the filing, and for nothing else.',
+    'The timing is an artefact of a quarterly filing deadline, not of a decision.',
+    'The two names appear together because a document listed an industry.',
+    'The entity with more relationships is simply larger.',
+  ]) {
+    for (const l of wrap(`— ${alt}`, 68)) console.log(C.dim(`    ${l}`));
+  }
+
+  console.log(`\n  ${C.y('WHAT WOULD CHANGE YOUR MIND?')}`);
+  for (const l of wrap(
+    'If you cannot name the document that would falsify the theory, the '
+    + 'theory is not yet a finding — it is a shape you have noticed. Write '
+    + 'down the record that would kill it, then go and look for that.', 68)) {
+    console.log(C.dim(`    ${l}`));
+  }
+  console.log(C.dim('\n    A killed claim is a finding. Keep it:'));
+  console.log(C.dim('      bin/sentinel sdesk claim add CASE "text" --tier DEAD\n'));
+}
+
 /** The joins no command here can make, and the office that holds each. */
 function nexusGaps() {
   const N = require('./nexus.js');
@@ -4485,6 +4728,63 @@ async function main() {
   if (action === 'test') return cmdTest();
   if (action === 'list') return cmdList();
   if (action === 'crosslink') return cmdCrosslink({ verbose: argv.includes('--verbose') });
+  if (action === 'explain') {
+    if (argv.includes('--unbuilt')) {
+      const E = require('./edges.js');
+      console.log(`\n  ${C.b('RELATIONSHIPS THIS TOOLKIT CANNOT EVIDENCE')}`);
+      console.log(C.dim('  Named so the absence is a stated gap, not an empty column.\n'));
+      for (const [rel, why] of Object.entries(E.UNBUILT)) {
+        console.log(`  ${C.y(rel)}`);
+        for (const l of wrap(why, 68)) console.log(C.dim(`    ${l}`));
+        console.log('');
+      }
+      return;
+    }
+    const q = subjectFrom(args.slice(1), argv, ['--limit']);
+    if (!q) {
+      console.error('\n  usage: sentinel connect explain "ENTITY" [--limit 10]');
+      console.error('     or: sentinel connect explain --unbuilt');
+      console.error('\n  What this desk ACTUALLY knows about an entity: every edge,');
+      console.error('  by relationship, with the register and the authority behind it.');
+      console.error('  No network call.\n');
+      process.exit(2);
+    }
+    return cmdExplain(q, { limit: flagNum(argv, '--limit') });
+  }
+  if (action === 'challenge') {
+    const q = subjectFrom(args.slice(1), argv, ['--limit']);
+    if (!q) {
+      console.error('\n  usage: sentinel connect challenge "ENTITY"');
+      console.error('\n  The anti-confirmation engine. Every other command here looks');
+      console.error('  for connections; this looks for the reasons they might not mean');
+      console.error('  what they appear to. Run it AFTER you have a theory and BEFORE');
+      console.error('  you say it out loud.\n');
+      process.exit(2);
+    }
+    return cmdChallenge(q, {});
+  }
+  if (action === 'edges') {
+    const E = require('./edges.js');
+    const X = require('./crosslink.js');
+    const fs = require('fs');
+    const pathm = require('path');
+    const edges = E.build(X.readCaptures(pathm.join(R.EVIDENCE, 'captures')));
+    const out = flagVal(argv, '--out');
+    if (out) {
+      fs.writeFileSync(out, E.toCsv(edges));
+      console.log(`\n  ${edges.length} edge(s) written to ${out}\n`);
+    } else {
+      console.log(`\n  ${C.b(`${edges.length} edge(s)`)} derived from the library`);
+      const by = {};
+      for (const e of edges) by[e.relationship] = (by[e.relationship] || 0) + 1;
+      for (const [k, v] of Object.entries(by).sort((a, b) => b[1] - a[1])) {
+        console.log(`    ${String(v).padStart(6)}  ${k}  `
+          + C.dim((E.RELATIONSHIPS[k] || {}).assertion || ''));
+      }
+      console.log(C.dim('\n    --out edges.csv  writes all sixteen columns\n'));
+    }
+    return;
+  }
   if (action === 'coverage') {
     return cmdCoverage({ limit: flagNum(argv, '--limit') });
   }
@@ -4865,4 +5165,4 @@ if (require.main === module) {
   main().catch((e) => { console.error(e); process.exit(1); });
 }
 
-module.exports = { verdictFor, cmdTest, wrap, parseAllArgs, cmdAll, cmdFedReg, cmdNexus, cmdCoverage, cmdBox, cmdCrosslink, cmdLobby, cmdGraph, cmdRegistrant, cmdExpand, cmdSweep, cmdBrief, flagVal, flagNum, subjectFrom, resolveCommittee, fecRetryable, fecError, fecFetcher };
+module.exports = { verdictFor, cmdTest, wrap, parseAllArgs, cmdAll, cmdFedReg, cmdNexus, cmdCoverage, cmdBox, cmdExplain, cmdChallenge, cmdCrosslink, cmdLobby, cmdGraph, cmdRegistrant, cmdExpand, cmdSweep, cmdBrief, flagVal, flagNum, subjectFrom, resolveCommittee, fecRetryable, fecError, fecFetcher };
