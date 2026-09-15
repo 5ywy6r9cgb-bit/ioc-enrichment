@@ -400,5 +400,45 @@
       "Radio Free Europe Radio Liberty",
       "Voice of America"
     ]
+  },
+  "ai_defense": {
+    "into": "ai-defense",
+    "note": "AI AND AUTONOMY AS FEDERAL PROCUREMENT, WHICH IS THE ONLY PART OF IT THAT IS DOCUMENTED. The register that can speak to 'AI' is USAspending: a contract has a number, an agency, a period and a DESCRIPTION of what was bought, and that description is the whole value - it is the difference between a company that says it does AI and a company the Department of Defense paid to do a named thing. The 09/11 instrument family matters here more than anywhere else: OTHER TRANSACTION AGREEMENTS under 10 U.S.C. 4022 sit OUTSIDE the FAR and are filed as type 11, so a contracts-only run reports a DARPA-funded programme as absent. Always --all. WHAT THIS SET CANNOT SEE: model capability, training data, internal deployment, and anything classified. An award tells you what was BOUGHT, never what it DOES.",
+    "subjects": [
+      "Palantir Technologies",
+      "Anduril Industries",
+      "Scale AI",
+      "Shield AI",
+      "CoreWeave",
+      "NVIDIA Corporation",
+      "Booz Allen Hamilton",
+      "Leidos",
+      "CACI International",
+      "SAIC",
+      "Microsoft Corporation",
+      "Amazon Web Services",
+      "Google Public Sector",
+      "Oracle America",
+      "C3.ai",
+      "Primer Technologies"
+    ]
+  },
+  "infrastructure": {
+    "into": "infrastructure",
+    "note": "THE PHYSICAL LAYER - FIBRE, CONDUIT, TRANSMISSION, TRANSIT - AND A HARD LIMIT TO READ FIRST. `connect awards` searches by RECIPIENT NAME, not by what the contract was for. You cannot ask it 'show me every tunnel contract'; you can only ask it about a NAMED COMPANY and then read the descriptions it returns. So this set is a list of firms, and the finding lives in the DESCRIPTION field of what comes back. THE STATE AND LOCAL LAYER IS ABSENT ENTIRELY: right-of-way, conduit permits, road closures and easements are county engineer and municipal records, and a data centre's fibre route is usually a local permit. A federal-only answer about physical infrastructure is a fact about the register.",
+    "subjects": [
+      "Zayo Group",
+      "Lumen Technologies",
+      "Crown Castle",
+      "Uniti Group",
+      "Quanta Services",
+      "MasTec",
+      "Kiewit Corporation",
+      "Turner Construction",
+      "Norfolk Southern Railway",
+      "CSX Transportation",
+      "Columbus Regional Airport Authority",
+      "Ohio Department of Transportation"
+    ]
   }
 }
