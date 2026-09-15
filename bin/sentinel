@@ -23,6 +23,7 @@
 #   sentinel pra mail send          send only what you approved
 #   sentinel pra mail fetch         read replies, log them against requests
 #   sentinel shots --spec EP.json   every picture the build will demand
+#   sentinel exhibits --next        THE SCREENSHOT QUEUE, one document at a time
 #   sentinel cards --edges F.csv    evidence cards drawn from SOURCED edges
 #   sentinel redact --check DIR     PUBLICATION GATE: nothing about the machine
 #                                   leaves it. Exits 3 on a leak.
@@ -337,6 +338,13 @@ PYSTATUS
   # fonts already on the machine.
   cards)
     python3 "$ROOT/modules/openmontage/engine/cards.py" "$@"
+    ;;
+
+  # THE SCREENSHOT QUEUE. 160,000 edges and a video that needs twenty
+  # pictures is a QUEUE problem, not a research problem. One document at a
+  # time: open this, look at that, save it as this, caption it like so.
+  exhibits)
+    python3 "$ROOT/scripts/exhibits.py" "$@"
     ;;
 
   # NOTHING ABOUT THE MACHINE LEAVES THE MACHINE. A gate, not advice:
