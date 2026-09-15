@@ -415,7 +415,7 @@ async function cmdAll(query, opts) {
   const verdicts = rows.map((r) => ({
     row: r,
     marked: r.results.map((hit) => ({
-      hit, v: R.nameVerdict(query, hit.name || hit.title || ''),
+      hit, v: R.bestVerdict(query, hit.name || hit.title || ''),
     })),
   }));
   const countOf = (k) => verdicts.reduce(
@@ -882,6 +882,158 @@ function cmdNexus(opts = {}) {
     68)) console.log(C.dim(`    ${l}`));
 
   nexusGaps();
+}
+
+/**
+ * connect coverage — OF HOW MANY? OUT OF WHAT? IS IT A TOTAL?
+ *
+ * "We found nothing" and "we did not look" produce identical output, and
+ * every serious error in this investigation has been one read as the other.
+ * This is the command that tells them apart, and it makes no network call.
+ */
+function cmdCoverage(opts = {}) {
+  const X = require('./crosslink.js');
+  const V = require('./coverage.js');
+  const path = require('path');
+  const subjects = require('./subjects.json');
+  const dir = path.join(R.EVIDENCE, 'captures');
+  const captures = opts.captures || X.readCaptures(dir);
+
+  console.log(`\n  ${C.b('COVERAGE')}  ${C.dim('— the denominator under every number · no network call')}`);
+
+  if (!captures.length) {
+    console.log(`\n  ${C.y('No captures. Every number this desk could produce is UNKNOWN,')}`);
+    console.log(C.y('  which is NOT zero.'));
+    console.log(C.dim('    bin/sentinel connect sweep foreign_lobby --go\n'));
+    return;
+  }
+
+  const sets = V.setCoverage(captures, subjects);
+  const conns = V.connectorCoverage(captures);
+  const floors = V.flooredCaptures(captures);
+  const figs = V.figures(captures, subjects);
+
+  // ---- the figures, each with what is underneath it --------------------
+  console.log(`\n  ${C.b('EVERY NUMBER, WITH ITS DENOMINATOR')}\n`);
+  for (const f of figs) {
+    const pct = f.of ? ` ${C.dim(`(${((f.value / f.of) * 100).toFixed(1)}%)`)}` : '';
+    const shape = f.shape === V.TOTAL ? C.g(f.shape)
+      : (f.shape === V.UNKNOWN ? C.dim(f.shape) : C.y(f.shape));
+    console.log(`    ${C.b(String(f.value).padStart(7))}`
+      + (f.of !== null ? C.dim(` of ${String(f.of).padEnd(7)}`) : ' '.repeat(11))
+      + `${pct}  ${f.label}  ${shape}`);
+    for (const l of wrap(f.note, 64)) console.log(C.dim(`            ${l}`));
+    console.log('');
+  }
+
+  // ---- set coverage ----------------------------------------------------
+  console.log(`  ${C.b('SUBJECT SETS — asked, of defined')}`);
+  console.log(C.dim('  emptiest first, because those are the ones that will be '
+    + 'misread as findings\n'));
+  for (const s of sets.slice(0, opts.limit || 24)) {
+    const bar = s.share === 0 ? C.r('····')
+      : (s.share === 1 ? C.g('████') : C.y('██··'));
+    console.log(`    ${bar} ${String(s.asked).padStart(3)}/${String(s.defined).padEnd(3)} `
+      + `${s.set.padEnd(24)}${C.dim(`${s.rows} row(s)  ${s.connectors.join(' ')}`)}`);
+    if (s.missing.length && s.missing.length <= 6) {
+      console.log(C.dim(`         not asked: ${s.missing.join(', ')}`));
+    } else if (s.missing.length) {
+      console.log(C.dim(`         ${s.missing.length} not asked, incl. `
+        + `${s.missing.slice(0, 3).join(', ')}`));
+    }
+  }
+
+  const never = V.neverAsked(sets);
+  if (never.length) {
+    console.log(`\n  ${C.y(`${never.length} SET(S) NEVER ASKED: ${never.join(', ')}`)}`);
+    for (const l of wrap(
+      'Those are not empty findings. They are unasked questions. Nothing can '
+      + 'bridge to a domain with nothing in it, and a missing connection to '
+      + 'any of these is a fact about this library, not about the world.', 68)) {
+      console.log(C.dim(`    ${l}`));
+    }
+  }
+
+  // ---- connector coverage ----------------------------------------------
+  console.log(`\n  ${C.b('REGISTERS — what each one actually carried')}\n`);
+  console.log(C.dim('    rows  named  contain  other   sub   subj  register'));
+  for (const c of conns) {
+    const share = c.rows ? c.NAME / c.rows : 0;
+    const nm = share >= 0.5 ? C.g(String(c.NAME).padStart(5))
+      : (share > 0 ? C.y(String(c.NAME).padStart(5)) : C.r(String(c.NAME).padStart(5)));
+    console.log(`  ${String(c.rows).padStart(6)}  ${nm}  `
+      + `${String(c.CONTAINS).padStart(7)}  ${String(c.OTHER).padStart(5)}  `
+      + `${String(c.SUBSTRING).padStart(4)}  ${String(c.subjects).padStart(4)}  ${c.label}`
+      + (c.capped ? C.y(`  ${c.capped} capped`) : ''));
+  }
+  for (const l of wrap(
+    'A register with many rows and few NAMED rows has not told you about your '
+    + 'subject. It has told you about its own index. That is not a fault in '
+    + 'the register — it is the difference between a name field and a '
+    + 'full-text field, and it decides what a row can be used for.', 70)) {
+    console.log(C.dim(`    ${l}`));
+  }
+
+  // ---- the floors ------------------------------------------------------
+  if (floors.length) {
+    console.log(`\n  ${C.y(`${floors.length} CAPTURE(S) HIT A PAGE CAP — every figure from these is a FLOOR`)}\n`);
+    for (const f of floors.slice(0, 12)) {
+      console.log(`    ${C.b(f.subject)}  ${C.dim(f.connector)}`);
+      console.log(C.dim(`      held ${f.held} of ${f.declared} declared — `
+        + `${f.missing} row(s) never fetched`));
+    }
+    if (floors.length > 12) console.log(C.dim(`    …and ${floors.length - 12} more`));
+    console.log(C.dim('\n    Page past them, or write FLOOR beside the number:'));
+    console.log(C.dim('      bin/sentinel connect awards "NAME" --all --pages 20'));
+    console.log(C.dim('      bin/sentinel connect vendor "FIRM" --pages 25'));
+  }
+
+  console.log(`\n  ${C.y('A NUMBER WITH NO SHAPE READS AS A TOTAL TO EVERYBODY.')}`);
+  for (const l of wrap(
+    'TOTAL means the register was exhausted. FLOOR means the paging ran out '
+    + 'and the real number is larger by an unknown amount. CEILING means the '
+    + 'search was fuzzy and the count still contains rows that are not your '
+    + 'subject. A fuzzy search that also hit a cap is both at once.', 68)) {
+    console.log(C.dim(`    ${l}`));
+  }
+  console.log('');
+}
+
+/**
+ * connect box — one page, everything the library supports, denominators on.
+ *
+ * Nine hundred captures is not a library anybody reads. The terminal is right
+ * for one question and wrong for "what do I actually have", because you
+ * cannot scroll two screens apart and compare them.
+ *
+ * Self-contained: no CDN, no fetched fonts, no external script. It opens from
+ * disk with the network off, because a page about provenance that phones out
+ * for a stylesheet is not making the point.
+ */
+function cmdBox(opts = {}) {
+  const X = require('./crosslink.js');
+  const B = require('./box.js');
+  const fs = require('fs');
+  const path = require('path');
+  const subjects = require('./subjects.json');
+  const dir = path.join(R.EVIDENCE, 'captures');
+  const captures = opts.captures || X.readCaptures(dir);
+  const out = opts.out || path.join(R.EVIDENCE, 'box.html');
+
+  const html = B.render(captures, subjects, { limit: opts.limit || 28 });
+  fs.mkdirSync(path.dirname(out), { recursive: true });
+  fs.writeFileSync(out, html);
+
+  console.log(`\n  ${C.b('THE BOX')}  ${C.dim('— no network call')}`);
+  console.log(`  ${captures.length} capture(s) read`);
+  console.log(`  ${C.g(out)}`);
+  if (!captures.length) {
+    console.log(C.y('\n  The library is empty, so the page says so rather than'));
+    console.log(C.y('  showing you zeros that look like findings.'));
+  }
+  console.log(C.dim('\n    open ' + out));
+  console.log(C.dim('  It is one file. Send it to somebody, print it, or open it'));
+  console.log(C.dim('  with the network off — nothing in it is fetched.\n'));
 }
 
 /** The joins no command here can make, and the office that holds each. */
@@ -4333,6 +4485,12 @@ async function main() {
   if (action === 'test') return cmdTest();
   if (action === 'list') return cmdList();
   if (action === 'crosslink') return cmdCrosslink({ verbose: argv.includes('--verbose') });
+  if (action === 'coverage') {
+    return cmdCoverage({ limit: flagNum(argv, '--limit') });
+  }
+  if (action === 'box') {
+    return cmdBox({ out: flagVal(argv, '--out'), limit: flagNum(argv, '--limit') });
+  }
   if (action === 'nexus') {
     // --side may be given twice: `--side datacenters --side lobbying` asks for
     // bridges BETWEEN those two. Given once it asks for every bridge touching
@@ -4707,4 +4865,4 @@ if (require.main === module) {
   main().catch((e) => { console.error(e); process.exit(1); });
 }
 
-module.exports = { verdictFor, cmdTest, wrap, parseAllArgs, cmdAll, cmdFedReg, cmdNexus, cmdCrosslink, cmdLobby, cmdGraph, cmdRegistrant, cmdExpand, cmdSweep, cmdBrief, flagVal, flagNum, subjectFrom, resolveCommittee, fecRetryable, fecError, fecFetcher };
+module.exports = { verdictFor, cmdTest, wrap, parseAllArgs, cmdAll, cmdFedReg, cmdNexus, cmdCoverage, cmdBox, cmdCrosslink, cmdLobby, cmdGraph, cmdRegistrant, cmdExpand, cmdSweep, cmdBrief, flagVal, flagNum, subjectFrom, resolveCommittee, fecRetryable, fecError, fecFetcher };

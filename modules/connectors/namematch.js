@@ -210,6 +210,41 @@ function nameVerdict(query, name) {
 }
 
 /**
+ * ─────────────────────────────────────────────────────────────────────────
+ * A COMPOUND ROW IS TWO NAMES, AND JUDGING IT AS ONE STRING IS A FALSE ALARM
+ * ─────────────────────────────────────────────────────────────────────────
+ *
+ * A Senate LDA row is `CLIENT — REGISTRANT`. Both halves are entity names and
+ * the subject you searched for legitimately sits on either side. Judged as a
+ * single string, `Alpine Group Partners` against
+ * `VANTAGE DATA CENTERS — ALPINE GROUP PARTNERS, LLC` scores CONTAINS,
+ * because the query is not at the front — of a string that was never one
+ * name.
+ *
+ * A live coverage run made that visible immediately: `Senate LDA · 5 rows ·
+ * 0 filed under it`, on a register where every single row named the
+ * registrant that had been asked for. The tool was reporting THE SHAPE OF ITS
+ * OWN ROWS as a fact about the subject. That is the defect this repository
+ * exists to catch, produced by the fix for the previous one.
+ *
+ * So a compound row is split on the separator the parser built it with, and
+ * the row takes the BEST verdict of its parts.
+ */
+const COMPOUND = / — /;
+
+const BEST_RANK = { NAME: 4, CONTAINS: 3, OTHER: 2, UNKNOWN: 1, SUBSTRING: 0 };
+
+function bestVerdict(query, text) {
+  const s = String(text || '');
+  if (!COMPOUND.test(s)) return nameVerdict(query, s);
+  const parts = s.split(COMPOUND).map((p) => p.trim()).filter(Boolean);
+  if (parts.length < 2) return nameVerdict(query, s);
+  return parts
+    .map((p) => nameVerdict(query, p))
+    .reduce((best, v) => (BEST_RANK[v] > BEST_RANK[best] ? v : best), SUBSTRING);
+}
+
+/**
  * Count a page of rows by verdict. `text(row)` pulls the string to judge.
  *
  * The counts are the denominator that "25 lead(s)" never had.
@@ -218,7 +253,7 @@ function tally(query, rows, text) {
   const pick = text || ((r) => r.name || r.title || '');
   const out = { NAME: 0, CONTAINS: 0, SUBSTRING: 0, OTHER: 0, UNKNOWN: 0, total: 0 };
   for (const r of rows || []) {
-    out[nameVerdict(query, pick(r))] += 1;
+    out[bestVerdict(query, pick(r))] += 1;
     out.total += 1;
   }
   return out;
@@ -227,6 +262,6 @@ function tally(query, rows, text) {
 module.exports = {
   SUFFIX, normaliseName, namesMatch, tooShortToFilter,
   looksLikeSubstringMatch, hasBuriedWord, headName, dropArticle,
-  nameVerdict, tally,
+  nameVerdict, bestVerdict, tally,
   NAME, CONTAINS, SUBSTRING, OTHER, UNKNOWN,
 };

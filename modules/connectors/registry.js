@@ -424,7 +424,7 @@ function explainHttpError(res) {
 // adds the third bucket this test never had: a row that does not contain the
 // query AT ALL, which used to be counted as a clean lead.
 const NM = require('./namematch.js');
-const { looksLikeSubstringMatch, nameVerdict, namesMatch, normaliseName,
+const { looksLikeSubstringMatch, nameVerdict, bestVerdict, namesMatch, normaliseName,
         tooShortToFilter, tally } = NM;
 
 /**
@@ -1578,7 +1578,7 @@ function recordCapture({ connector, subject, url, body, tool, extra = {},
 
 module.exports = { phrase,
   explainHttpError, looksLikeSubstringMatch,
-  nameVerdict, namesMatch, normaliseName, tooShortToFilter, tally,
+  nameVerdict, bestVerdict, namesMatch, normaliseName, tooShortToFilter, tally,
   acceptsSubject, heldCaptures,
   checkKeyShape, KEY_SHAPES,
   stripAuth, AUTH_HEADERS, MAX_REDIRECTS,

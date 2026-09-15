@@ -236,6 +236,10 @@ run $S connect nexus --out nexus.csv --dot nexus.dot
 run $S connect matrix
 run $S connect crosslink
 
+# THE DENOMINATOR UNDER EVERYTHING, AND THE PAGE YOU ACTUALLY READ.
+run $S connect coverage
+run $S connect box
+
 pause 8 "ASSERTED means somebody swore to it — an LDA filing, a federal award, a court docket. CO-OCCURRENCE means two names were in one document, which is never a finding on its own. Every row carries how many entities cross the same pair."
 }
 
@@ -271,7 +275,7 @@ plan() {
    6   politics: money to named officeholders  moderate, writes a CSV
    7   real-estate capital                     ~112 calls
    7b  the bridge you already own (QTS)        ~12 calls
-   8   the bridge, graded                      ZERO calls
+   8   the bridge, graded + coverage + the box ZERO calls
    9   what blocks publication                 ZERO calls
 
   RATE LIMITS THAT ACTUALLY BITE
