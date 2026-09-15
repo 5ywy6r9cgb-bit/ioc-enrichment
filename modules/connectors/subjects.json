@@ -314,5 +314,43 @@
       "Minnesota Department of Human Services",
       "Housing Stabilization Services"
     ]
+  },
+  "foreign_lobby": {
+    "into": "foreign-lobby",
+    "note": "WHO IS PAID TO REPRESENT A FOREIGN GOVERNMENT IN WASHINGTON. Read the register boundary before reading a result. FARA covers agents acting at the order, request or under the direction of a FOREIGN PRINCIPAL. A domestic advocacy organisation - INCLUDING one whose entire subject matter is another country's affairs - registers under the LDA instead and appears nowhere in FARA. AIPAC is the case that proves it: its LDA footprint is 100 filings, one client, and the client is the registrant - in-house lobbying, no outside firm under that name - and it is not a FARA registrant. Whether it ought to be is a live public argument that no database settles, and this desk reports the absence as an absence. THERE IS ALSO NO FARA CONNECTOR IN THIS TOOLKIT AT ALL, so every name here is answered by senatelda, fec, opencorporates and usaspending only; FARA itself is a manual lookup at justice.gov/nsd-fara. The firms listed are SEARCH STRINGS for the LDA, not an assertion about any current foreign client.",
+    "subjects": [
+      "American Israel Public Affairs Committee",
+      "United Democracy Project",
+      "Mercury Public Affairs",
+      "Qorvis",
+      "BGR Government Affairs",
+      "Ballard Partners",
+      "Squire Patton Boggs",
+      "Akin Gump Strauss Hauer & Feld",
+      "DLA Piper",
+      "Brownstein Hyatt Farber Schreck",
+      "Cornerstone Government Affairs",
+      "Alpine Group Partners"
+    ]
+  },
+  "real_estate_capital": {
+    "into": "real-estate-capital",
+    "note": "THE CAPITAL BEHIND THE BUILDINGS - AND THE ONE DISTINCTION THAT DECIDES EVERY SENTENCE. BLACKROCK AND BLACKSTONE ARE DIFFERENT COMPANIES and conflating them is the most common error in this subject. BlackRock is an ASSET MANAGER: its index funds hold shares as fiduciary for other people's retirement money, so 'BlackRock owns X' almost always means 'funds BlackRock manages hold X on behalf of pension holders' - a different sentence with different consequences, and one that a 13F filing states plainly. Blackstone is a PRIVATE EQUITY and real-estate firm that takes DIRECT ownership, which is the concrete and documentable version. The bridge to the Ohio work is direct: QTS Data Centers is Blackstone-owned and is already in the datacenters set. NOTE WHAT THESE REGISTERS CANNOT SEE: a private REIT's holdings, an LLC's beneficial owner, and any county parcel - the last of which is where a real-estate story actually lives.",
+    "subjects": [
+      "BlackRock Inc",
+      "BlackRock",
+      "Blackstone Inc",
+      "Blackstone Real Estate",
+      "QTS Data Centers",
+      "Invitation Homes",
+      "Progress Residential",
+      "Pretium Partners",
+      "American Homes 4 Rent",
+      "Starwood Capital Group",
+      "Brookfield Asset Management",
+      "Global Infrastructure Partners",
+      "Digital Realty Trust",
+      "Equinix"
+    ]
   }
 }
