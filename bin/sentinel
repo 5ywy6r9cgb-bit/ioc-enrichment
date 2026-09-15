@@ -6,6 +6,8 @@
 # and one provenance discipline. This dispatcher is the single command you
 # run; it delegates to the module that owns each job.
 #
+#   sentinel today                  ONE SCREEN: what needs you, in order.
+#                                   No model, no network, no key.
 #   sentinel help                   this list (sentinel commands works too)
 #   sentinel status                 what is set up, what is not
 #   sentinel test                   run every module's test suite
@@ -341,6 +343,14 @@ PYSTATUS
   # --check exits 3, so it can sit in front of a publish step and stop it.
   redact)
     python3 "$ROOT/scripts/redact.py" "$@"
+    ;;
+
+  # THE ONE SCREEN. What needs you, in order, sorted by what is LOSABLE
+  # rather than what is interesting. Deterministic — no model, no network,
+  # no key. This is the command that replaces holding the whole desk in
+  # your head, and it is the only thing the AI was doing day to day.
+  today)
+    python3 "$ROOT/scripts/today.py" "$@"
     ;;
 
   vuln)
