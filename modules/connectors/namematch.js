@@ -122,10 +122,74 @@ function hasBuriedWord(query, name) {
   });
 }
 
+/**
+ * ─────────────────────────────────────────────────────────────────────────
+ * AND THE FOURTH ANSWER, WHICH A LIVE RUN FORCED.
+ * ─────────────────────────────────────────────────────────────────────────
+ *
+ * `connect all "Blackstone Inc"` reported `CourtListener 20 · 18 name it`.
+ * Among the eighteen:
+ *
+ *     FIC Homes of Blackstone, Inc. v. Conservation Commission   1996, 1994
+ *     Hotel Blackstone, Inc. v. Tax Commission                   1980
+ *     CMP Complaint Issued to ZA Blackstone Inc. d/b/a ZA Food Mart
+ *
+ * Blackstone is a town in Massachusetts and a Conservation Commission is a
+ * town body. The Hotel Blackstone case is from 1980 and The Blackstone Group
+ * was founded in 1985. ZA Food Mart is a convenience store with an FDA
+ * tobacco complaint against it.
+ *
+ * EVERY ONE OF THEM PASSES `namesMatch` LEGITIMATELY. "Blackstone" is a whole
+ * word in all three. The string test is correct and the headline is still
+ * misleading, because the reader came looking for an investment firm and the
+ * number on screen belongs partly to a town, a 1980 hotel and a food mart.
+ *
+ * `awards.js` already knew this — it has `sameHead`, written after `awards
+ * "Intel"` reported eighteen direct payments that turned out to be BLAC INTEL
+ * LLC, PALADIN INTEL LLC and BEVERAGE INTEL collecting COVID aid. That guard
+ * was never applied to any other connector.
+ *
+ * So NAME splits in two, and WHERE IN THE NAME THE QUERY SITS is the split:
+ *
+ *   NAME      the name BEGINS with the query. "Blackstone Inc.",
+ *             "Blackstone Private Credit Fund", "Blackstone Inc. v. Somebody".
+ *             Filed under the name you asked for.
+ *   CONTAINS  the query is a whole word somewhere else in the name. "Hotel
+ *             Blackstone", "FIC Homes of Blackstone", "Carolyn Bridges v.
+ *             Blackstone, Inc."
+ *
+ * CONTAINS IS NOT NOISE, and that is why it is its own answer rather than
+ * being folded into SUBSTRING. A court caption legitimately carries the party
+ * in the middle — `Carolyn Bridges v. Blackstone, Inc.` is the company, as a
+ * defendant. What CONTAINS means is: THE REGISTER DID NOT FILE THIS UNDER
+ * YOUR SUBJECT'S NAME, so whether it is your subject is a question you have
+ * to answer by opening it, not one the string has answered for you.
+ */
 const NAME = 'NAME';
+const CONTAINS = 'CONTAINS';
 const SUBSTRING = 'SUBSTRING';
 const OTHER = 'OTHER';
 const UNKNOWN = 'UNKNOWN';
+
+/** Leading articles carry no identity and break a head test. */
+function dropArticle(n) {
+  return String(n || '').replace(/^(the|a|an) /, '');
+}
+
+/**
+ * Does this name BEGIN with the query?
+ *
+ * "THE BLACKSTONE GROUP INC." must pass: the article and the corporate
+ * suffixes come off both sides first, leaving "blackstone" against
+ * "blackstone". Without the article strip it normalises to "the blackstone"
+ * and the real company gets demoted below a 1980 hotel.
+ */
+function headName(query, name) {
+  const q = dropArticle(normaliseName(query));
+  const n = dropArticle(normaliseName(name));
+  if (!q || !n) return false;
+  return n === q || n.startsWith(`${q} `);
+}
 
 /**
  * One of NAME | SUBSTRING | OTHER | UNKNOWN.
@@ -139,7 +203,7 @@ function nameVerdict(query, name) {
   const text = String(name || '').trim();
   if (!text) return UNKNOWN;
   if (!String(query || '').trim()) return UNKNOWN;
-  if (namesMatch(query, text)) return NAME;
+  if (namesMatch(query, text)) return headName(query, text) ? NAME : CONTAINS;
   if (tooShortToFilter(query)) return UNKNOWN;
   if (looksLikeSubstringMatch(query, text) || hasBuriedWord(query, text)) return SUBSTRING;
   return OTHER;
@@ -152,7 +216,7 @@ function nameVerdict(query, name) {
  */
 function tally(query, rows, text) {
   const pick = text || ((r) => r.name || r.title || '');
-  const out = { NAME: 0, SUBSTRING: 0, OTHER: 0, UNKNOWN: 0, total: 0 };
+  const out = { NAME: 0, CONTAINS: 0, SUBSTRING: 0, OTHER: 0, UNKNOWN: 0, total: 0 };
   for (const r of rows || []) {
     out[nameVerdict(query, pick(r))] += 1;
     out.total += 1;
@@ -162,7 +226,7 @@ function tally(query, rows, text) {
 
 module.exports = {
   SUFFIX, normaliseName, namesMatch, tooShortToFilter,
-  looksLikeSubstringMatch, hasBuriedWord,
+  looksLikeSubstringMatch, hasBuriedWord, headName, dropArticle,
   nameVerdict, tally,
-  NAME, SUBSTRING, OTHER, UNKNOWN,
+  NAME, CONTAINS, SUBSTRING, OTHER, UNKNOWN,
 };

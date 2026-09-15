@@ -961,8 +961,8 @@ module.exports = function run() {
     check('nor an ordinary exact hit',
       !R.looksLikeSubstringMatch('Meta Platforms', 'META PLATFORMS, INC.'));
 
-    check('the headline counts only rows that NAME the subject',
-      /lead\(s\) that NAME the subject/.test(cliSrc));
+    check('the headline counts only rows FILED UNDER the subject\'s name',
+      /lead\(s\) FILED UNDER the subject's name/.test(cliSrc));
     check('and still reports the noise, because unseen output cannot be audited',
       /match only inside a longer word/.test(cliSrc)
       && /substring, probably not it/.test(cliSrc));
@@ -980,6 +980,40 @@ module.exports = function run() {
       R.nameVerdict('Cologix', 'ECOLOGIX ENVIRONMENTAL SYSTEMS LLC') === 'SUBSTRING');
     check('a real hit is NAME, suffix and punctuation ignored',
       R.nameVerdict('Ntrepid Corporation', 'NTREPID, LLC') === 'NAME');
+
+    // ── WHERE IN THE NAME THE QUERY SITS ───────────────────────────────
+    //
+    // A live `connect all "Blackstone Inc"` reported
+    // `CourtListener 20 · 18 name it`, and the eighteen included a 1980
+    // hotel, a Massachusetts town's Conservation Commission, and a tobacco
+    // complaint against a food mart. Every one passed the whole-word test
+    // legitimately. `awards.js` already had `sameHead` for exactly this and
+    // it had never been applied to any other connector.
+    const BS = 'Blackstone Inc';
+    check('a name that BEGINS with the query is NAME',
+      R.nameVerdict(BS, 'BLACKSTONE INC.') === 'NAME'
+      && R.nameVerdict(BS, 'Blackstone Private Credit Fund, et al.') === 'NAME');
+    check('a leading article does not demote the real company',
+      R.nameVerdict(BS, 'THE BLACKSTONE GROUP INC. — MINDSET ADVOCACY, LLC') === 'NAME');
+    check('a 1980 hotel is CONTAINS, not NAME',
+      R.nameVerdict(BS, 'Hotel Blackstone, Inc. v. Tax Commission') === 'CONTAINS');
+    check('a town body is CONTAINS',
+      R.nameVerdict(BS, 'FIC Homes of Blackstone, Inc. v. Conservation Commission') === 'CONTAINS');
+    check('a food mart is CONTAINS',
+      R.nameVerdict(BS, 'CMP Complaint Issued to ZA Blackstone Inc. d/b/a ZA Food Mart') === 'CONTAINS');
+    check('and a court caption naming the company as a party is CONTAINS too '
+      + '— which is ORDINARY, not noise',
+      R.nameVerdict(BS, 'Carolyn Bridges v. Blackstone, Inc.') === 'CONTAINS');
+    check('but the company as the FIRST-NAMED party is NAME',
+      R.nameVerdict(BS, 'Blackstone Inc. v. Somebody Else') === 'NAME');
+    check('CONTAINS is ranked above the noise, below the filed name',
+      /RANK = \{ NAME: 0, CONTAINS: 1/.test(cliSrc));
+    check('the headline says FILED UNDER, not merely "name"',
+      /lead\(s\) FILED UNDER the subject's name/.test(cliSrc));
+    check('and the date test — the cheapest disqualifier — is printed',
+      /predates the entity/.test(cliSrc));
+    check('CONTAINS is explained as a question to answer, not a verdict',
+      /DID NOT FILE THIS UNDER YOUR/.test(cliSrc));
     check('a query with no stem left says UNKNOWN rather than guessing',
       R.nameVerdict('X Corp', 'RTX CORPORATION') === 'UNKNOWN');
     check('and OTHER is reported as its own number, not folded into either',

@@ -421,15 +421,17 @@ async function cmdAll(query, opts) {
   const countOf = (k) => verdicts.reduce(
     (n, g) => n + g.marked.filter((m) => m.v === k).length, 0);
   const nName = countOf('NAME');
+  const nContains = countOf('CONTAINS');
   const subCount = countOf('SUBSTRING');
   const nOther = countOf('OTHER');
   const nUnknown = countOf('UNKNOWN');
 
   console.log('\n' + C.dim('  ' + '─'.repeat(74)));
-  console.log(`  ${C.b(`${nName} lead(s) that NAME the subject`)} across `
+  console.log(`  ${C.b(`${nName} lead(s) FILED UNDER the subject's name`)} across `
     + `${rows.filter((r) => r.results.length).length} source(s)`
     + C.dim(`  · ${total} row(s) returned`));
   const breakdown = [];
+  if (nContains) breakdown.push(C.y(`${nContains} contain the name somewhere else`));
   if (subCount) breakdown.push(C.y(`${subCount} match only inside a longer word`));
   if (nOther) breakdown.push(C.y(`${nOther} do not name it at all — matched on something else`));
   if (nUnknown) breakdown.push(C.dim(`${nUnknown} cannot be judged`));
@@ -440,12 +442,37 @@ async function cmdAll(query, opts) {
   }
   if (nOther) {
     for (const l of wrap(
-      'A row in the third group was returned by a full-text or docket index, '
+      'A row in the OTHER group was returned by a full-text or docket index, '
       + 'not by a name field. Some of those are the best leads in the run and '
       + 'some are the register answering a different question. The count is '
       + 'here so the number above stops pretending to be all of them.', 70)) {
       console.log(C.dim(`    ${l}`));
     }
+  }
+  // WHERE IN THE NAME THE QUERY SITS.
+  //
+  // `connect all "Blackstone Inc"` reported `CourtListener 20 · 18 name it`,
+  // and the eighteen included `Hotel Blackstone, Inc. v. Tax Commission`
+  // (1980 — five years before The Blackstone Group existed), `FIC Homes of
+  // Blackstone, Inc. v. Conservation Commission` (Blackstone is a town in
+  // Massachusetts and a Conservation Commission is a town body), and a
+  // tobacco complaint against `ZA Blackstone Inc. d/b/a ZA Food Mart`.
+  //
+  // Every one passed the whole-word test legitimately. The string was right
+  // and the headline was still misleading.
+  if (nContains) {
+    for (const l of wrap(
+      'A CONTAINS row carries the name somewhere other than the front. That '
+      + 'is ordinary in a court caption — a company is a party, not the case '
+      + 'name — and it is also how a town, a hotel and a food mart get counted '
+      + 'as a company. It means THE REGISTER DID NOT FILE THIS UNDER YOUR '
+      + 'SUBJECT, so whether it is your subject is a question you answer by '
+      + 'opening it.', 70)) {
+      console.log(C.dim(`    ${l}`));
+    }
+    // The cheapest disqualifier there is, and no code can apply it for you.
+    console.log(C.y('    CHECK THE DATE. A record that predates the entity\'s '
+      + 'founding is not\n    that entity, and that test costs nothing.'));
   }
 
   // Every page-size cap reads as a round number and none of them is a
@@ -457,18 +484,20 @@ async function cmdAll(query, opts) {
   }
   console.log('');
 
-  const RANK = { NAME: 0, OTHER: 1, UNKNOWN: 2, SUBSTRING: 3 };
+  const RANK = { NAME: 0, CONTAINS: 1, OTHER: 2, UNKNOWN: 3, SUBSTRING: 4 };
   const NOTE = {
     SUBSTRING: '← substring, probably not it',
+    CONTAINS: '← name is not at the front — open it',
     OTHER: '← does not name the subject',
     UNKNOWN: '',
   };
   for (const { row: r, marked } of verdicts) {
     if (!r.results.length) continue;
     const per = marked.reduce((a, m) => { a[m.v] += 1; return a; },
-      { NAME: 0, SUBSTRING: 0, OTHER: 0, UNKNOWN: 0 });
+      { NAME: 0, CONTAINS: 0, SUBSTRING: 0, OTHER: 0, UNKNOWN: 0 });
     console.log(`  ${C.b(r.label)}  ${C.dim(`${r.results.length}`)}`
-      + C.dim(`  ${per.NAME} name it`
+      + C.dim(`  ${per.NAME} filed under it`
+        + (per.CONTAINS ? ` · ${per.CONTAINS} contain it` : '')
         + (per.OTHER ? ` · ${per.OTHER} other` : '')
         + (per.SUBSTRING ? ` · ${per.SUBSTRING} substring` : '')));
     // Name matches first, then the rows that matched on something else, then
