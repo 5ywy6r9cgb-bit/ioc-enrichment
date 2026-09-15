@@ -952,16 +952,124 @@ module.exports = function run() {
     check('nor an ordinary exact hit',
       !R.looksLikeSubstringMatch('Meta Platforms', 'META PLATFORMS, INC.'));
 
-    check('the headline excludes substring matches',
-      /const clean = total - subCount;/.test(cliSrc));
-    check('and still reports them, because unseen output cannot be audited',
-      /substring match\(es\), probably not it/.test(cliSrc));
+    check('the headline counts only rows that NAME the subject',
+      /lead\(s\) that NAME the subject/.test(cliSrc));
+    check('and still reports the noise, because unseen output cannot be audited',
+      /match only inside a longer word/.test(cliSrc)
+      && /substring, probably not it/.test(cliSrc));
+    check('and reports the total row count beside it, as a denominator',
+      /\$\{total\} row\(s\) returned/.test(cliSrc));
+
+    // ── THE BUCKET THAT WAS NEVER COUNTED ──────────────────────────────
+    // The old test had two answers, and "does not contain the query at
+    // all" fell into the CLEAN one. `connect all "AXON ENTERPRISE, INC."`
+    // printed `senatelda 25 lead(s)` and nothing anywhere asked how many
+    // of the twenty-five name Axon.
+    check('a row that does not contain the query is OTHER, not clean',
+      R.nameVerdict('AXON ENTERPRISE, INC.', 'TASER INTERNATIONAL INC') === 'OTHER');
+    check('a buried substring is SUBSTRING',
+      R.nameVerdict('Cologix', 'ECOLOGIX ENVIRONMENTAL SYSTEMS LLC') === 'SUBSTRING');
+    check('a real hit is NAME, suffix and punctuation ignored',
+      R.nameVerdict('Ntrepid Corporation', 'NTREPID, LLC') === 'NAME');
+    check('a query with no stem left says UNKNOWN rather than guessing',
+      R.nameVerdict('X Corp', 'RTX CORPORATION') === 'UNKNOWN');
+    check('and OTHER is reported as its own number, not folded into either',
+      /do not name it at all — matched on something else/.test(cliSrc));
+    check('OTHER is not called noise — a full-text index is a real answer',
+      /not by a name field/.test(cliSrc));
+
+    // ONE IMPLEMENTATION. The whole-word test lived only in awards.js, so
+    // ten of eleven connectors ran the weaker one.
+    check('awards and the registry share one name test',
+      require('./awards.js').namesMatch === R.namesMatch);
+    check('and it is the one in namematch.js',
+      require('./namematch.js').namesMatch === R.namesMatch);
     // 20 and 25 are page sizes. Comparing two subjects by lead count is
     // comparing their page sizes.
     check('a full page is named as PAGE SIZE, not a measurement',
       /those counts are `\s*\+\s*`PAGE SIZE/.test(cliSrc) || /PAGE SIZE/.test(cliSrc));
     check('and the reader is told not to compare subjects by it',
       /Do not compare subjects by lead count/.test(cliSrc));
+  }
+
+
+  // ══ A FAN-OUT MUST NOT SEND A NAME TO A CONNECTOR THAT TAKES AN ID ════
+  //
+  // `connect all "MICROSOFT CORPORATION"` spent four calls per subject on
+  // connectors that read identifiers: a 404 from the Federal Register for a
+  // document numbered MICROSOFT CORPORATION, two CourtListener calls against
+  // its fifty-an-hour budget, and fedregtext's host lock thrown as an
+  // uncaught error into the middle of the printed results. Four subjects in
+  // one session is sixteen wasted calls and four stack traces.
+  {
+    const NAME_QUERY = 'MICROSOFT CORPORATION';
+    for (const n of ['fedregdoc', 'fedregtext', 'cldocket', 'clparties']) {
+      const v = R.acceptsSubject(n, NAME_QUERY);
+      check(`${n} refuses a company name before spending a call`, v.ok === false);
+      check(`${n} says what it does want`, /\w/.test(String(v.why || '')));
+    }
+    check('fedregdoc still takes a document number',
+      R.acceptsSubject('fedregdoc', '2026-00512').ok === true);
+    check('cldocket still takes a district docket number',
+      R.acceptsSubject('cldocket', '0:22-cr-00223').ok === true);
+    check('and an appellate one, which carries no court prefix',
+      R.acceptsSubject('cldocket', '26-2234').ok === true);
+    check('clparties still takes a numeric docket id',
+      R.acceptsSubject('clparties', '18693929').ok === true);
+    check('fedregtext still takes one of their own urls',
+      R.acceptsSubject('fedregtext',
+        'https://www.federalregister.gov/documents/full_text/text/2026/01/02/x.txt').ok === true);
+    check('and still refuses anyone else\'s',
+      R.acceptsSubject('fedregtext', 'https://example.com/x.txt').ok === false);
+    check('name-taking connectors are unaffected',
+      R.acceptsSubject('opencorporates', NAME_QUERY).ok === true
+      && R.acceptsSubject('senatelda', NAME_QUERY).ok === true);
+    check('the fan-out reads the guard rather than calling and failing',
+      /R\.acceptsSubject\(c, query\)/.test(cliSrc));
+    check('runConnector refuses a wrong-shaped subject with no call',
+      /wrongShape: true, liveCalls: 0/.test(
+        require('fs').readFileSync(require('path')
+          .join(__dirname, 'registry.js'), 'utf8')));
+  }
+
+
+  // ══ THE SAME BYTES ARE ONE PIECE OF EVIDENCE, NOT FIVE ════════════════
+  //
+  // Five `connect fedreg 2026-00512 --grep …` runs made TEN live calls and
+  // wrote FIVE byte-identical metadata captures, all hashing
+  // 6f54b85c4c74a176…, and five ledger lines describing them.
+  {
+    const regSrc = require('fs').readFileSync(
+      require('path').join(__dirname, 'registry.js'), 'utf8');
+    check('runConnector can reuse a capture already held',
+      /if \(opts\.reuse\)/.test(regSrc) && typeof R.heldCaptures === 'function');
+    check('and reuse reports zero live calls rather than claiming one',
+      /ok: true, reused: true, liveCalls: 0/.test(regSrc));
+    check('identical bytes do not get a second file',
+      /if \(duplicateOf\) capturePath = duplicateOf;/.test(regSrc));
+    check('but the call that was made is still recorded — the opposite lie',
+      /duplicate_of_existing_capture/.test(regSrc));
+    check('reuse is opt-in, not the default for searches',
+      !/reuse: true/.test(regSrc));
+    check('fedreg opts in, because a published document does not change',
+      /const reuse = !opts\.fresh;/.test(cliSrc));
+    check('--fresh forces the call',
+      /fresh: argv\.includes\('--fresh'\)/.test(cliSrc));
+    check('and the run says what it cost',
+      /live calls this run/.test(cliSrc));
+
+    // heldCaptures must not confuse two documents whose slugs share a prefix.
+    const os = require('os'); const fsx = require('fs'); const px = require('path');
+    const tmp = fsx.mkdtempSync(px.join(os.tmpdir(), 'sentinel-held-'));
+    fsx.writeFileSync(px.join(tmp, 'live_capture_fedregdoc_2026_00512_A.json'), '{}');
+    fsx.writeFileSync(px.join(tmp, 'live_capture_fedregdoc_2026_005121_A.json'), '{}');
+    fsx.writeFileSync(px.join(tmp, 'live_capture_fedregtext_2026_00512_A.json'), '{}');
+    const held = R.heldCaptures('fedregdoc', '2026-00512', { captureDir: tmp });
+    check('heldCaptures matches one connector and one slug exactly',
+      held.length === 1 && /_2026_00512_A\.json$/.test(held[0].path));
+    check('an empty or missing directory is an empty list, not a throw',
+      R.heldCaptures('fedregdoc', 'x', { captureDir: px.join(tmp, 'nope') }).length === 0);
+    fsx.rmSync(tmp, { recursive: true, force: true });
   }
 
 

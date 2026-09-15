@@ -196,52 +196,21 @@ function isRawFpds(description) {
  * Suffixes come off both sides. They carry no identity: the same operation
  * files as Corporation in one state and LLC in another, which is exactly
  * what the OpenCorporates run showed for Ntrepid across fifteen states.
- */
-const SUFFIX = /\b(corporation|corp|company|co|incorporated|inc|llc|l\.l\.c|lp|llp|plc|ltd|limited|pllc|pc|pa|sa|nv|gmbh|holdings|group)\b/g;
-
-function normaliseName(v) {
-  return String(v || '')
-    .toLowerCase()
-    .replace(/[^a-z0-9 ]+/g, ' ')
-    .replace(SUFFIX, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-/**
- * Whole-word presence of the query inside a recipient name.
  *
- * WORD, not substring. "Ntrepid" is not a word in "intrepid llc" — it is
- * the tail of one, and that namesake holds $441m of Defense awards which
- * sort to the top of a list ordered by amount.
+ * ─────────────────────────────────────────────────────────────────────────
+ * MOVED OUT, ON PURPOSE.
+ *
+ * This logic used to live here and ONLY here, which meant `connect awards`
+ * could tell INTREPID LLC from Ntrepid and the other ten connectors could
+ * not. It now lives in `namematch.js` and is imported by the whole register
+ * layer, so the same test governs OpenCorporates, Senate LDA,
+ * Regulations.gov, CourtListener and the Federal Register. Re-exported below
+ * so every existing caller and test keeps working against one implementation.
+ * ─────────────────────────────────────────────────────────────────────────
  */
-function namesMatch(query, name) {
-  const q = normaliseName(query);
-  const n = normaliseName(name);
-  if (!q || !n) return false;
+const NM = require('./namematch.js');
 
-  // A QUERY THAT SHRINKS TO ALMOST NOTHING MUST NOT MATCH ALMOST ANYTHING.
-  //
-  // "X Corp" normalises to "x" once the suffix comes off. A one- or
-  // two-character token matches on sight, and the live X Corp run shows
-  // what the register does with that name: RTX CORPORATION at $8.69bn,
-  // $7.91bn, $7.50bn and $4.87bn, XEROX, XERION, and CONDUENT EDUCATION
-  // SOLUTIONS at $2.25bn — the last of which the substring guard did not
-  // even flag.
-  //
-  // So a short stem demands the WHOLE normalised name, not a word inside
-  // it. "X Corp" then matches "X Corp." and "X CORP (FORMERLY TWITTER,
-  // INC.)" and nothing else — and the operator is told the query was too
-  // short to filter rather than handed a billion-dollar namesake.
-  if (q.length <= 2) return q === n;
-
-  return q.split(/\s+/).every((w) => new RegExp(`(^| )${w}( |$)`).test(n));
-}
-
-/** True when a name has no distinguishing stem left after suffix removal. */
-function tooShortToFilter(query) {
-  return normaliseName(query).length <= 2;
-}
+const { SUFFIX, normaliseName, namesMatch, tooShortToFilter } = NM;
 
 /**
  * ─────────────────────────────────────────────────────────────────────

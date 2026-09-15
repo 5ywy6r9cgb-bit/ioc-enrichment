@@ -325,12 +325,19 @@ async function cmdAll(query, opts) {
     const c = R.CONNECTORS[name];
     if (opts.only && !opts.only.includes(name)) continue;
     if (opts.skip && opts.skip.includes(name)) { skipped.push([name, 'skipped by --skip']); continue; }
-    // Some connectors do not take a name. BLS wants a series id; asking it
-    // about a company spends a call to learn nothing.
-    if (c.freeText === false) {
-      skipped.push([name, 'takes an identifier, not a name — query it directly']);
-      continue;
-    }
+    // SOME CONNECTORS DO NOT TAKE A NAME, AND FOUR OF THEM WERE NOT SAYING SO.
+    //
+    // BLS declared `freeText: false` and was skipped with a reason. The four
+    // document-and-docket readers declared nothing, so every `connect all` on
+    // a company name spent four calls learning that no Federal Register
+    // document is numbered "MICROSOFT CORPORATION" and no docket is called
+    // "PALANTIR TECHNOLOGIES, INC." — and `fedregtext`'s host lock threw a
+    // stack trace into the middle of the results, which reads as a crash.
+    //
+    // Four subjects in one session: sixteen wasted calls, two of them against
+    // CourtListener's fifty-an-hour budget, and four stack traces.
+    const shape = R.acceptsSubject(c, query);
+    if (!shape.ok) { skipped.push([name, shape.why]); continue; }
     const key = c.keyVar ? (env[c.keyVar] || (c.keyVarAlt ? env[c.keyVarAlt] : '') || '') : '';
     if (c.keyRequired && !key) { skipped.push([name, `${c.keyVar} not set`]); continue; }
     runnable.push(name);
@@ -392,13 +399,54 @@ async function cmdAll(query, opts) {
   //
   // A bare "Ntrepid" run did the same: $441m to INTREPID LLC and five NHTSA
   // airbag dockets about the Dodge Intrepid, all counted in the headline.
-  const subCount = rows.reduce((n, r) => n + r.results.filter(
-    (h) => R.looksLikeSubstringMatch(query, h.name || h.title || '')).length, 0);
-  const clean = total - subCount;
+  //
+  // AND THEN THE HALF NOBODY WAS COUNTING AT ALL.
+  //
+  // The old test had two answers: "contains the query somewhere inside a
+  // longer word" (noise) and everything else (clean). Everything else
+  // includes rows that do not contain the query ANYWHERE. A live
+  // `connect all "AXON ENTERPRISE, INC."` printed `senatelda 25 lead(s)` and
+  // not one line asked how many of the twenty-five name Axon.
+  //
+  // Three buckets now, and the third is the honest one: a row the register
+  // returned for a reason it has not told us. It is not noise — a Federal
+  // Register document can discuss a company in its body and never in its
+  // title — and it is not a name match either. It is a row you have to OPEN.
+  const verdicts = rows.map((r) => ({
+    row: r,
+    marked: r.results.map((hit) => ({
+      hit, v: R.nameVerdict(query, hit.name || hit.title || ''),
+    })),
+  }));
+  const countOf = (k) => verdicts.reduce(
+    (n, g) => n + g.marked.filter((m) => m.v === k).length, 0);
+  const nName = countOf('NAME');
+  const subCount = countOf('SUBSTRING');
+  const nOther = countOf('OTHER');
+  const nUnknown = countOf('UNKNOWN');
+
   console.log('\n' + C.dim('  ' + '─'.repeat(74)));
-  console.log(`  ${C.b(`${clean} candidate lead(s)`)} across `
+  console.log(`  ${C.b(`${nName} lead(s) that NAME the subject`)} across `
     + `${rows.filter((r) => r.results.length).length} source(s)`
-    + (subCount ? `  ${C.y(`+ ${subCount} substring match(es), probably not it`)}` : ''));
+    + C.dim(`  · ${total} row(s) returned`));
+  const breakdown = [];
+  if (subCount) breakdown.push(C.y(`${subCount} match only inside a longer word`));
+  if (nOther) breakdown.push(C.y(`${nOther} do not name it at all — matched on something else`));
+  if (nUnknown) breakdown.push(C.dim(`${nUnknown} cannot be judged`));
+  if (breakdown.length) console.log(`    ${breakdown.join(C.dim(' · '))}`);
+  if (R.tooShortToFilter(query)) {
+    console.log(C.y(`    "${query}" has no distinguishing stem once the corporate suffix `
+      + `comes off.\n    Nothing below is filtered. Add a word.`));
+  }
+  if (nOther) {
+    for (const l of wrap(
+      'A row in the third group was returned by a full-text or docket index, '
+      + 'not by a name field. Some of those are the best leads in the run and '
+      + 'some are the register answering a different question. The count is '
+      + 'here so the number above stops pretending to be all of them.', 70)) {
+      console.log(C.dim(`    ${l}`));
+    }
+  }
 
   // Every page-size cap reads as a round number and none of them is a
   // measurement. Two subjects with "25" are not comparable.
@@ -409,25 +457,34 @@ async function cmdAll(query, opts) {
   }
   console.log('');
 
-  for (const r of rows) {
+  const RANK = { NAME: 0, OTHER: 1, UNKNOWN: 2, SUBSTRING: 3 };
+  const NOTE = {
+    SUBSTRING: '← substring, probably not it',
+    OTHER: '← does not name the subject',
+    UNKNOWN: '',
+  };
+  for (const { row: r, marked } of verdicts) {
     if (!r.results.length) continue;
-    console.log(`  ${C.b(r.label)}  ${C.dim(`${r.results.length}`)}`);
-    // Clean matches first. A substring hit is real output and is never
-    // dropped — you cannot audit what you never saw — but it should not sit
-    // above the thing you were actually looking for.
-    const marked = r.results.map((hit) => ({
-      hit, sub: R.looksLikeSubstringMatch(query, hit.name || hit.title || ''),
-    }));
-    marked.sort((a, b) => (a.sub === b.sub ? 0 : a.sub ? 1 : -1));
-    const nSub = marked.filter((m) => m.sub).length;
+    const per = marked.reduce((a, m) => { a[m.v] += 1; return a; },
+      { NAME: 0, SUBSTRING: 0, OTHER: 0, UNKNOWN: 0 });
+    console.log(`  ${C.b(r.label)}  ${C.dim(`${r.results.length}`)}`
+      + C.dim(`  ${per.NAME} name it`
+        + (per.OTHER ? ` · ${per.OTHER} other` : '')
+        + (per.SUBSTRING ? ` · ${per.SUBSTRING} substring` : '')));
+    // Name matches first, then the rows that matched on something else, then
+    // the buried-substring noise. Nothing is dropped — you cannot audit what
+    // you never saw — but the order is the judgement, made visibly.
+    marked.sort((a, b) => RANK[a.v] - RANK[b.v]);
+    const nSub = per.SUBSTRING;
 
-    for (const { hit, sub } of marked.slice(0, opts.verbose ? 999 : 5)) {
+    for (const { hit, v } of marked.slice(0, opts.verbose ? 999 : 5)) {
+      const sub = v === 'SUBSTRING';
       const line = hit.name || hit.title || hit.external_id || '(unnamed)';
       const extra = [hit.jurisdiction, hit.amount, hit.agency, hit.incorporated, hit.date]
         .filter(Boolean).join(' · ');
       const text = String(line).slice(0, 62);
-      console.log(sub ? C.dim(`    ${text}   ← substring, probably not it`)
-                      : `    ${text}`);
+      console.log(v === 'NAME' ? `    ${text}`
+        : C.dim(`    ${text}${NOTE[v] ? `   ${NOTE[v]}` : ''}`));
       if (extra) console.log(C.dim(`      ${extra.slice(0, 68)}`));
       // WHAT THE CONTRACT WAS FOR.
       //
@@ -452,7 +509,7 @@ async function cmdAll(query, opts) {
       // "(ECOLOGIX for Cologix)", so a search for "meta" reported its own
       // flagged hits against an example from a different subject entirely —
       // which reads as a bug in the tool rather than a note about the results.
-      const example = marked.find((m) => m.sub);
+      const example = marked.find((m) => m.v === 'SUBSTRING');
       const exName = example && (example.hit.name || example.hit.title || '');
       console.log(C.dim(`    ${nSub} of ${marked.length} match only inside a longer word`
         + (exName ? ` (${String(exName).slice(0, 34)} for "${query}")` : '')
@@ -1794,7 +1851,19 @@ async function cmdFedReg(num, opts = {}) {
   console.log(`\n  ${C.b(clean)}  ${C.dim('Federal Register — reading one document')}`);
   if (opts.dryRun) { console.log(C.dim('\n  DRY RUN — nothing requested.\n')); return; }
 
-  const out = await R.runConnector('fedregdoc', clean, {});
+  // A PUBLISHED DOCUMENT DOES NOT CHANGE, SO DO NOT BUY IT TWICE.
+  //
+  // Five `--grep` runs against 2026-00512 made TEN live calls and wrote FIVE
+  // byte-identical metadata captures, every one hashing 6f54b85c4c74a176….
+  // Nothing about the fifth answered a question the first had not.
+  //
+  // This is the one command in the toolkit where reuse is safe, and the
+  // reason is specific: it reads ONE document, identified by its own
+  // permanent number, that the Federal Register has already published. A
+  // search is different and none of them reuse anything. `--fresh` forces the
+  // call when you want to prove the document has not been corrected.
+  const reuse = !opts.fresh;
+  const out = await R.runConnector('fedregdoc', clean, { reuse });
   if (!out.ok) {
     console.error(`\n  ${C.r(out.error)} — nothing written.`);
     if (out.status === 404) {
@@ -1808,8 +1877,13 @@ async function cmdFedReg(num, opts = {}) {
     return;
   }
   const d = out.results[0];
+  let liveCalls = out.reused ? 0 : 1;
   console.log(C.dim(`  capture   ${out.capturePath}`));
   console.log(C.dim(`  sha256    ${out.captureHash}`));
+  if (out.reused) {
+    console.log(C.g(`  held      already on disk since ${String(out.heldSince).slice(0, 19)}`
+      + ` — 0 calls made`) + C.dim('  (--fresh to re-fetch)'));
+  }
 
   console.log(`\n  ${C.b(d.name)}`);
   const row = (k, v) => { if (v) console.log(`    ${k.padEnd(16)}${v}`); };
@@ -1841,10 +1915,12 @@ async function cmdFedReg(num, opts = {}) {
   // ---- the text, if asked for -------------------------------------------
   if ((opts.grep || opts.text) && d.raw_text) {
     // Named for the DOCUMENT, not for the URL it was fetched from.
-    const t = await R.runConnector('fedregtext', d.raw_text, { slug: `FR_${clean}_text` });
+    const t = await R.runConnector('fedregtext', d.raw_text,
+      { slug: `FR_${clean}_text`, reuse });
     if (!t.ok) {
       console.log(`\n  ${C.r('text fetch failed:')} ${t.error}`);
     } else {
+      if (!t.reused) liveCalls += 1;
       // The raw_text_url returns the text WRAPPED IN HTML — <html><head>,
       // a <pre> block, and <a href> anchors around every citation URL. The
       // footnote that resolved 2026-00596 arrived as 180 characters of
@@ -1860,7 +1936,8 @@ async function cmdFedReg(num, opts = {}) {
         .replace(/&nbsp;/g, ' ')
         .split(/\r?\n/);
       console.log(`\n  ${C.b('Document text')}  `
-        + C.dim(`${lines.length} lines · sha256 ${t.captureHash.slice(0, 16)}…`));
+        + C.dim(`${lines.length} lines · sha256 ${t.captureHash.slice(0, 16)}…`)
+        + (t.reused ? C.g('  · held, 0 calls') : ''));
       console.log(C.dim(`    ${t.capturePath}`));
 
       if (opts.grep) {
@@ -1916,6 +1993,13 @@ async function cmdFedReg(num, opts = {}) {
       }
     }
   }
+
+  // WHAT THIS RUN COST, SAID OUT LOUD.
+  //
+  // The desk announces its calls before it makes them everywhere else. This
+  // command did not, which is how ten calls hid behind five commands.
+  console.log(`\n  ${C.dim(`live calls this run: ${liveCalls}`)}`
+    + (liveCalls === 0 ? C.g('  — everything came off disk') : ''));
 
   console.log(`\n  ${C.y('AN ABSTRACT IS NOT THE DOCUMENT.')}`);
   for (const l of wrap(
@@ -4105,6 +4189,10 @@ async function main() {
       grep: flagVal(argv, '--grep'),
       text: argv.includes('--text'),
       limit: flagNum(argv, '--limit'),
+      // Re-fetch instead of reading the capture already held. Use it when the
+      // question is "has this document been corrected since I pulled it",
+      // which is the only question a held copy cannot answer.
+      fresh: argv.includes('--fresh'),
       dryRun: opts.dryRun,
     });
   }
@@ -4318,4 +4406,4 @@ if (require.main === module) {
   main().catch((e) => { console.error(e); process.exit(1); });
 }
 
-module.exports = { verdictFor, cmdTest, wrap, parseAllArgs, cmdLobby, cmdGraph, cmdRegistrant, cmdExpand, cmdSweep, cmdBrief, flagVal, flagNum, subjectFrom, resolveCommittee, fecRetryable, fecError, fecFetcher };
+module.exports = { verdictFor, cmdTest, wrap, parseAllArgs, cmdAll, cmdFedReg, cmdLobby, cmdGraph, cmdRegistrant, cmdExpand, cmdSweep, cmdBrief, flagVal, flagNum, subjectFrom, resolveCommittee, fecRetryable, fecError, fecFetcher };

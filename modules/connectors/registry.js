@@ -416,22 +416,82 @@ function explainHttpError(res) {
  * The test is deliberately narrow: the query appears in the name, but not at a
  * word boundary. "COLOGIX, INC." keeps a clean match; "ECOLOGIX" does not.
  */
-function looksLikeSubstringMatch(query, name) {
-  if (!query || !name) return false;
-  const q = String(query).toLowerCase().trim();
-  const n = String(name).toLowerCase();
-  // Minimum 2, not 4. The first version skipped queries under four characters
-  // on the theory that short queries match everything — which is exactly
-  // backwards. A live search for "AWS" returned twenty-five DAWSON companies,
-  // $248m of Department of Agriculture money among them, and flagged none of
-  // them, because "aws" is three characters. The shorter the query, the more
-  // substring noise it draws and the more the flag is needed.
-  if (q.length < 2) return false;
-  if (!n.includes(q)) return false;        // no match at all is not this problem
+// ONE IMPLEMENTATION, NOT TWO.
+//
+// The whole-word/suffix-stripped test lived in `awards.js`, so exactly one
+// connector could tell INTREPID LLC from Ntrepid. It now lives in
+// `namematch.js` and every connector reads the same answer. `nameVerdict`
+// adds the third bucket this test never had: a row that does not contain the
+// query AT ALL, which used to be counted as a clean lead.
+const NM = require('./namematch.js');
+const { looksLikeSubstringMatch, nameVerdict, namesMatch, normaliseName,
+        tooShortToFilter, tally } = NM;
 
-  // A word-boundary occurrence anywhere means it is a real name match.
-  const bounded = new RegExp(`(^|[^a-z0-9])${q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^a-z0-9]|$)`);
-  return !bounded.test(n);
+/**
+ * Does this string look like a court docket number rather than a name?
+ *
+ * Docket numbers are digits, colons and hyphens with at most a short case
+ * code: `0:22-cr-00223`, `1:18-cr-00633`, `2:20-cv-13134`, `26-2234`. The
+ * discriminator is that they contain no WORD — no run of four or more
+ * letters. "MICROSOFT CORPORATION" fails on the first token.
+ */
+function isDocketNumber(q) {
+  const s = String(q || '').trim();
+  if (!s) return false;
+  if (!/[0-9]/.test(s)) return false;
+  if (/[a-z]{4,}/i.test(s)) return false;
+  return /^[0-9a-z:.\-\s]+$/i.test(s);
+}
+
+/**
+ * Will this connector accept this subject at all?
+ *
+ * Returns `{ ok: true }` or `{ ok: false, why }`. Connectors that take free
+ * text declare nothing and always pass. The four that take identifiers —
+ * `fedregdoc`, `fedregtext`, `cldocket`, `clparties` — declare `accepts` and
+ * `wants`, so a fan-out can skip them with a reason INSTEAD OF SPENDING THE
+ * CALL AND PRINTING A 404.
+ */
+function acceptsSubject(connectorOrName, query) {
+  const c = typeof connectorOrName === 'string' ? CONNECTORS[connectorOrName] : connectorOrName;
+  if (!c) return { ok: false, why: 'unknown connector' };
+  if (c.freeText === false) {
+    return { ok: false, why: c.wants || 'takes an identifier, not a name — query it directly' };
+  }
+  if (typeof c.accepts === 'function' && !c.accepts(query)) {
+    return { ok: false, why: `needs ${c.wants || 'a different kind of input'}` };
+  }
+  return { ok: true };
+}
+
+/**
+ * Captures already on disk for one connector and slug, newest first.
+ *
+ * THE LEDGER SHOULD NOT GROW BY FIVE LINES WHEN NOTHING NEW ARRIVED.
+ *
+ * Five `connect fedreg 2026-00512 --grep …` runs made ten live calls and
+ * wrote five byte-identical metadata captures — all hashing
+ * 6f54b85c4c74a176… — and five ledger lines describing them. The bytes were
+ * already held after the first call. A published Federal Register document
+ * does not change, so re-fetching it buys nothing and spends a rate limit
+ * that CourtListener, at fifty calls an hour, cannot afford to waste.
+ */
+function heldCaptures(name, slug, opts = {}) {
+  const dir = opts.captureDir
+    || path.join(opts.evidenceRoot || EVIDENCE, 'captures');
+  const prefix = `live_capture_${name}_${String(slug).replace(/[^A-Za-z0-9]+/g, '_').slice(0, 60)}_`;
+  let files = [];
+  try { files = fs.readdirSync(dir); } catch (e) { return []; }
+  return files
+    .filter((f) => f.startsWith(prefix) && f.endsWith('.json'))
+    .map((f) => {
+      const p = path.join(dir, f);
+      let st = null;
+      try { st = fs.statSync(p); } catch (e) { return null; }
+      return { path: p, mtime: st.mtimeMs, size: st.size };
+    })
+    .filter(Boolean)
+    .sort((a, b) => b.mtime - a.mtime);
 }
 
 // ---------------------------------------------------------------- registry
@@ -931,6 +991,18 @@ const CONNECTORS = {
     keyVar: null,
     keyRequired: false,
     calls: 1,
+    // A DOCUMENT NUMBER IS NOT A COMPANY NAME.
+    //
+    // `connect all "MICROSOFT CORPORATION"` fanned out to twelve connectors,
+    // and four of them take identifiers. The run spent a call asking for a
+    // Federal Register document literally numbered "MICROSOFT CORPORATION"
+    // (404), two CourtListener calls against a docket of that name, and then
+    // threw a stack trace out of fedregtext's host guard — into the middle of
+    // the results. Four wasted calls per subject, and the last one looked
+    // like the tool had crashed. `bls` already declared it takes an
+    // identifier and was skipped with a reason; these four did not.
+    accepts: (q) => /^[0-9]{4}-[0-9]{3,6}$/.test(String(q).trim()),
+    wants: 'a document number like 2026-00512, not a name',
     describe: (q) => `GET https://www.federalregister.gov/api/v1/documents/${q}.json`,
     probe: () => ({
       method: 'GET',
@@ -993,6 +1065,11 @@ const CONNECTORS = {
     keyVar: null,
     keyRequired: false,
     calls: 1,
+    // Same guard as the host lock inside `run`, declared where the fan-out
+    // can read it BEFORE the call. The lock is right to throw; a fan-out that
+    // makes it throw is the defect.
+    accepts: (q) => /^https:\/\/www\.federalregister\.gov\//.test(String(q).trim()),
+    wants: 'a federalregister.gov raw_text_url, which `connect fedreg` supplies',
     describe: (q) => `GET ${q}`,
     probe: () => ({
       method: 'GET',
@@ -1033,6 +1110,11 @@ const CONNECTORS = {
     minIntervalMs: 13000,
     keyRequired: false,
     calls: 1,
+    // A docket number carries digits and at most a two- or three-letter case
+    // code: 0:22-cr-00223, 1:18-cr-00633, 2:20-cv-13134, 26-2234. It never
+    // contains a word. "MICROSOFT CORPORATION" does, which is the whole test.
+    accepts: (q) => isDocketNumber(q),
+    wants: 'a docket number like 0:22-cr-00223, not a party name',
     describe: (q) => `GET https://www.courtlistener.com/api/rest/v4/dockets/?docket_number=${q}`,
     probe: (key) => ({
       method: 'GET',
@@ -1075,6 +1157,10 @@ const CONNECTORS = {
     minIntervalMs: 13000,
     keyRequired: false,
     calls: 1,
+    // A CourtListener internal docket id. Digits only, and it comes out of
+    // `cldocket` — there is no way to guess one from a name.
+    accepts: (q) => /^[0-9]+$/.test(String(q).trim()),
+    wants: 'a numeric CourtListener docket id, which `cldocket` returns',
     describe: (q) => `GET https://www.courtlistener.com/api/rest/v4/parties/?docket=${q}`,
     probe: (key) => ({
       method: 'GET',
@@ -1198,6 +1284,15 @@ async function runConnector(name, query, opts = {}) {
     return { ok: false, error: `${names} is not set`, keyMissing: true, results: [] };
   }
 
+  // The shape guard, before anything is spent. `connect all "MICROSOFT
+  // CORPORATION"` used to send a company name to four connectors that take
+  // identifiers; one of them answered 404 and one threw its host lock as an
+  // uncaught error into the middle of the results.
+  const shape = acceptsSubject(c, query);
+  if (!shape.ok) {
+    return { ok: false, error: shape.why, wrongShape: true, liveCalls: 0, results: [] };
+  }
+
   const spec = c.run(query, key, {
     mode: opts.mode,
     page: opts.page,
@@ -1208,6 +1303,40 @@ async function runConnector(name, query, opts = {}) {
 
   if (opts.dryRun) {
     return { ok: true, dryRun: true, announced: c.describe(query), url: spec.url, results: [] };
+  }
+
+  // ---- reuse what is already held -------------------------------------
+  //
+  // OPT-IN, AND ONLY FOR IMMUTABLE DOCUMENTS. A search result changes; a
+  // published Federal Register document does not. `connect fedreg` passes
+  // `reuse` because it reads ONE identified, already-published document by
+  // number, and `--fresh` turns it off. No search command passes it, because
+  // serving yesterday's search as today's would be the same class of defect
+  // as everything else in this file: an answer about the tool mistaken for an
+  // answer about the world.
+  if (opts.reuse) {
+    const held = heldCaptures(name, opts.slug || query, opts)[0];
+    if (held) {
+      let body = null;
+      try { body = fs.readFileSync(held.path); } catch (e) { body = null; }
+      if (body && body.length) {
+        let results = [];
+        let parseError = null;
+        try { results = c.parse(JSON.parse(body.toString('utf8'))); }
+        catch (e) { parseError = e.message; }
+        if (!parseError) {
+          return {
+            ok: true, reused: true, liveCalls: 0,
+            capturePath: held.path,
+            captureHash: P.sha256Bytes(body),
+            heldSince: new Date(held.mtime).toISOString(),
+            results, record: null,
+          };
+        }
+        // An unparseable held capture is not a capture to serve. Fall through
+        // and make the call.
+      }
+    }
   }
 
   // ---- capture ---------------------------------------------------------
@@ -1245,11 +1374,32 @@ async function runConnector(name, query, opts = {}) {
   // indistinguishable by filename, in a directory whose entire purpose is
   // telling you what you are holding.
   const slug = String(opts.slug || query).replace(/[^A-Za-z0-9]+/g, '_').slice(0, 60);
-  const capturePath = path.join(captureDir, `live_capture_${name}_${slug}_${stamp}.json`);
-  fs.writeFileSync(capturePath, res.body);
+  let capturePath = path.join(captureDir, `live_capture_${name}_${slug}_${stamp}.json`);
 
   // ---- hash BEFORE anything is derived from these bytes ----------------
   const captureHash = P.sha256Bytes(res.body);
+
+  // ONE SET OF BYTES, ONE FILE.
+  //
+  // The vault addresses by hash. Writing the same bytes a second time under a
+  // second timestamp does not create a second piece of evidence — it creates
+  // a second NAME for one piece, and a directory where two files that look
+  // like two documents are one. Five identical `fedregdoc` captures for
+  // 2026-00512 is what prompted this.
+  //
+  // The LEDGER LINE IS STILL WRITTEN. The call happened; a rate limit was
+  // spent; an audit chain that hides a request that was made is lying in the
+  // opposite direction. The line records the call and says which held file
+  // the bytes already were.
+  let duplicateOf = null;
+  for (const held of heldCaptures(name, slug, { captureDir })) {
+    if (held.size !== res.body.length) continue;
+    let bytes = null;
+    try { bytes = fs.readFileSync(held.path); } catch (e) { continue; }
+    if (P.sha256Bytes(bytes) === captureHash) { duplicateOf = held.path; break; }
+  }
+  if (duplicateOf) capturePath = duplicateOf;
+  else fs.writeFileSync(capturePath, res.body);
 
   let results = [];
   let parseError = null;
@@ -1285,6 +1435,11 @@ async function runConnector(name, query, opts = {}) {
       page: opts.page || 1,
       http_status: res.status,
       live_calls: 1,
+      // Set when the response was byte-identical to a capture already held.
+      // The call was made and is recorded as made; no second file was
+      // written. `prov verify` therefore sees two ledger lines against one
+      // sha256 and one path, which is the truth of what happened.
+      duplicate_of_existing_capture: duplicateOf ? path.basename(duplicateOf) : null,
       result_count: results.length,
       // The field that stops a hit becoming a fact.
       result_disposition: 'lead_needs_primary_source',
@@ -1293,7 +1448,8 @@ async function runConnector(name, query, opts = {}) {
   });
   ledger.append(record);
 
-  return { ok: true, status: res.status, capturePath, captureHash, results, parseError, record };
+  return { ok: true, status: res.status, capturePath, captureHash, results, parseError, record,
+           liveCalls: 1, duplicateOf };
 }
 
 
@@ -1422,6 +1578,8 @@ function recordCapture({ connector, subject, url, body, tool, extra = {},
 
 module.exports = { phrase,
   explainHttpError, looksLikeSubstringMatch,
+  nameVerdict, namesMatch, normaliseName, tooShortToFilter, tally,
+  acceptsSubject, heldCaptures,
   checkKeyShape, KEY_SHAPES,
   stripAuth, AUTH_HEADERS, MAX_REDIRECTS,
   CONNECTORS, VERSION, EVIDENCE, CAPTURES, LEDGER, resolveKey, retryAfterMs, pace,
