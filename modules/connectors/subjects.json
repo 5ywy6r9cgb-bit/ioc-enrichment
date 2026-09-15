@@ -1,5 +1,5 @@
 {
-  "//": "Named subject sets for `sentinel connect sweep <set>`. Edit this file as you learn names — every abatement agreement and utility filing names the actual contracting entity, and that name is the one worth searching. A subject here is a SEARCH STRING, not a claim that the entity is involved in anything.",
+  "//": "Named subject sets for `sentinel connect sweep <set>`. Edit this file as you learn names \u2014 every abatement agreement and utility filing names the actual contracting entity, and that name is the one worth searching. A subject here is a SEARCH STRING, not a claim that the entity is involved in anything.",
   "datacenters": {
     "into": "datacenters",
     "note": "Operators and the single-purpose entities they file under.",
@@ -99,7 +99,7 @@
   },
   "surveillance_platforms": {
     "into": "surveillance-platforms",
-    "note": "Platform companies as ENTITIES. These were written as 'Meta Platforms law enforcement' — an entity glued to a concept — which the phrase fix then sent as one exact quoted string that appears in no document, so the sweep returned nothing and the nothing looked like an answer. A subject must be a NAME. The concept belongs in which register you ask, not in the query.",
+    "note": "Platform companies as ENTITIES. These were written as 'Meta Platforms law enforcement' \u2014 an entity glued to a concept \u2014 which the phrase fix then sent as one exact quoted string that appears in no document, so the sweep returned nothing and the nothing looked like an answer. A subject must be a NAME. The concept belongs in which register you ask, not in the query.",
     "subjects": [
       "Meta Platforms",
       "ByteDance",
@@ -148,7 +148,7 @@
   },
   "outside_oh_senate": {
     "into": "oh-senate-2026",
-    "note": "Committees that spent independently at the Ohio Senate seat, cycle 2026. Support and opposition are listed together because the SET is the subject — which committees showed up at all — and separating them here would bake a side into the search. $19.1m moved at this seat against $476k into the candidate's own account: OUTSIDE PRESSURE 40.19x. NOTE: 'The Sentinel Action Fund' is an unrelated national super PAC and has nothing to do with this desk.",
+    "note": "Committees that spent independently at the Ohio Senate seat, cycle 2026. Support and opposition are listed together because the SET is the subject \u2014 which committees showed up at all \u2014 and separating them here would bake a side into the search. $19.1m moved at this seat against $476k into the candidate's own account: OUTSIDE PRESSURE 40.19x. NOTE: 'The Sentinel Action Fund' is an unrelated national super PAC and has nothing to do with this desk.",
     "subjects": [
       "Americans for Prosperity Action",
       "WinSenate",
@@ -168,7 +168,7 @@
   },
   "outside_oh_house": {
     "into": "oh-house-2024",
-    "note": "Committees spending independently at Ohio House seats, cycle 2024, and the candidate-adjacent vehicles beside them. A victory fund is the member's own joint committee, not an outside group — it is here to be recognised, not conflated.",
+    "note": "Committees spending independently at Ohio House seats, cycle 2024, and the candidate-adjacent vehicles beside them. A victory fund is the member's own joint committee, not an outside group \u2014 it is here to be recognised, not conflated.",
     "subjects": [
       "Jobs & Prosperity PAC",
       "MAHA Alliance",
@@ -182,7 +182,7 @@
   },
   "single_target_pacs": {
     "into": "single-target",
-    "note": "Committees found spending against ONE named member. Concentration is a measured fact and not intent — see `connect asymmetry`. United for Common Sense is here as the counter-example: 94.9% of its money went against a different candidate entirely, so it is NOT single-target and the set exists partly to keep that visible.",
+    "note": "Committees found spending against ONE named member. Concentration is a measured fact and not intent \u2014 see `connect asymmetry`. United for Common Sense is here as the counter-example: 94.9% of its money went against a different candidate entirely, so it is NOT single-target and the set exists partly to keep that visible.",
     "subjects": [
       "Citizens Against AIPAC Corruption",
       "United for Common Sense",
@@ -203,7 +203,7 @@
   },
   "persona_management": {
     "into": "persona-management",
-    "note": "The documented precedent for automated persona operations, and the platforms they run on. HBGARY FEDERAL's 2011 breach put 'persona management' proposals into the public record, and NTREPID held a US CENTCOM contract for online persona management — that one is federal CONTRACTING, so usaspending can speak to it. Everything here is an entity name. NONE of it is evidence that any platform operates a bot farm: platforms publish takedown reports about third-party networks, which is the opposite claim.",
+    "note": "The documented precedent for automated persona operations, and the platforms they run on. HBGARY FEDERAL's 2011 breach put 'persona management' proposals into the public record, and NTREPID held a US CENTCOM contract for online persona management \u2014 that one is federal CONTRACTING, so usaspending can speak to it. Everything here is an entity name. NONE of it is evidence that any platform operates a bot farm: platforms publish takedown reports about third-party networks, which is the opposite claim.",
     "subjects": [
       "HBGary Federal",
       "HBGary",
@@ -218,7 +218,7 @@
   },
   "intel_newalbany": {
     "into": "intel-new-albany",
-    "note": "The Licking County semiconductor and data-centre build, by ENTITY NAME. The federal hooks are real and few: CHIPS money is a federal AWARD, so usaspending can speak to it; the companies lobby, so senatelda can; and large-load interconnection is a FERC matter. Everything else about this story — the parcels, the abatements, the tax-increment financing, the water and the tariff — is COUNTY and STATE and appears in no register queried here. An empty federal answer about a land deal is a fact about the register, not about the deal.",
+    "note": "The Licking County semiconductor and data-centre build, by ENTITY NAME. The federal hooks are real and few: CHIPS money is a federal AWARD, so usaspending can speak to it; the companies lobby, so senatelda can; and large-load interconnection is a FERC matter. Everything else about this story \u2014 the parcels, the abatements, the tax-increment financing, the water and the tariff \u2014 is COUNTY and STATE and appears in no register queried here. An empty federal answer about a land deal is a fact about the register, not about the deal.",
     "subjects": [
       "Intel Corporation",
       "Intel Federal",
@@ -235,7 +235,7 @@
   },
   "bot_economy": {
     "into": "bot-economy",
-    "note": "THE ANSWER TO \"do data centres have a connection to bot farms\" is: not the one the phrase implies. A hyperscale campus is where ad INVENTORY is manufactured and where fraud is DETECTED — not where the bots live. Datacenter-originated traffic is, by industry definition, the marker used to CLASSIFY traffic as non-human, which is why fraud rings rent cloud capacity and why the platforms publish datacenter IP lists to exclude it. The three groups here are the three sides of that trade and they are not the same: firms PAID TO MEASURE fraud, platforms that SELL the inventory, and vendors that BUILD synthetic personas. None of these names is alleged to operate a bot farm.",
+    "note": "THE ANSWER TO \"do data centres have a connection to bot farms\" is: not the one the phrase implies. A hyperscale campus is where ad INVENTORY is manufactured and where fraud is DETECTED \u2014 not where the bots live. Datacenter-originated traffic is, by industry definition, the marker used to CLASSIFY traffic as non-human, which is why fraud rings rent cloud capacity and why the platforms publish datacenter IP lists to exclude it. The three groups here are the three sides of that trade and they are not the same: firms PAID TO MEASURE fraud, platforms that SELL the inventory, and vendors that BUILD synthetic personas. None of these names is alleged to operate a bot farm.",
     "subjects": [
       "Integral Ad Science",
       "DoubleVerify",
@@ -255,7 +255,7 @@
   },
   "message_buyers": {
     "into": "message-buyers",
-    "note": "WHO THE FEDERAL GOVERNMENT PAYS TO DISTRIBUTE A MESSAGE. This is not a covert register — it is appropriated money, competed and published, and that is exactly why it is useful: it establishes that algorithmic reach is a line item with a price. The live Google run found U.S. Agency for Global Media paying $803,070 across 24 awards for Google and YouTube advertising for VOA language services (account 113-548-8374 is printed in the contract text), State Department $239,158 to MARKET TO PUBLIC DIPLOMACY PROGRAMS AND PRODUCTS, and FDA $206,454 for GOOGLE ADWORDS CAMPAIGNS tagged IGF::CT::IGF — the contracting officer classifying ad buying as a CRITICAL function. Consensus-building with a federal appropriation behind it, bought through the same auction as everything else.",
+    "note": "WHO THE FEDERAL GOVERNMENT PAYS TO DISTRIBUTE A MESSAGE. This is not a covert register \u2014 it is appropriated money, competed and published, and that is exactly why it is useful: it establishes that algorithmic reach is a line item with a price. The live Google run found U.S. Agency for Global Media paying $803,070 across 24 awards for Google and YouTube advertising for VOA language services (account 113-548-8374 is printed in the contract text), State Department $239,158 to MARKET TO PUBLIC DIPLOMACY PROGRAMS AND PRODUCTS, and FDA $206,454 for GOOGLE ADWORDS CAMPAIGNS tagged IGF::CT::IGF \u2014 the contracting officer classifying ad buying as a CRITICAL function. Consensus-building with a federal appropriation behind it, bought through the same auction as everything else.",
     "subjects": [
       "Google LLC",
       "Meta Platforms",
@@ -272,7 +272,7 @@
   },
   "election_record": {
     "into": "election-record",
-    "note": "THE ADJUDICATED RECORD OF THE 2020 ELECTION CLAIMS. This set exists because \"election fraud\" is the exact shape of query that returns confident wrong answers — the Zhukov/Methbot/Devumi run got 3 of 4 wrong. The fix is to stop searching for a conclusion and start reading DOCKETS. These are the parties to litigation that actually produced findings of fact. A court ruling on falsity is evidence of a different and much stronger kind than a news report, because it survived discovery and cross-examination. DENOMINATOR RULE APPLIES HARDEST HERE: documented individual voter-fraud prosecutions do exist, and a count of them means nothing without the number of ballots cast beside it.",
+    "note": "THE ADJUDICATED RECORD OF THE 2020 ELECTION CLAIMS. This set exists because \"election fraud\" is the exact shape of query that returns confident wrong answers \u2014 the Zhukov/Methbot/Devumi run got 3 of 4 wrong. The fix is to stop searching for a conclusion and start reading DOCKETS. These are the parties to litigation that actually produced findings of fact. A court ruling on falsity is evidence of a different and much stronger kind than a news report, because it survived discovery and cross-examination. DENOMINATOR RULE APPLIES HARDEST HERE: documented individual voter-fraud prosecutions do exist, and a count of them means nothing without the number of ballots cast beside it.",
     "subjects": [
       "US Dominion Voting Systems",
       "Dominion Voting Systems",
@@ -304,7 +304,7 @@
   },
   "minnesota_fraud": {
     "into": "minnesota-fraud",
-    "note": "FEEDING OUR FUTURE AND THE MINNESOTA PROGRAM PROSECUTIONS. The fraud here is REAL, CHARGED AND IN LARGE PART CONVICTED — the largest pandemic-relief prosecution in the country, roughly 70 defendants in D. Minn., and a juror in the first trial was offered a bag of cash. None of that is in dispute and none of it needs a viral video to establish it. What a viral video adds is a FRAME, and the frame is the part to check separately: a federal indictment names defendants, amounts and programs, and it does not name a community. Read the docket for what was charged; read the Legislative Auditor for what oversight failed; treat any claim that outruns both as a claim.",
+    "note": "FEEDING OUR FUTURE AND THE MINNESOTA PROGRAM PROSECUTIONS. The fraud here is REAL, CHARGED AND IN LARGE PART CONVICTED \u2014 the largest pandemic-relief prosecution in the country, roughly 70 defendants in D. Minn., and a juror in the first trial was offered a bag of cash. None of that is in dispute and none of it needs a viral video to establish it. What a viral video adds is a FRAME, and the frame is the part to check separately: a federal indictment names defendants, amounts and programs, and it does not name a community. Read the docket for what was charged; read the Legislative Auditor for what oversight failed; treat any claim that outruns both as a claim.",
     "subjects": [
       "Feeding Our Future",
       "Aimee Bock",
@@ -351,6 +351,54 @@
       "Global Infrastructure Partners",
       "Digital Realty Trust",
       "Equinix"
+    ]
+  },
+  "gambling": {
+    "into": "gambling",
+    "note": "WHO IS PAID TO MAKE SPORTS BETTING LEGAL AND UBIQUITOUS. This is one of the best-documented lobbying stories available, because the legalisation of sports betting is a STATE-BY-STATE legislative record with a federal lobbying layer on top of it, and the operators are publicly traded, so their risk disclosures are filed under oath. THE QUESTION IS NOT 'is gambling bad'. It is: who spent what, to change which rule, in what order, and what did the harm data do afterwards. The harm side has a real denominator that is almost never printed beside the revenue: problem-gambling helpline call volumes, published by state councils, and the National Council on Problem Gambling. A revenue figure without a helpline figure beside it is half a story. NOTE THE REGISTER BOUNDARY: state legislative lobbying is NOT in the Senate LDA and appears nowhere in this toolkit - it is filed with each state's legislative ethics or lobbying office, fifty separate registers.",
+    "subjects": [
+      "DraftKings",
+      "FanDuel",
+      "Flutter Entertainment",
+      "BetMGM",
+      "Caesars Entertainment",
+      "Penn Entertainment",
+      "ESPN BET",
+      "Light and Wonder",
+      "American Gaming Association",
+      "International Game Technology",
+      "Bally's Corporation",
+      "Rush Street Interactive"
+    ]
+  },
+  "prediction_markets": {
+    "into": "prediction-markets",
+    "note": "EVENT CONTRACTS, AND THE REGULATOR THAT DECIDES WHETHER THEY ARE GAMBLING. Polymarket and Kalshi are the live edge of this and the argument is ALREADY IN A FEDERAL RECORD rather than in anyone's opinion: the CFTC regulates event contracts, it has rulemaking dockets on them, and Kalshi litigated the question against the CFTC in federal court. THAT LITIGATION IS THE STORY - it is a documented dispute about whether a prediction market is a derivative or a bet, decided by a judge on a record you can read. 'connect regulationsgov' reaches CFTC comment dockets and 'connect docket' reaches the case. Read the RULEMAKING and the OPINION, not the marketing. AND THE DISTINCTION THAT MATTERS ON SCREEN: a platform being legal is not the same as a platform being harmless, and a platform being addictive is a CLINICAL claim that needs clinical evidence, not a screenshot of an app. The harm denominator that is almost never printed beside a revenue figure: problem-gambling helpline volumes, published by state councils and by the National Council on Problem Gambling.",
+    "subjects": [
+      "Kalshi",
+      "KalshiEX",
+      "Polymarket",
+      "Commodity Futures Trading Commission",
+      "Interactive Brokers",
+      "Crypto.com",
+      "Robinhood Markets",
+      "PredictIt"
+    ]
+  },
+  "foreign_media": {
+    "into": "foreign-media",
+    "note": "MEDIA ENTITIES THAT ARE REGISTERED FOREIGN AGENTS. READ THE METHOD NOTE BEFORE USING THIS SET. The defensible question is REGISTER-FIRST: which media organisations have actually filed under FARA as agents of a foreign principal? That is a closed, published list and reporting it is ordinary journalism. The indefensible question is NAME-FIRST: picking a journalist whose views you dislike and searching for foreign money. That is motivated reasoning with a named living target, it is how defamation happens, and this desk has already published thirteen names off a bad field once. Every name in this set is an ORGANISATION that is a matter of public record in the FARA register or in US government broadcasting - NOT a person, and NOT an allegation about any individual's funding. THERE IS NO FARA CONNECTOR IN THIS TOOLKIT, so this set is answered by senatelda, opencorporates, courtlistener and usaspending only; the FARA register itself is a manual lookup at justice.gov/nsd-fara.",
+    "subjects": [
+      "RT America",
+      "TV Novosti",
+      "China Global Television Network",
+      "China Daily Distribution Corporation",
+      "Xinhua News Agency",
+      "Korea Broadcasting System",
+      "Al Jazeera International",
+      "US Agency for Global Media",
+      "Radio Free Europe Radio Liberty",
+      "Voice of America"
     ]
   }
 }

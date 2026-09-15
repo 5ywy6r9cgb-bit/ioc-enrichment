@@ -148,6 +148,24 @@ THEMES: dict[str, dict[str, tuple[int, int, int]]] = {
         "footer_bg": (18, 22, 28),
         "footer_fg": (200, 206, 214),
     },
+    # BRIGHT. Same roles, same contrast discipline, a whiter ground and more
+    # saturated accents — for a card that has to survive a phone screen in
+    # daylight and a compressed Facebook re-encode. The ink stays near-black
+    # and the rule stays visible, so nothing gets lost when the platform
+    # crushes the midtones.
+    "sentinel_bright": {
+        "paper":     (250, 250, 248),
+        "paperwhite": (255, 255, 255),
+        "ink":       (12, 16, 22),
+        "accent":    (198, 32, 32),
+        "green":     (17, 122, 80),
+        "muted":     (110, 120, 136),
+        "rule":      (206, 212, 220),
+        "cyan":      (10, 132, 148),
+        "gold":      (186, 132, 20),
+        "footer_bg": (12, 16, 22),
+        "footer_fg": (232, 236, 242),
+    },
     "sentinel_dark": {
         "paper":     (18, 22, 28),
         "paperwhite": (252, 252, 250),
@@ -164,7 +182,8 @@ THEMES: dict[str, dict[str, tuple[int, int, int]]] = {
 }
 
 THEME_ALIASES = {"light": "sentinel_light", "dark": "sentinel_dark",
-                 "broadsheet": "sentinel_light", "slate": "sentinel_dark"}
+                 "broadsheet": "sentinel_light", "slate": "sentinel_dark",
+                 "bright": "sentinel_bright"}
 
 # Older specs say "red" and "grey". Both still resolve, by design — a spec
 # written for the previous engine must keep building.

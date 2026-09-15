@@ -22,6 +22,8 @@
 #   sentinel pra mail fetch         read replies, log them against requests
 #   sentinel shots --spec EP.json   every picture the build will demand
 #   sentinel cards --edges F.csv    evidence cards drawn from SOURCED edges
+#   sentinel redact --check DIR     PUBLICATION GATE: nothing about the machine
+#                                   leaves it. Exits 3 on a leak.
 #   sentinel montage ...            openmontage video engine
 #   sentinel vuln ...               atlas CVE prioritization
 #   sentinel desk                   open the research desk in a browser
@@ -276,6 +278,9 @@ PYSTATUS
     echo "== edges, explain, challenge =="
     node "$ROOT/modules/connectors/test_edges.js" || FAILED=1
     echo ""
+    echo "== publication gate =="
+    python3 "$ROOT/scripts/test_redact.py" || FAILED=1
+    echo ""
     [ "$FAILED" = "0" ] && bold "All present suites passed." || bold "One or more suites FAILED."
     exit "$FAILED"
     ;;
@@ -330,6 +335,12 @@ PYSTATUS
   # fonts already on the machine.
   cards)
     python3 "$ROOT/modules/openmontage/engine/cards.py" "$@"
+    ;;
+
+  # NOTHING ABOUT THE MACHINE LEAVES THE MACHINE. A gate, not advice:
+  # --check exits 3, so it can sit in front of a publish step and stop it.
+  redact)
+    python3 "$ROOT/scripts/redact.py" "$@"
     ;;
 
   vuln)
