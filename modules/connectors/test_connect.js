@@ -333,11 +333,20 @@ module.exports = function run() {
     check('BLS declares it does not take free text',
       R.CONNECTORS.bls.freeText === false);
     check('and the fan-out skips it with a reason',
-      /takes an identifier, not a name/.test(cli));
+      /skipped\.push\(\[name, shape\.why\]\)/.test(cli)
+      && /takes an identifier, not a name/.test(
+        require('fs').readFileSync(require('path').join(__dirname, 'registry.js'), 'utf8')));
+    // Every connector must have an OPINION about a company name — either it
+    // takes one, or it declares what it takes instead. Silence is how four of
+    // them got asked for a Federal Register document numbered MICROSOFT
+    // CORPORATION.
     for (const [name, c] of Object.entries(R.CONNECTORS)) {
-      if (name === 'bls') continue;
-      check(`${name} accepts a name query`, c.freeText !== false);
+      const v = R.acceptsSubject(name, 'MICROSOFT CORPORATION');
+      check(`${name} either takes a name or says what it takes`,
+        v.ok === true || (v.why && v.why.length > 10));
     }
+    check('a sweep counts its calls with the same guard the fan-out uses',
+      /R\.acceptsSubject\(c, set\.subjects\[0\]/.test(cli));
 
     check('the leads boundary is restated on the fan-out too',
       /LEADS, not findings/.test(cli));

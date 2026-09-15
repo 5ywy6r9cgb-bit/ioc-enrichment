@@ -3921,8 +3921,21 @@ async function cmdSweep(setName, opts) {
   const runnable = [];
   const skipped = [];
   for (const [name, c] of Object.entries(R.CONNECTORS)) {
-    if (c.freeText === false) { skipped.push([name, 'takes an identifier, not a name']); continue; }
     if (c.keyRequired && !R.resolveKey(c, env)) { skipped.push([name, `${c.keyVar} not set`]); continue; }
+    // THE SAME GUARD `connect all` USES, AND THE REASON IT MATTERS MORE HERE.
+    //
+    // This counted only `freeText === false`, so the four connectors that
+    // read document and docket IDENTIFIERS were announced as runnable and
+    // then spent, once per subject. A fourteen-subject sweep therefore
+    // announced and made FIFTY-SIX calls that could not succeed — twenty-eight
+    // of them against CourtListener, whose budget is fifty an hour.
+    //
+    // Every subject in a set is a NAME, so the guard is evaluated once
+    // against a representative subject rather than per row: the answer is the
+    // same for all of them and the announced total has to be a number, not a
+    // range.
+    const shape = R.acceptsSubject(c, set.subjects[0] || 'NAME');
+    if (!shape.ok) { skipped.push([name, shape.why]); continue; }
     runnable.push(name);
   }
   const perSubject = runnable.length;
@@ -3955,8 +3968,12 @@ async function cmdSweep(setName, opts) {
     await cmdAll(sub, { into: set.into });
   }
   console.log(`\n  ${C.g('Sweep complete.')} ${C.dim('Fold it in with:')}`);
-  console.log(C.dim('    sentinel connect crosslink'));
-  console.log(C.dim('    sentinel connect graph --push\n'));
+  console.log(C.dim('    sentinel connect crosslink            names in more than one place'));
+  console.log(C.dim('    sentinel connect nexus                names crossing two DOMAINS,'));
+  console.log(C.dim('                                          graded, with a denominator'));
+  console.log(C.dim(`    sentinel connect nexus --side ${setName}`));
+  console.log(C.dim('    sentinel connect nexus --gaps         what no command here reaches'));
+  console.log(C.dim('\n  A sweep of ONE set cannot produce a bridge. Sweep a second.\n'));
 }
 
 /**

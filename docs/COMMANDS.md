@@ -1,5 +1,5 @@
 # SENTINEL — COMPLETE COMMAND INVENTORY
-**Every exposed verb. Verified by running it. 2026-09-12.**
+**Every exposed verb. Verified by running it. 2026-09-15.**
 
 Each entry is marked:
 
@@ -13,14 +13,47 @@ as redirection and it has killed a paste twice.
 
 ---
 
-## 1. `connect` — the register layer · 24 verbs
+## 1. `connect` — the register layer · 25 verbs
 
 ### Meta
 | ✅ | `connect test` | every connector, key shape, live probe |
 | ✅ | `connect list` | subject sets |
 | ✅ | `connect brief` | the day's digest |
-| ✅ | `connect crosslink` | entities in more than one source |
+| ✅ | `connect crosslink` | entities in more than one **source** |
+| ✅ | `connect nexus` | entities crossing two **DOMAINS** — graded, with a denominator |
 | ⚠️ | `connect graph --push` | Neo4j — **password still a placeholder** |
+
+### `connect nexus` — built 2026-09-15, and the one to read before publishing
+
+`crosslink` finds a name in two SOURCES. Two data-centre operators under two
+data-centre searches satisfy that and mean nothing. `nexus` asks whether a
+name crosses two **domains** — the data-centre side against the lobbying side,
+the energy side, a federal award, a court docket.
+
+| ✅ | `connect nexus` | every bridge, strongest evidence first |
+| ✅ | `connect nexus --ohio` | the data-centre, land and influence domains together |
+| ✅ | `connect nexus --side datacenters --side lobbying` | bridges BETWEEN two |
+| ✅ | `connect nexus --side lobbying` | every bridge TOUCHING one — **a different question** |
+| ✅ | `connect nexus --asserted` | **drop everything resting on a search index** |
+| ✅ | `connect nexus --require senatelda` | only bridges a sworn filing carries |
+| ✅ | `connect nexus --gaps` | **the joins nothing here can reach, and who holds each** |
+| ✅ | `connect nexus --out F.csv --dot F.dot` | CSV keeps the denominator; dot encodes the grade |
+
+**Three grades, and a bridge takes the WEAKER of its two sides.**
+`ASSERTED` somebody swore to it — an LDA filing, a federal award, a docket ·
+`REGISTRY` the entity exists as filed · `CO-OCCURRENCE` two names in one
+document, **which is never a finding on its own.**
+
+**Every row carries how many entities cross the same pair.** "AEP Ohio bridges
+energy and lobbying" is not a finding if ninety entities do — that is what a
+regulated utility *is*.
+
+**Two domains reached by ONE search is not a bridge.** `subjects.json` files
+"AEP Ohio" under energy, ratepayers and intel_newalbany, so one award used to
+produce three "bridges" that were nothing but the subject file's own filing
+system read back. A bridge now needs an independent sighting on each side.
+
+**`--gaps` is the most useful output in the command.** See `docs/OHIO_NEXUS.md`.
 
 ### Search
 | ✅ | `connect all "NAME"` | 8 connectors, one subject |
@@ -41,11 +74,18 @@ as redirection and it has killed a paste twice.
 | ✅ | `connect fedreg 2026-00596` | metadata + the agency's abstract |
 | ✅ | `connect fedreg 2025-19928 --text --limit 200` | **full text — Presidential documents carry NO abstract** |
 | ✅ | `connect fedreg 2026-00596 --grep "Minnesota"` | **WHY did a search match** — occurrences with context, or NOT PRESENT |
+| ✅ | `connect fedreg 2026-00512 --grep "x" --fresh` | force the call · **without it, a held capture is reused and the run costs 0** |
 | ✅ | `connect docket "0:20-cv-02312"` | caption as the **court** keeps it |
 | ✅ | `connect docket "0:22-cr-00223" --court mnd --limit 8` | **party table BY ROLE** |
 
 **`--grep` is the only command here that can KILL a lead.** It is what
 resolved §83 and it is worth more than most of what finds things.
+
+**It is also now free to repeat.** Five greps against one document used to
+make ten live calls and write five byte-identical captures. A published
+Federal Register document does not change, so the metadata and text are read
+off disk and the run prints `live calls this run: 0`. `--fresh` re-fetches,
+which is the only way to ask whether a document has since been corrected.
 
 ### Money
 | ✅ | `connect awards "NAME" --all --pages 15` | 5 instrument families |
@@ -166,6 +206,10 @@ The script now shelves full text as **PRIMARY (full text)** and metadata as
 
 | **Meta Ad Library** | ❌ | the only register that answers *"who paid for the post you saw"* |
 | **FCC Public Inspection File** | ❌ | broadcast political buys by station |
+| **DOL OLMS (LM-2/LM-3/LM-4)** | ❌ | **NOTHING HERE TOUCHES LABOUR.** `bls` takes a series id and returns a statistic. Until this exists the honest sentence about unions is "we have not looked" |
+| **Ohio officeholders, any office below Congress** | ❌ | FEC is FEDERAL candidates only. Ohio SoS campaign finance · **Ohio Ethics Commission Form A** · county boards |
+| **PUCO docketing system (DIS)** | ❌ | the ratepayer/large-load tariff fight is litigated there and nowhere else |
+| **Licking County Auditor & Recorder** | ❌ | parcels, prices, dates — **free, online, nobody has to grant it, still not pulled** |
 | **`reconcile.js`** | ❌ CLI | built, 36 tests passing, **no verb wired** — the $91,631 gap |
 | **USDA FNS SNAP error rates** | ❌ | not a connector · **one manual lookup, highest value left** |
 | Ohio SoS 1191466 / 1604865 | 🚫 | by hand |
@@ -175,13 +219,24 @@ The script now shelves full text as **PRIMARY (full text)** and metadata as
 
 ---
 
+## 8. FIXED 2026-09-15 — and what each one had been costing
+
+| **A name sent to four ID connectors** | `connect all "MICROSOFT CORPORATION"` asked the Federal Register for a document numbered MICROSOFT CORPORATION, made two CourtListener calls against a fifty-an-hour budget, and threw `fedregtext`'s host lock as a **stack trace into the middle of the results**. Four subjects in one session: **16 wasted calls, 4 tracebacks.** A 14-subject sweep announced and spent **56**. All four now declare what they take. |
+| **One document bought five times** | Five `--grep` runs = **ten calls, five identical captures, five ledger lines.** Now: reuse on disk, one file per set of bytes, and the ledger line still records the call that was made — because hiding a request is the opposite lie. |
+| **A bucket nobody counted** | The substring test had two answers, so a row that did not contain the query **at all** counted as a clean lead. `senatelda 25 lead(s)` and nothing asked how many named the subject. Three answers now, and the headline is the NAME count with the total beside it. |
+| **One name test, not two** | The whole-word/suffix-stripped test lived only in `awards.js`. Ten of eleven connectors ran the weaker one. Now in `namematch.js`, read by all of them. |
+| **A taxonomy artefact printed as a discovery** | Caught in `nexus` before it shipped: one award filed under three subject sets produced three "bridges" between those sets. A bridge now needs an independent sighting on each side. |
+
+---
+
 ## THE RULE
 
-**Eleven defects, one shape: the question's shape mistaken for a fact about
+**Sixteen defects, one shape: the question's shape mistaken for a fact about
 the world.** A DNS failure read as absence. A contracts-only filter read as
 no CHIPS money. A page cap read as four awards when there were forty-six. An
 opinions index read as "the courts." A truncated party sample read as a
-caption. **Metadata shelved as a document.**
+caption. **Metadata shelved as a document.** A connector's input format read
+as a 404. **A subject file's own filing system read as a connection.**
 
 **Before any command here produces a sentence you say out loud: ask what that
 command could not have seen.**
