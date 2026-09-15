@@ -675,6 +675,205 @@ function cmdMatrix(opts = {}) {
   console.log('');
 }
 
+/**
+ * connect nexus — WHERE TWO DOMAINS TOUCH, AND ON WHOSE WORD.
+ *
+ * `crosslink` answers "which names appear under more than one subject".
+ * Two data-centre operators under two data-centre searches satisfy that and
+ * mean nothing — they were both data-centre searches.
+ *
+ * This asks the question that was actually put: which names appear on the
+ * DATA-CENTRE side of the library AND on the LOBBYING side, or in a federal
+ * award, or in litigation. A subject set is a domain; a name in two domains
+ * had to get there twice, through two different registers asking two
+ * different questions.
+ *
+ * Every row carries the grade of the WEAKER of its two sides and the number
+ * of other entities crossing the same pair, because "AEP Ohio bridges energy
+ * and lobbying" is not a finding if ninety entities do.
+ *
+ * And it prints the joins it CANNOT make, with the office that holds each,
+ * because the Ohio story lives almost entirely in county and state records
+ * that no command in this toolkit can reach — and a tool that reports only
+ * what it found teaches the reader that is where the connections are.
+ */
+function cmdNexus(opts = {}) {
+  const X = require('./crosslink.js');
+  const N = require('./nexus.js');
+  const fs = require('fs');
+  const path = require('path');
+  const subjects = require('./subjects.json');
+  const dir = path.join(R.EVIDENCE, 'captures');
+  const captures = opts.captures || X.readCaptures(dir);
+
+  console.log(`\n  ${C.b('NEXUS')}  ${C.dim('— entities that bridge two domains · no network call')}`);
+
+  if (opts.gaps) return nexusGaps();
+
+  if (!captures.length) {
+    console.log(`\n  ${C.dim('No captures yet. There is nothing to bridge.')}`);
+    console.log(C.dim('    sentinel connect sweep datacenters --go'));
+    console.log(C.dim('    sentinel connect sweep lobbying --go\n'));
+    return nexusGaps();
+  }
+
+  const built = N.build(captures, subjects);
+  const cov = N.coverage(built, subjects);
+  const bs = N.bridges(built, {
+    sides: opts.sides || [],
+    require: opts.require,
+    minGrade: opts.minGrade,
+    grade: opts.grade,
+  });
+
+  console.log(C.dim(`  ${captures.length} capture(s) · ${built.entities.length} entit(ies) · `
+    + `${cov.rows.length} domain(s) with anything in them`));
+
+  // ---- coverage, BEFORE any result -------------------------------------
+  //
+  // A bridge that is not there because the search was never run looks exactly
+  // like a bridge that is not there. The only defence is saying which domains
+  // are populated before showing what crosses between them.
+  console.log(`\n  ${C.b('WHAT THE LIBRARY ACTUALLY HOLDS')}`);
+  for (const r of cov.rows.slice(0, 14)) {
+    console.log(`    ${r.domain.padEnd(24)}${String(r.entities).padStart(5)} entit(ies)  `
+      + C.dim(r.connectors.join(' ')));
+  }
+  if (cov.empty.length) {
+    console.log(C.y(`\n    EMPTY: ${cov.empty.join(', ')}`));
+    for (const l of wrap(
+      'Those sets have been defined and never swept. Nothing can bridge to a '
+      + 'domain with nothing in it, so a missing connection to any of them is '
+      + 'a fact about this library and not about the world.', 68)) {
+      console.log(C.dim(`    ${l}`));
+    }
+  }
+
+  // ---- the pair table --------------------------------------------------
+  const pairs = N.pairTable(bs);
+  if (pairs.length) {
+    console.log(`\n  ${C.b('DOMAIN PAIRS')}  ${C.dim('rarest first — the count IS the denominator')}`);
+    for (const p of pairs.slice(0, 12)) {
+      const g = Object.entries(p.grades)
+        .sort((a, b) => N.GRADE_RANK[b[0]] - N.GRADE_RANK[a[0]])
+        .map(([k, v]) => `${v} ${k.toLowerCase()}`).join(', ');
+      console.log(`    ${String(p.count).padStart(4)}  ${p.pair.padEnd(40)} ${C.dim(g)}`);
+    }
+    if (pairs.length > 12) console.log(C.dim(`    …and ${pairs.length - 12} more pairs`));
+  }
+
+  // ---- the bridges, grouped by entity ----------------------------------
+  //
+  // One row per PAIR is the right unit for filtering and for the
+  // denominator, and the wrong unit for reading: a company in four domains
+  // generates six pairs and printed as six near-identical blocks. Grouped by
+  // entity, with every pair listed under it and the sighting that carried
+  // each side.
+  const byEntity = new Map();
+  for (const b of bs) {
+    if (!byEntity.has(b.key)) byEntity.set(b.key, { name: b.name, rows: [] });
+    byEntity.get(b.key).rows.push(b);
+  }
+  const groups = [...byEntity.values()];
+  const top = groups.slice(0, opts.limit || 20);
+  console.log(`\n  ${C.b(`${groups.length} ENTIT(IES) BRIDGE SOMETHING`)}`
+    + C.dim(`  ${bs.length} pair(s) · strongest evidence first, then rarest pair`));
+  if (!bs.length) {
+    for (const l of wrap(
+      'Nothing crosses. With this library that is a statement about which '
+      + 'sweeps have been run, not about whether the companies are connected. '
+      + 'Sweep a second domain before reading anything into it.', 68)) {
+      console.log(C.dim(`    ${l}`));
+    }
+  }
+  console.log('');
+  for (const g of top) {
+    const best = g.rows[0];
+    const badge = best.grade === 'ASSERTED' ? C.g('ASSERTED')
+      : (best.grade === 'REGISTRY' ? C.y('REGISTRY') : C.dim('CO-OCCURRENCE'));
+    console.log(`  ${C.b(g.name)}  ${badge}`);
+    for (const b of g.rows.slice(0, 6)) {
+      console.log(C.dim(`    ${b.pair.padEnd(42)}`
+        + `${b.pairPopulation} entit${b.pairPopulation === 1 ? 'y' : 'ies'} cross this pair`
+        + (b.grade === best.grade ? '' : `  [${b.grade}]`)));
+    }
+    if (g.rows.length > 6) console.log(C.dim(`    …and ${g.rows.length - 6} more pair(s)`));
+    // The sightings, once per entity — this is the "how do we know" line.
+    const sight = new Map();
+    for (const b of g.rows) {
+      for (const d of [b.a, b.b]) {
+        if (!sight.has(d)) sight.set(d, b.sides[d]);
+      }
+    }
+    for (const [d, s] of sight) {
+      console.log(C.dim(`      ${d.padEnd(22)} ${s.connectors.join(' ')}`
+        + `  via ${s.subjects.slice(0, 3).join(', ')}`));
+    }
+    if (best.grade === 'CO-OCCURRENCE') {
+      for (const l of wrap('Every side here is a search index. Two names in one '
+        + 'document is not a relationship. Open the document before this is '
+        + 'anything at all.', 64)) console.log(C.dim(`      ${l}`));
+    }
+    console.log('');
+  }
+  if (groups.length > top.length) {
+    console.log(C.dim(`  …and ${groups.length - top.length} more entit(ies)`
+      + (opts.out ? ' in the csv' : ' — add --limit or --out nexus.csv')));
+  }
+
+  // ---- write -----------------------------------------------------------
+  if (opts.out) {
+    fs.writeFileSync(opts.out, N.toCsv(bs));
+    console.log(C.dim(`\n  written  ${opts.out}  (${bs.length} row(s))`));
+  }
+  if (opts.dot) {
+    fs.writeFileSync(opts.dot, N.toDot(bs, { limit: opts.limit || 200 }));
+    console.log(C.dim(`  written  ${opts.dot}`));
+    console.log(C.dim(`           dot -Tsvg ${opts.dot} -o nexus.svg`));
+    console.log(C.dim('           Graphviz, not Neo4j — `connect graph --push` still '
+      + 'has a placeholder password.'));
+  }
+
+  // ---- the rule --------------------------------------------------------
+  console.log(`\n  ${C.y('A BRIDGE IS NOT A RELATIONSHIP.')}`);
+  for (const l of wrap(
+    'The grade on each row is the WEAKER of its two sides, because a chain is '
+    + 'only as strong as the link that has to hold. ASSERTED means somebody '
+    + 'swore to it — a Senate LDA filing, a federal award, a court docket. '
+    + 'CO-OCCURRENCE means two names were in one document, which is the '
+    + 'weakest thing this desk produces and is never a finding on its own.',
+    68)) console.log(C.dim(`    ${l}`));
+
+  console.log(`\n  ${C.y('AND RARITY IS MEASURED AGAINST WHAT YOU ASKED.')}`);
+  for (const l of wrap(
+    `This library holds ${built.entities.length} entities across `
+    + `${cov.rows.length} domains. A narrow library ranks ordinary `
+    + `relationships as rare. Widen it before trusting the order: `
+    + `sentinel connect sweep SET --go, then run this again.`,
+    68)) console.log(C.dim(`    ${l}`));
+
+  nexusGaps();
+}
+
+/** The joins no command here can make, and the office that holds each. */
+function nexusGaps() {
+  const N = require('./nexus.js');
+  console.log(`\n  ${C.b('WHAT THIS COMMAND CANNOT REACH')}  `
+    + C.dim('— and who holds it'));
+  for (const l of wrap(
+    'This list does not depend on what was captured. It is static on purpose: '
+    + 'an absence produced by a missing connector must never be reported as an '
+    + 'absence in the world.', 70)) console.log(C.dim(`    ${l}`));
+  console.log('');
+  for (const g of N.UNREACHABLE) {
+    console.log(`  ${C.y(g.join)}`);
+    for (const l of wrap(g.why, 66)) console.log(C.dim(`      ${l}`));
+    for (const l of wrap(`REGISTER: ${g.register}`, 66)) console.log(`      ${l}`);
+    for (const l of wrap(g.how, 66)) console.log(C.dim(`      ${l}`));
+    console.log('');
+  }
+}
+
 function cmdCrosslink(opts) {
   const X = require('./crosslink.js');
   const dir = require('path').join(R.EVIDENCE, 'captures');
@@ -4080,6 +4279,34 @@ async function main() {
   if (action === 'test') return cmdTest();
   if (action === 'list') return cmdList();
   if (action === 'crosslink') return cmdCrosslink({ verbose: argv.includes('--verbose') });
+  if (action === 'nexus') {
+    // --side may be given twice: `--side datacenters --side lobbying` asks for
+    // bridges BETWEEN those two. Given once it asks for every bridge touching
+    // that one. Those are different questions and the flag should not have to
+    // guess which you meant.
+    const sides = [];
+    argv.forEach((a, i) => {
+      if (a === '--side' && argv[i + 1] && !argv[i + 1].startsWith('--')) sides.push(argv[i + 1]);
+      else if (a.startsWith('--side=')) sides.push(a.slice('--side='.length));
+    });
+    // The Ohio question as asked: the data-centre and land-assembly side of
+    // the library against every register that can speak to influence or money.
+    if (argv.includes('--ohio')) {
+      sides.push(...['datacenters', 'newalbany', 'intel_newalbany', 'energy',
+        'ratepayers', 'hb6', 'lobbying']);
+    }
+    return cmdNexus({
+      sides: [...new Set(sides)],
+      require: flagVal(argv, '--require'),
+      grade: flagVal(argv, '--grade'),
+      minGrade: argv.includes('--asserted') ? 'ASSERTED'
+        : (argv.includes('--no-cooccurrence') ? 'REGISTRY' : flagVal(argv, '--min-grade')),
+      limit: flagNum(argv, '--limit'),
+      out: flagVal(argv, '--out'),
+      dot: flagVal(argv, '--dot'),
+      gaps: argv.includes('--gaps'),
+    });
+  }
   if (action === 'lobby') {
     // --chart writes to the default path; --chart <path> or --chart=<path>
     // writes where you say. A bare --chart followed by another flag is the
@@ -4406,4 +4633,4 @@ if (require.main === module) {
   main().catch((e) => { console.error(e); process.exit(1); });
 }
 
-module.exports = { verdictFor, cmdTest, wrap, parseAllArgs, cmdAll, cmdFedReg, cmdLobby, cmdGraph, cmdRegistrant, cmdExpand, cmdSweep, cmdBrief, flagVal, flagNum, subjectFrom, resolveCommittee, fecRetryable, fecError, fecFetcher };
+module.exports = { verdictFor, cmdTest, wrap, parseAllArgs, cmdAll, cmdFedReg, cmdNexus, cmdCrosslink, cmdLobby, cmdGraph, cmdRegistrant, cmdExpand, cmdSweep, cmdBrief, flagVal, flagNum, subjectFrom, resolveCommittee, fecRetryable, fecError, fecFetcher };
