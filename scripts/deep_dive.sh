@@ -101,7 +101,7 @@ pause 3 "Then phase 3b, which is where the DoD overlap actually appears."
 
 phase_3b() {
 b "PHASE 3b — THE DESCRIPTION FIELD IS THE FINDING"
-dim "  `connect awards` searches by RECIPIENT, never by subject matter. You"
+dim "  'connect awards' searches by RECIPIENT, never by subject matter. You"
 dim "  cannot ask it for 'every AI contract'. You ask about a NAMED company"
 dim "  and READ THE DESCRIPTIONS it returns. That is where NSA's one-word"
 dim "  \$34,811,793 RESEARCH came from, and DARPA's CHIPS trap."
@@ -113,7 +113,7 @@ for n in "Palantir Technologies" "Anduril Industries" "Booz Allen Hamilton" \
 done
 run $S connect awards "Intel" --all --pages 8
 run $S connect awards "Intel Federal" --all
-pause 3b "READ THE DESCRIPTIONS, not the totals. A total under a stem name is a CEILING until the namesakes come out - `awards \"Intel\"` returned 796 namesakes against 4 real contracts."
+pause 3b "READ THE DESCRIPTIONS, not the totals. A total under a stem name is a CEILING until the namesakes come out - 'awards \"Intel\"' returned 796 namesakes against 4 real contracts."
 }
 
 # ════════════════════════════════════════════════════════════════════════
@@ -132,7 +132,7 @@ run $S connect courtlistener "Householder" --dockets
 run $S connect courtlistener "Generation Now" --dockets
 run $S connect courtlistener "FirstEnergy" --dockets
 run $S connect courtlistener "Energy Harbor" --dockets
-pause 4 "Take the docket number each one returns and read the party table BY ROLE. Defendant means charged. No search result in this toolkit carries that distinction - only `connect docket` does."
+pause 4 "Take the docket number each one returns and read the party table BY ROLE. Defendant means charged. No search result in this toolkit carries that distinction - only 'connect docket' does."
 }
 
 phase_4b() {
@@ -189,7 +189,7 @@ pause 6b "STATE lobbying is not in the Senate LDA. Legalisation happened state b
 phase_7() {
 b "PHASE 7 — INFRASTRUCTURE AND TRANSPORT"
 warn "  READ THE LIMIT FIRST."
-dim  "  `connect awards` searches by RECIPIENT NAME, never by subject. You"
+dim  "  'connect awards' searches by RECIPIENT NAME, never by subject. You"
 dim  "  CANNOT ask it for 'every tunnel contract'. You ask about a named firm"
 dim  "  and read what comes back. Right-of-way, conduit permits and easements"
 dim  "  are COUNTY ENGINEER records and appear nowhere here."
@@ -212,7 +212,7 @@ run $S connect nexus --out nexus.csv --dot nexus.dot
 run $S connect crosslink
 run $S connect matrix
 run $S connect box
-pause 8 "Open evidence/box.html. Then pick the entity with the most ASSERTED edges and run `connect explain` and `connect challenge` on it."
+pause 8 "Open evidence/box.html. Then pick the entity with the most ASSERTED edges and run 'connect explain' and 'connect challenge' on it."
 }
 
 # ════════════════════════════════════════════════════════════════════════

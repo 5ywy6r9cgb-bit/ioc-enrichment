@@ -351,6 +351,31 @@ module.exports = function run() {
     check('the leads boundary is restated on the fan-out too',
       /LEADS, not findings/.test(cli));
 
+    // ── THE SINGLE-CONNECTOR SEARCH HAD NONE OF IT ────────────────────
+    //
+    // `connect all` carried the four-way verdict; `connect courtlistener "X"`
+    // — the path an operator actually types for a specific question —
+    // printed a bare count. A live run of
+    // `courtlistener "Householder" --dockets` came back "20 candidate
+    // lead(s)": bankruptcies in three states, civil suits in two more, and
+    // NOT ONE of them the prosecution being looked for.
+    check('cmdSearch computes a verdict per row',
+      /const marks = out\.results\.map\(/.test(cli)
+      && /R\.bestVerdict\(query, r\.name/.test(cli));
+    check('its headline is the FILED-UNDER count, with the total beside it',
+      /lead\(s\) FILED UNDER that name/.test(cli)
+      && /row\(s\) returned/.test(cli));
+    check('a page with NO filed-under row says so in red, not by silence',
+      /NOTHING HERE IS FILED UNDER THE NAME YOU ASKED FOR/.test(cli));
+    check('and explains that every row is a real record about somebody else',
+      /a real record about somebody else/.test(cli));
+    check('it tells you to ask by identifier instead of by name',
+      /ask for it directly/.test(cli));
+    check('and refuses to guess a docket number for you',
+      /will not guess one/.test(cli));
+    check('rows are sorted filed-under first, nothing dropped',
+      /marks\.sort\(\(a, b\) => RANKS\[a\.v\] - RANKS\[b\.v\]\)/.test(cli));
+
     // ── A FLAG THAT IS SILENTLY DROPPED IS WORSE THAN ONE THAT ERRORS ──
     //
     // `connect senatelda --client "X"` returned the right answer and the

@@ -133,7 +133,7 @@ pause 3 "A page cap makes a FLOOR, not a total. If the run says it hit the cap, 
 phase_4() {
 b "PHASE 4 — THE CONTROL, AND YOU MUST BE WILLING TO LOSE IT"
 warn "  THIS IS THE MOST IMPORTANT PHASE IN THE SCRIPT."
-dim  "  `connect control` asks what several committees SHARE: treasurer,"
+dim  "  'connect control' asks what several committees SHARE: treasurer,"
 dim  "  custodian of records, address, email, website, connected organisation."
 dim  "  A treasurer is a named legal officer personally responsible for a"
 dim  "  committee's filings."
@@ -258,7 +258,7 @@ warn "  AND THE ONE THING NO COMMAND HERE WILL DO FOR YOU"
 dim  "  The FEC API key is still in cleartext in the provenance ledger."
 dim  "  ROTATE IT, then:"
 dim  "      bin/sentinel prov verify evidence/manifests/provenance.jsonl"
-pause 9 "An uncited GREEN claim is BLOCKED on purpose. `sdesk claim list` tells you what blocks each one."
+pause 9 "An uncited GREEN claim is BLOCKED on purpose. 'sdesk claim list' tells you what blocks each one."
 }
 
 # ═════════════════════════════════════════════════════════════════════════

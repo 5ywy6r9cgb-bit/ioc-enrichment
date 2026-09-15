@@ -4653,7 +4653,54 @@ async function cmdSearch(name, query, opts) {
     return;
   }
 
-  console.log('\n  ' + C.b(`${out.results.length} candidate lead(s)`));
+  // THE SINGLE-CONNECTOR SEARCH HAD NONE OF THE NAME DISCIPLINE.
+  //
+  // `connect all` has carried a four-way verdict since the Blackstone run.
+  // This path — the one an operator actually types for a specific question —
+  // printed a bare count. `connect courtlistener "Householder" --dockets`
+  // came back "20 candidate lead(s)": bankruptcies in Tennessee, Missouri
+  // and Ohio, civil suits in Texas and Washington, and NOT ONE of them the
+  // Larry Householder prosecution. Twenty rows that look like answers.
+  //
+  // The verdict is computed here now, the headline is the FILED-UNDER count,
+  // and nothing is dropped.
+  const marks = out.results.map((r) => ({
+    r, v: R.bestVerdict(query, r.name || r.title || ''),
+  }));
+  const nOf = (k) => marks.filter((m) => m.v === k).length;
+  const RANKS = { NAME: 0, CONTAINS: 1, OTHER: 2, UNKNOWN: 3, SUBSTRING: 4 };
+  const NOTES = {
+    SUBSTRING: '← substring, probably not it',
+    CONTAINS: '← name is not at the front — open it',
+    OTHER: '← does not name the subject',
+    UNKNOWN: '',
+  };
+  console.log('\n  ' + C.b(`${nOf('NAME')} lead(s) FILED UNDER that name`)
+    + C.dim(`  · ${out.results.length} row(s) returned`));
+  {
+    const bits = [];
+    if (nOf('CONTAINS')) bits.push(C.y(`${nOf('CONTAINS')} contain it elsewhere`));
+    if (nOf('OTHER')) bits.push(C.y(`${nOf('OTHER')} do not name it at all`));
+    if (nOf('SUBSTRING')) bits.push(C.y(`${nOf('SUBSTRING')} substring only`));
+    if (bits.length) console.log(`    ${bits.join(C.dim(' · '))}`);
+    // A page of namesakes is the failure mode this command has, and it is
+    // silent: every row is a real record, just not about your subject.
+    if (nOf('NAME') === 0 && out.results.length) {
+      console.log(C.r('\n    NOTHING HERE IS FILED UNDER THE NAME YOU ASKED FOR.'));
+      for (const l of wrap(
+        'Every row below is a real record about somebody else. A relevance-'
+        + 'ranked index will happily return twenty of those, and a bare count '
+        + 'reads as twenty answers. If you know the identifier — a docket '
+        + 'number, a document number, a committee id — ask for it directly '
+        + 'instead of searching for the name.', 68)) {
+        console.log(C.dim(`    ${l}`));
+      }
+      if (name === 'courtlistener') {
+        console.log(C.dim(`      bin/sentinel connect docket "0:00-cr-00000" --court xxx`));
+        console.log(C.dim('      (substitute the real number — this desk will not guess one)'));
+      }
+    }
+  }
   if (!out.results.length) {
     console.log(C.dim('  No hits. A clean result is not proof of absence — it is one source saying nothing.'));
     if (name === 'courtlistener' && opts.mode !== 'dockets') {
@@ -4673,11 +4720,16 @@ async function cmdSearch(name, query, opts) {
     }
     return;
   }
-  for (const r of out.results.slice(0, 15)) {
-    console.log(`\n    ${C.b(r.name)}`);
-    for (const [k, v] of Object.entries(r)) {
-      if (k === 'name' || v === '' || v === undefined || v === null) continue;
-      const val = Array.isArray(v) ? v.join(', ') : String(v);
+  // Filed-under first, then the rest. Nothing is dropped — you cannot audit
+  // what you never saw — but the order is the judgement, made visibly.
+  marks.sort((a, b) => RANKS[a.v] - RANKS[b.v]);
+  for (const { r, v } of marks.slice(0, 15)) {
+    const note = NOTES[v] ? `   ${NOTES[v]}` : '';
+    console.log(v === 'NAME' ? `\n    ${C.b(r.name)}`
+      : `\n    ${C.dim(r.name)}${C.dim(note)}`);
+    for (const [k, val0] of Object.entries(r)) {
+      if (k === 'name' || val0 === '' || val0 === undefined || val0 === null) continue;
+      const val = Array.isArray(val0) ? val0.join(', ') : String(val0);
       if (val) console.log(`      ${k.padEnd(12)} ${val}`);
     }
   }
@@ -5165,4 +5217,4 @@ if (require.main === module) {
   main().catch((e) => { console.error(e); process.exit(1); });
 }
 
-module.exports = { verdictFor, cmdTest, wrap, parseAllArgs, cmdAll, cmdFedReg, cmdNexus, cmdCoverage, cmdBox, cmdExplain, cmdChallenge, cmdCrosslink, cmdLobby, cmdGraph, cmdRegistrant, cmdExpand, cmdSweep, cmdBrief, flagVal, flagNum, subjectFrom, resolveCommittee, fecRetryable, fecError, fecFetcher };
+module.exports = { cmdSearch, verdictFor, cmdTest, wrap, parseAllArgs, cmdAll, cmdFedReg, cmdNexus, cmdCoverage, cmdBox, cmdExplain, cmdChallenge, cmdCrosslink, cmdLobby, cmdGraph, cmdRegistrant, cmdExpand, cmdSweep, cmdBrief, flagVal, flagNum, subjectFrom, resolveCommittee, fecRetryable, fecError, fecFetcher };
