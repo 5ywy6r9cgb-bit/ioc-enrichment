@@ -137,6 +137,12 @@ function edge(o) {
     // averaged with a different kind of record.
     assertion_type: rel.assertion || COOCCURRENCE,
     confidence: rel.assertion || COOCCURRENCE,
+    // The human phrasing and the REGISTER, carried on the edge itself.
+    // Without these the CSV hands a card generator the connector's internal
+    // name — a card that reads "SOURCE: senatelda" instead of "Senate LDA
+    // quarterly filing (LD-2), 2 U.S.C. 1604" has thrown away the entire
+    // reason the card exists.
+    label: rel.label || o.relationship,
     authority: rel.authority || '',
     register: rel.register || '',
     amount: o.amount || '',
@@ -295,10 +301,10 @@ function counterpartyShare(edges, relationship, counterparty) {
 }
 
 function toCsv(edges) {
-  const cols = ['entity_a', 'relationship', 'entity_b', 'assertion_type',
-    'confidence', 'amount', 'jurisdiction', 'authority', 'effective_date',
-    'record_date', 'source_date', 'source', 'document_id', 'source_url',
-    'subject', 'status'];
+  const cols = ['entity_a', 'relationship', 'label', 'entity_b', 'assertion_type',
+    'confidence', 'amount', 'jurisdiction', 'authority', 'register',
+    'effective_date', 'record_date', 'source_date', 'source', 'document_id',
+    'source_url', 'subject', 'status'];
   const esc = (v) => {
     const s = String(v == null ? '' : v);
     return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;

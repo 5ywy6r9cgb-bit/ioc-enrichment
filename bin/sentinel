@@ -21,6 +21,7 @@
 #   sentinel pra mail send          send only what you approved
 #   sentinel pra mail fetch         read replies, log them against requests
 #   sentinel shots --spec EP.json   every picture the build will demand
+#   sentinel cards --edges F.csv    evidence cards drawn from SOURCED edges
 #   sentinel montage ...            openmontage video engine
 #   sentinel vuln ...               atlas CVE prioritization
 #   sentinel desk                   open the research desk in a browser
@@ -321,6 +322,14 @@ PYSTATUS
   # prompt that keeps VISUAL_POLICY.md's rule attached to the request.
   shots)
     python3 "$ROOT/modules/openmontage/engine/shots.py" "$@"
+    ;;
+
+  # Evidence cards drawn from the EDGE TABLE, not from prose. Every arrow is a
+  # relationship this desk can evidence, the label is its real name, and the
+  # register is printed on the card. Free, local, repeatable — PIL and the
+  # fonts already on the machine.
+  cards)
+    python3 "$ROOT/modules/openmontage/engine/cards.py" "$@"
     ;;
 
   vuln)
