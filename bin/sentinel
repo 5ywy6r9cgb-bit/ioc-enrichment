@@ -20,6 +20,7 @@
 #   sentinel pra mail approve ID    sign off on ONE letter
 #   sentinel pra mail send          send only what you approved
 #   sentinel pra mail fetch         read replies, log them against requests
+#   sentinel shots --spec EP.json   every picture the build will demand
 #   sentinel montage ...            openmontage video engine
 #   sentinel vuln ...               atlas CVE prioritization
 #   sentinel desk                   open the research desk in a browser
@@ -256,6 +257,12 @@ PYSTATUS
     python3 "$ROOT/modules/openmontage/engine/openmontage.py" --self-test 2>/dev/null \
       && echo "openmontage self-test ok" || echo "(openmontage self-test skipped — needs ffmpeg/Pillow)"
     echo ""
+    echo "== shot assignment =="
+    ( cd "$ROOT/modules/openmontage/engine" && python3 test_shots.py ) || FAILED=1
+    echo ""
+    echo "== nexus =="
+    node "$ROOT/modules/connectors/test_nexus.js" || FAILED=1
+    echo ""
     [ "$FAILED" = "0" ] && bold "All present suites passed." || bold "One or more suites FAILED."
     exit "$FAILED"
     ;;
@@ -293,6 +300,15 @@ PYSTATUS
 
   montage)
     python3 "$ROOT/modules/openmontage/engine/openmontage.py" "$@"
+    ;;
+
+  # Every picture an episode will demand, as one assignment sheet, before the
+  # build starts failing one SpecError at a time. Screenshots of records come
+  # back with the command that produces them; only the scenes with nothing
+  # documentary behind them get sent to a model, and those carry the negative
+  # prompt that keeps VISUAL_POLICY.md's rule attached to the request.
+  shots)
+    python3 "$ROOT/modules/openmontage/engine/shots.py" "$@"
     ;;
 
   vuln)
