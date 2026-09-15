@@ -108,7 +108,7 @@ bin/sentinel connect fecpac "AMERICAN ISRAEL PUBLIC AFFAIRS COMMITTEE"
 bin/sentinel connect fecpac --committee C00797670 --cycle 2026
 bin/sentinel connect fecpac --committee C00799031 --cycle 2026   # United Democracy Project
 bin/sentinel connect donors "UNITED DEMOCRACY PROJECT"
-bin/sentinel connect asymmetry --dimension vendor
+bin/sentinel connect asymmetry --committee C00799031 --dimension vendor --cycle 2026
 ```
 
 **The four categories are four numbers.** A committee's own contributions;

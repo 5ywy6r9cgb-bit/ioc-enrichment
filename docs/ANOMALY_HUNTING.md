@@ -69,7 +69,7 @@ Two committees naming the same bill is routine — opponents do it constantly.
 serving several committees is a structural link that nobody publishes
 because it requires reading Schedule B.
 
-**You have never run this.** `asymmetry --dimension vendor` exists and has
+**You have never run this.** `asymmetry --committee C00… --dimension vendor` exists and has
 not been used once.
 
 ### 1.4 A committee whose spending has one shape and whose money has another

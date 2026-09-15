@@ -67,7 +67,7 @@ leads is worth more than finding new ones.
 | `connect fecpac "COMMITTEE"` | one committee's money |
 | `connect donors` · `connect filings` | who gave · what was filed |
 | `connect member "NAME"` · `connect delegation` | one politician · a whole state |
-| `connect asymmetry --dimension vendor` | concentration |
+| `connect asymmetry --committee C00… --dimension vendor` | concentration · **needs a committee** |
 | `connect control` | shared officers across committees |
 | `connect matrix` | 8 CSVs + ranked worklist |
 | `connect senatelda --client "X"` / `--registrant "FIRM"` | two different questions |

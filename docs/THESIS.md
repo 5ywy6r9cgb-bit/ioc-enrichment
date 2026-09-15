@@ -178,7 +178,7 @@ policy, and a procurement policy has an author who can be asked why.**
 bin/sentinel connect vendor "Quintus" --pages 25
 bin/sentinel connect control
 bin/sentinel connect filings "OHIO FLYER PAC" --form F1
-bin/sentinel connect asymmetry --dimension vendor
+bin/sentinel connect asymmetry --committee C00799031 --dimension vendor --cycle 2026
 ```
 
 **Quintus is the only thing in this entire investigation that clears a

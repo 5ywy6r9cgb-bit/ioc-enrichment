@@ -257,7 +257,7 @@ bin/sentinel connect nexus --asserted
 
 # 5 — the numbers, each with a register and a denominator
 bin/sentinel connect matrix
-bin/sentinel connect asymmetry --dimension vendor
+bin/sentinel connect asymmetry --committee C00799031 --dimension vendor --cycle 2026
 
 # 6 — find out what blocks publication BEFORE recording
 bin/sentinel sdesk ready minnesota-fraud

@@ -350,6 +350,39 @@ module.exports = function run() {
 
     check('the leads boundary is restated on the fan-out too',
       /LEADS, not findings/.test(cli));
+
+    // ── A FLAG THAT IS SILENTLY DROPPED IS WORSE THAN ONE THAT ERRORS ──
+    //
+    // `connect senatelda --client "X"` returned the right answer and the
+    // flag did nothing, because the client search is the default. Same class
+    // as `awards --other` falling back to contracts. It matters more here:
+    // "who lobbies FOR them" and "who do they lobby for" are THE distinction
+    // in this register and they are one word apart.
+    check('--client is a real flag now, not a no-op',
+      /argv\.includes\('--client'\) \? 'client'/.test(cli));
+    check('and --client with --registrant is refused, not silently resolved',
+      /--client and --registrant are different questions/.test(cli));
+    check('the guard runs BEFORE the --registrant branch takes the call',
+      cli.indexOf('--client and --registrant are different questions')
+      < cli.indexOf("if (argv.includes('--registrant')) {"));
+    check('and every senatelda run states which question it asked',
+      /asking      \$\{opts\.mode === 'registrant'/.test(cli));
+
+    // `connect asymmetry --dimension vendor` with no committee exits 2. It
+    // was printed in five documents as if it ran.
+    check('asymmetry documents that a committee is required',
+      /usage: sentinel connect asymmetry "COMMITTEE NAME"/.test(cli));
+    for (const f of ['ARSENAL.md', 'COMMANDS.md', 'THESIS.md', 'PIPELINE.md',
+                     'FOLLOW_THE_STRUCTURE.md', 'ANOMALY_HUNTING.md']) {
+      const p = require('path').join(__dirname, '..', '..', 'docs', f);
+      if (!require('fs').existsSync(p)) continue;
+      const d = require('fs').readFileSync(p, 'utf8');
+      // The bare form, with no committee anywhere on the line.
+      const bad = d.split('\n').filter((l) => /asymmetry/.test(l)
+        && /--dimension/.test(l) && !/committee|C00/.test(l));
+      check(`docs/${f} does not print the bare asymmetry form that exits 2`,
+        bad.length === 0);
+    }
   }
 
   // ══ the dispatcher must reach every verb ═════════════════════════════

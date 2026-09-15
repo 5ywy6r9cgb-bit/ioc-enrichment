@@ -4191,6 +4191,14 @@ async function cmdSearch(name, query, opts) {
   console.log(`  subject     ${query}`);
   console.log(`  calls       ${c.calls} (exactly)`);
   console.log(`  request     ${c.describe(query, key, { mode: opts.mode })}`);
+  // WHICH QUESTION THIS RUN IS ASKING, said before it asks it. The two
+  // senatelda directions are one word apart and produce opposite answers,
+  // and until now the only way to know which one you got was to read the URL.
+  if (name === 'senatelda') {
+    console.log(`  asking      ${opts.mode === 'registrant'
+      ? C.b('who this FIRM files for') + C.dim('   (--registrant)')
+      : C.b('who lobbies FOR this name') + C.dim('   (the default; --client states it)')}`);
+  }
   console.log(`  key         ${key ? C.g('present, sent in Authorization header only')
     : (keyMissing ? C.r(`MISSING — set ${c.keyVar} in .env`)
       : (c.keyVar ? C.y('none (anonymous)') : C.dim('none needed')))}`);
@@ -4604,6 +4612,25 @@ async function main() {
     }
     return cmdFecPac(q || committee, { cycle, committee, dryRun: opts.dryRun });
   }
+  // `--client` WAS ACCEPTED AND SILENTLY IGNORED.
+  //
+  // The client search is the DEFAULT, so `connect senatelda --client "X"`
+  // returned the right answer and the flag did nothing — which is the same
+  // defect class as `awards --other` falling back to contracts: a flag that
+  // is quietly dropped is worse than one that errors, because the operator
+  // believes they asked a question they did not ask.
+  //
+  // It matters more here than almost anywhere, because "who lobbies FOR
+  // them" and "who do they lobby for" are THE distinction in this register
+  // and they are one word apart. So the flag is real now, it is exclusive
+  // with --registrant, and the run says which question it asked.
+  if (argv.includes('--client') && argv.includes('--registrant')) {
+    console.error('\n  ' + C.r('--client and --registrant are different questions.'));
+    console.error(C.dim('    --client      who lobbies FOR this name'));
+    console.error(C.dim('    --registrant  who this FIRM files for'));
+    console.error(C.dim('  Pick one. Asking both at once has no meaning.\n'));
+    process.exit(2);
+  }
   if (argv.includes('--registrant')) {
     const i = argv.indexOf('--registrant');
     const q = argv[i + 1] && !argv[i + 1].startsWith('--') ? argv[i + 1] : args.slice(1).join(' ');
@@ -4659,7 +4686,8 @@ async function main() {
   // called directly is not yet a flag.
   const searchOpts = Object.assign({}, opts, {
     into: intoOf(argv),
-    mode: argv.includes('--dockets') ? 'dockets' : opts.mode,
+    mode: argv.includes('--dockets') ? 'dockets'
+      : (argv.includes('--client') ? 'client' : opts.mode),
   });
   if (action === 'search') {
     return cmdSearch(args[1], positional(2).join(' '), searchOpts);

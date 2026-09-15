@@ -94,7 +94,7 @@ which is the only way to ask whether a document has since been corrected.
 | ✅ | `connect fecpac "COMMITTEE"` | one committee's money |
 | ✅ | `connect donors` · `connect filings "NAME" --form F1` | |
 | ✅ | `connect member "NAME"` · `connect delegation` | |
-| ✅ | `connect asymmetry --dimension vendor` | concentration, HHI |
+| ✅ | `connect asymmetry --committee C00… --dimension vendor` | concentration, HHI · **a committee is REQUIRED — the bare `--dimension vendor` form printed in earlier drafts exits 2** |
 | ✅ | `connect control` | shared officers across committees |
 | ✅ | `connect matrix` | 8 CSVs + a ranked worklist |
 
