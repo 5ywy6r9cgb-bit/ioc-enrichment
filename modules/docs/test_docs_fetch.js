@@ -247,6 +247,29 @@ module.exports = async function run() {
       /PASTE/.test(src) && /REAL\[-_\]\?URL/.test(src));
   }
 
+  // ══ 10. A LINE OF CASES IS NOT ONE DOCUMENT ═══════════════════════════
+  //
+  // One search returned eleven school-district appeals decided the same day
+  // against the same county board. Answering the question that decides the
+  // story means reading all eleven, and get took a single URL.
+  {
+    const src = require('fs').readFileSync(
+      require('path').join(__dirname, 'cli.js'), 'utf8');
+    check('doc get accepts more than one url',
+      /const urls = positional\.slice\(1\);/.test(src));
+    check('and labels them automatically',
+      /EX-\$\{String\(n\)\.padStart\(2, '0'\)\}/.test(src));
+    check('the usage line shows the repeat',
+      /doc get URL \[URL \.\.\.\]/.test(src));
+    check('one dead link does not end the batch',
+      /keepGoing/.test(src) && /return \{ ok: false, error: got\.error \}/.test(src));
+
+    // The tally said "3 fetched · 0 failed" for three refused urls, because
+    // it counted thrown exceptions and a refusal returns instead of throwing.
+    check('a refusal counts as a failure, not a fetch',
+      /if \(res && res\.ok === false\) failed \+= 1;/.test(src));
+  }
+
   console.log(`\n  ${FAIL ? 'FAIL' : 'PASS'} — ${PASS}/${PASS + FAIL} checks\n`);
   if (FAIL) process.exitCode = 1;
   return { pass: PASS, fail: FAIL };

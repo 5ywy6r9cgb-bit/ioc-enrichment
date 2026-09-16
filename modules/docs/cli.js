@@ -49,12 +49,14 @@ async function cmdGet(url, opts) {
     console.error(C.dim(`  ${url}`));
     console.error(C.dim('\n  Open the document in a browser, copy the address bar,'));
     console.error(C.dim('  and pass that. Nothing was requested.\n'));
+    if (opts.keepGoing) return { ok: false, error: 'placeholder url' };
     process.exit(2);
   }
   if (!/^https?:\/\//i.test(url)) {
     console.error(`\n  ${C.r('Not a URL:')} ${url}`);
     console.error(C.dim('  It has to start with http:// or https://. '
       + 'Nothing was requested.\n'));
+    if (opts.keepGoing) return { ok: false, error: 'not a url' };
     process.exit(2);
   }
 
@@ -66,6 +68,9 @@ async function cmdGet(url, opts) {
   const got = await D.fetchDocument(url, R.request, { dir });
   if (!got.ok) {
     console.error(`  ${C.r('failed:')} ${got.error}\n`);
+    // A batch must not die on one dead link. One 404 in eleven opinions is a
+    // fact about that one opinion, not a reason to abandon the other ten.
+    if (opts.keepGoing) return { ok: false, error: got.error };
     process.exit(1);
   }
 
@@ -267,13 +272,57 @@ async function main() {
   });
 
   if (action === 'get') {
+    // ── A LINE OF CASES IS NOT ONE DOCUMENT ────────────────────────────────
+    //
+    // One search returned eleven school-district appeals decided on the same
+    // day against the same county board, plus a Supreme Court entry holding
+    // cases for the lead one. Answering the question that decides the story —
+    // is the property owner the same in all eleven — means reading all
+    // eleven, and this took a single URL and one --as label, so it was eleven
+    // invocations with eleven hand-typed labels and eleven chances to mislabel
+    // one.
+    const urls = positional.slice(1);
+    if (urls.length > 1) {
+      const asBase = val('--as');
+      let n = 0;
+      let failed = 0;
+      for (const u of urls) {
+        n += 1;
+        const label = asBase ? `${asBase}-${String(n).padStart(2, '0')}`
+          : `EX-${String(n).padStart(2, '0')}`;
+        console.log(C.dim(`\n  [${n}/${urls.length}]`));
+        try {
+          // A REFUSAL IS A FAILURE. The first version counted only thrown
+          // exceptions, so a batch of three URLs that were all refused
+          // reported "3 fetched · 0 failed" — a tally that says the opposite
+          // of what happened, which is the worst kind of summary line.
+          // eslint-disable-next-line no-await-in-loop
+          const res = await cmdGet(u, {
+            caseId: val('--case'), as: label, keepGoing: true,
+          });
+          if (res && res.ok === false) failed += 1;
+        } catch (e) {
+          failed += 1;
+          console.error(`  ${C.r('failed:')} ${e && e.message ? e.message : e}`);
+        }
+      }
+      const ok = urls.length - failed;
+      console.log(`\n  ${ok} fetched · ${failed} failed`);
+      if (failed && ok) {
+        console.log(C.dim('  A dead link in a line of cases is a fact about '
+          + 'that one document,\n  not a reason to abandon the others.\n'));
+      } else console.log('');
+      if (failed) process.exitCode = 1;
+      return undefined;
+    }
     return cmdGet(positional[1], { caseId: val('--case'), as: val('--as') });
   }
   if (action === 'bills') {
     return cmdBills({});
   }
 
-  console.error('\n  usage: sentinel doc get URL [--case CASE-ID] [--as EX-01]\n         sentinel doc bills\n');
+  console.error('\n  usage: sentinel doc get URL [URL ...] [--case CASE-ID] [--as EX-01]'
+    + '\n         sentinel doc bills\n');
   process.exit(2);
 }
 
