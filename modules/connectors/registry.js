@@ -444,6 +444,43 @@ function isDocketNumber(q) {
 }
 
 /**
+ * DOES THIS QUERY NAME A THING, OR IDENTIFY ONE?
+ *
+ * The four name verdicts answer "is the subject's NAME in this row's title".
+ * That is the right question for `Blackstone` and the wrong question for
+ * `2024-Ohio-1564`, because a citation never appears in a case caption — it
+ * is the address of the opinion, not part of its name.
+ *
+ * A live run searched for exactly that citation, got fifteen rows, every one
+ * of them the right case or a case consolidated with it, and printed
+ *
+ *     NOTHING HERE IS FILED UNDER THE NAME YOU ASKED FOR
+ *     ... If you know the identifier — a docket number, a document number,
+ *     a committee id — ask for it directly instead of searching for the name.
+ *
+ * telling the operator to do the thing they had just done. The name machinery
+ * was working correctly and was being asked a question that did not apply.
+ *
+ * So identifier-shaped queries get judged differently: the rows are what the
+ * index returned for that identifier, and the only test that means anything
+ * is opening one.
+ */
+const IDENTIFIER = [
+  /^\d{4}[-\s]ohio[-\s]\d+$/i,              // 2024-Ohio-1564
+  /^\d{4}\s+u\.?s\.?\s+\d+$/i,              // 410 U.S. 113
+  /^C\d{8}$/i,                                // FEC committee
+  /^\d{4}-\d{4,6}$/,                          // Federal Register doc number
+  /^[A-Z]{2,6}\d{6,}$/,                        // award / PIID shapes
+];
+
+function looksLikeIdentifier(q) {
+  const s = String(q || '').trim();
+  if (!s) return false;
+  if (IDENTIFIER.some((re) => re.test(s))) return true;
+  return isDocketNumber(s);
+}
+
+/**
  * Will this connector accept this subject at all?
  *
  * Returns `{ ok: true }` or `{ ok: false, why }`. Connectors that take free
@@ -1576,7 +1613,8 @@ function recordCapture({ connector, subject, url, body, tool, extra = {},
   return { capturePath, sha256, record };
 }
 
-module.exports = { phrase,
+module.exports = {
+  looksLikeIdentifier, phrase,
   explainHttpError, looksLikeSubstringMatch,
   nameVerdict, bestVerdict, namesMatch, normaliseName, tooShortToFilter, tally,
   acceptsSubject, heldCaptures,

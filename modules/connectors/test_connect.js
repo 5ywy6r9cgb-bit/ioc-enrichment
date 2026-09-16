@@ -1179,6 +1179,27 @@ module.exports = function run() {
     // like. It is also what a committee built by counsel to be formally
     // independent looks like — including ones that describe the affiliation
     // openly in their own materials.
+    // ── AN IDENTIFIER IS NOT A NAME ───────────────────────────────────────
+    //
+    // A live search for the citation 2024-Ohio-1564 returned fifteen rows,
+    // every one the right case or one consolidated with it, and printed
+    // NOTHING HERE IS FILED UNDER THE NAME YOU ASKED FOR — then advised the
+    // operator to search by identifier, which is what they had just done.
+    check('an Ohio citation is recognised as an identifier',
+      R.looksLikeIdentifier('2024-Ohio-1564'));
+    check('and the spaced form too', R.looksLikeIdentifier('2024 Ohio 1564'));
+    check('an FEC committee id is an identifier',
+      R.looksLikeIdentifier('C00799031'));
+    check('a docket number is still an identifier',
+      R.looksLikeIdentifier('0:22-cr-00223'));
+    check('a company name is NOT an identifier',
+      !R.looksLikeIdentifier('Blackstone Inc'));
+    check('nor is a one-word subject', !R.looksLikeIdentifier('FIRSTENERGY'));
+    check('the search says the name column does not apply to an identifier',
+      /YOU ASKED BY IDENTIFIER, NOT BY NAME/.test(cliSrc));
+    check('and the namesake banner is the other branch',
+      /\} else if \(nOf\('NAME'\) === 0 && out\.results\.length\) \{/.test(cliSrc));
+
     check('a clean control result says what it does NOT rule out',
       /WHAT A CLEAN RESULT DOES NOT MEAN/.test(cliSrc));
     check('and names administrative control as the thing measured',

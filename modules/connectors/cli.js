@@ -4715,7 +4715,22 @@ async function cmdSearch(name, query, opts) {
     if (bits.length) console.log(`    ${bits.join(C.dim(' · '))}`);
     // A page of namesakes is the failure mode this command has, and it is
     // silent: every row is a real record, just not about your subject.
-    if (nOf('NAME') === 0 && out.results.length) {
+    // An identifier is not a name, and the name test does not apply to it.
+    // A citation never appears in a case caption; it is the address of the
+    // opinion, not part of its title.
+    const asked = R.looksLikeIdentifier(query);
+    if (nOf('NAME') === 0 && out.results.length && asked) {
+      console.log(C.g('\n    YOU ASKED BY IDENTIFIER, NOT BY NAME.'));
+      for (const l of wrap(
+        'The four name verdicts above measure whether your subject\'s NAME is '
+        + 'in each row\'s title, and an identifier never is — a citation is '
+        + 'the address of a document, not part of what it is called. Ignore '
+        + 'the name column here. These are the rows the index returned for '
+        + 'that identifier, and the only test that means anything now is '
+        + 'opening one.', 68)) {
+        console.log(C.dim(`    ${l}`));
+      }
+    } else if (nOf('NAME') === 0 && out.results.length) {
       console.log(C.r('\n    NOTHING HERE IS FILED UNDER THE NAME YOU ASKED FOR.'));
       for (const l of wrap(
         'Every row below is a real record about somebody else. A relevance-'
