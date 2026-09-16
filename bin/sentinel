@@ -26,6 +26,9 @@
 #   sentinel episode "ENTITY"       ONE ENTITY IN, ONE EPISODE PACKAGE OUT:
 #                                   script with every number's denominator, every
 #                                   citation, every limitation computed not recalled
+#   sentinel handoff ep03 --tool text     brief for an OUTSIDE model, gate-checked
+#   sentinel handoff ep03 --verify F.md   what it sent back, checked against the
+#                                   evidence. Exits 3 on an invented figure.
 #   sentinel exhibits --next        THE SCREENSHOT QUEUE, one document at a time
 #   sentinel cards --edges F.csv    evidence cards drawn from SOURCED edges
 #   sentinel redact --check DIR     PUBLICATION GATE: nothing about the machine
@@ -352,6 +355,10 @@ PYSTATUS
 
   episode)
     python3 "$ROOT/scripts/episode.py" "$@"
+    ;;
+
+  handoff)
+    python3 "$ROOT/scripts/handoff.py" "$@"
     ;;
 
   # NOTHING ABOUT THE MACHINE LEAVES THE MACHINE. A gate, not advice:
