@@ -335,6 +335,43 @@ def test_note_without_a_target_is_refused():
         check('a note with no exhibit exits 2', r.returncode, 2)
 
 
+def test_self_edge_display_does_not_invent_a_relationship():
+    """The live queue printed FIRSTENERGY CORP / retained this firm to lobby /
+    FIRSTENERGY CORP and handed over a caption saying a company retained
+    itself. Line 7 "Self" is ticked: it employs its own lobbyists."""
+    with tempfile.TemporaryDirectory() as tmp:
+        csvfile([row('FIRSTENERGY CORP', 'represented_by', 'FIRSTENERGY CORP',
+                     amount='290000')], tmp)
+        r = run(['--entity', 'FIRSTENERGY', '--next'], tmp)
+        check('no arrow label on a self edge',
+              'retained this firm to lobby' in r.stdout, False)
+        check('it is named as in-house',
+              'LOBBIED ON ITS OWN BEHALF' in r.stdout, True)
+        check('the caption does not say it retained itself',
+              'lobbied on its own behalf' in r.stdout, True)
+        check('and rarity is not claimed about a company and itself',
+              'RAREST KIND' in r.stdout, False)
+
+
+def test_the_amount_is_formatted_and_qualified():
+    """It printed a bare 290000.00 with no statement of what kind of number it
+    is. Line 12 is what a firm was paid; line 13 is what an organisation spent
+    on itself."""
+    with tempfile.TemporaryDirectory() as tmp:
+        csvfile([row('FIRSTENERGY CORP', 'represented_by', 'FIRSTENERGY CORP',
+                     amount='290000.00')], tmp)
+        r = run(['--entity', 'FIRSTENERGY', '--next'], tmp)
+        check('the figure is formatted', '$290,000.00' in r.stdout, True)
+        check('the bare number is gone', ' 290000.00' in r.stdout, False)
+        check('a self filing is called spending', 'SPENT' in r.stdout, True)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        csvfile([row('FIRSTENERGY CORP', 'represented_by', 'AKIN GUMP',
+                     amount='15000')], tmp)
+        r = run(['--entity', 'FIRSTENERGY', '--next'], tmp)
+        check('a retained filing is called income', 'PAID' in r.stdout, True)
+
+
 def test_mixed_sides_are_warned_about():
     with tempfile.TemporaryDirectory() as tmp:
         csvfile([row('AKIN GUMP LLP', 'represented_by', 'INTERIOR'),

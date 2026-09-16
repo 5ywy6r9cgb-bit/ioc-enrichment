@@ -121,6 +121,29 @@ DEFAULT_LOOK = ('The identifying number, the date, and the specific line you '
                 'are going to quote. Capture the line, not the page.')
 
 
+INCOME_Q = 'a good-faith estimate of what the firm was PAID, rounded'
+EXPENSE_Q = 'what the company SPENT on itself — accounting method on line 14'
+AMOUNT_Q = {
+    'usaspending': 'obligated — not what was finally paid',
+    'fec': 'as reported on that schedule, that period only',
+}
+
+
+def money(v):
+    try:
+        return f'${float(str(v).replace(",", "").replace("$", "")):,.2f}'
+    except (TypeError, ValueError):
+        return None
+
+
+def qualifier(r):
+    src = (r.get('source') or '').lower()
+    if src == 'senatelda':
+        return (EXPENSE_Q if same_entity(r.get('entity_a'), r.get('entity_b'))
+                else INCOME_Q)
+    return AMOUNT_Q.get(src, 'a floor, not a total')
+
+
 def slug(s, n=34):
     return re.sub(r'[^a-z0-9]+', '_', str(s).lower()).strip('_')[:n] or 'x'
 
@@ -248,17 +271,39 @@ def show(r, i, total, outdir, notes=(), flags=()):
     rtag = yel('  <- your name') if 'R' in s else (
         dim('  <- contains it') if 'r' in s else '')
 
+    # SAME COMPANY ON BOTH SIDES IS ONE BOX, NOT TWO.
+    #
+    # The self-edge was handled in the episode script and on the frame, and
+    # missed HERE — the one an operator actually reads. It printed
+    # FIRSTENERGY CORP / retained this firm to lobby / FIRSTENERGY CORP and
+    # handed over a ready-to-use caption saying a company retained itself,
+    # which is not what the filing says. Line 7 "Self" is ticked: the company
+    # employs its own lobbyists.
+    selfedge = same_entity(r.get('entity_a'), r.get('entity_b'))
+
     print(f'\n{b(f"  EXHIBIT {i:02d} of {total}")}   {badge}')
-    print(f'  {b(str(r.get("entity_a"))[:60])}{ltag}')
-    print(f'    {dim(r.get("label") or r.get("relationship") or "")}')
-    print(f'  {b(str(r.get("entity_b"))[:60])}{rtag}')
+    if selfedge:
+        print(f'  {b(str(r.get("entity_a"))[:60])}{ltag}')
+        print(f'    {yel("LOBBIED ON ITS OWN BEHALF — in-house, line 7 Self")}')
+    else:
+        print(f'  {b(str(r.get("entity_a"))[:60])}{ltag}')
+        print(f'    {dim(r.get("label") or r.get("relationship") or "")}')
+        print(f'  {b(str(r.get("entity_b"))[:60])}{rtag}')
 
     pop = r.get('_pop', 1)
-    print(dim(f'\n     {pop} entit{"y" if pop == 1 else "ies"} in this library '
-              f'{"stands" if pop == 1 else "stand"} in the same relationship '
-              'to that counterparty'))
-    if pop == 1:
-        print(yel('     RAREST KIND. One entity crosses this — that is a question.'))
+    if selfedge:
+        # "One entity stands in this relationship to itself" is arithmetic,
+        # not rarity, and calling it RAREST KIND invites a claim.
+        print(dim('\n     Both sides of this record are the same company, so '
+                  'there is no'))
+        print(dim('     counterparty to count and nothing here is rare.'))
+    else:
+        print(dim(f'\n     {pop} entit{"y" if pop == 1 else "ies"} in this '
+                  f'library {"stands" if pop == 1 else "stand"} in the same '
+                  'relationship to that counterparty'))
+        if pop == 1:
+            print(yel('     RAREST KIND. One entity crosses this — that is a '
+                      'question.'))
 
     print(f'\n  {b("OPEN")}        {r.get("source_url")}')
     src = (r.get('source') or '').lower()
@@ -270,12 +315,30 @@ def show(r, i, total, outdir, notes=(), flags=()):
         first = False
     print(f'  {b("SCREENSHOT")}  {outdir}/{name}')
 
-    cap = (f'{r.get("entity_a")} {r.get("label") or r.get("relationship")} '
-           f'{r.get("entity_b")}')
+    if selfedge:
+        cap = f'{r.get("entity_a")} lobbied on its own behalf'
+    else:
+        cap = (f'{r.get("entity_a")} {r.get("label") or r.get("relationship")} '
+               f'{r.get("entity_b")}')
     reg = r.get('register') or r.get('source') or ''
-    extra = ' · '.join(x for x in [r.get('amount'), r.get('effective_date')] if x)
+
+    # A BARE FIGURE IS NOT A FACT YOU CAN READ OUT.
+    #
+    # This printed "290000.00" — unformatted, and with no statement of what
+    # KIND of number it is. An LD-2 line 12 is income the firm was paid and
+    # line 13 is what the organisation spent on itself, and the form makes you
+    # pick one. Handing over a caption with a bare figure on it is handing
+    # over the error.
+    bits = []
+    amt = money(r.get('amount'))
+    if amt:
+        bits.append(f'{amt} — {qualifier(r)}')
+    if r.get('effective_date'):
+        bits.append(str(r.get('effective_date')))
     print(f'\n  {b("CAPTION")}     {cap[:70]}')
-    print(f'  {b("SOURCE")}      Source: {reg}{(" · " + extra) if extra else ""}')
+    print(f'  {b("SOURCE")}      Source: {reg}')
+    for x in bits:
+        print(f'              {x}')
     if r.get('document_id'):
         print(f'  {b("DOC")}         {r.get("document_id")}')
 
