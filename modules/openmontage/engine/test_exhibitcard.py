@@ -133,6 +133,42 @@ def test_non_images_in_the_shots_folder_are_ignored():
         check('and does not crash the run', r.returncode, 0)
 
 
+def test_a_quote_card_needs_no_screenshot():
+    """Episode 01 opened on a purchase order's verbatim language and that is
+    the beat that landed. A quotation is evidence; an arrow between two company
+    names is topology."""
+    with tempfile.TemporaryDirectory() as tmp:
+        setup(tmp, [e('FIRSTENERGY CORP', 'FIRSTENERGY CORP')], shots=())
+        Path(tmp, 'edges.exhibits.json').write_text(json.dumps({
+            'v': 2, 'done': [], 'notes': {}, 'flags': {},
+            'quotes': {'FIRSTENERGY CORP|REPRESENTED BY|FIRSTENERGY CORP':
+                       ['Data center issues generally']}}))
+        r = run(BASE, tmp)
+        made = [q.name for q in Path(tmp, 'out').glob('quote_*.png')]
+        check('a quote card is drawn with no screenshot present', len(made), 1)
+        check('and it is counted', '1 quote card' in r.stdout, True)
+        check('the missing screenshot is still reported',
+              'NO SCREENSHOT YET' in r.stdout, True)
+
+
+def test_a_long_quote_still_fits_the_frame():
+    long = ('Power reliability issues generally; Transmission issues '
+            'generally; Artificial intelligence issues generally; Load '
+            'growth, reliability, and resource adequacy generally; Data '
+            'center issues generally; Energy security issues generally.')
+    with tempfile.TemporaryDirectory() as tmp:
+        setup(tmp, [e('A CORP', 'B CORP')], shots=())
+        Path(tmp, 'edges.exhibits.json').write_text(json.dumps({
+            'v': 2, 'done': [], 'notes': {}, 'flags': {},
+            'quotes': {'A CORP|REPRESENTED BY|B CORP': [long]}}))
+        run(BASE, tmp)
+        im = Image.open(next(Path(tmp, 'out').glob('quote_*.png'))).convert('L')
+        rows = [y for y in range(im.height)
+                if min(im.crop((0, y, im.width, y + 1)).getdata()) < 200]
+        check('nothing is drawn past the bottom of the frame',
+              rows[-1] < im.height - 40, True)
+
+
 def test_no_edges_is_refused():
     with tempfile.TemporaryDirectory() as tmp:
         r = run(BASE, tmp)

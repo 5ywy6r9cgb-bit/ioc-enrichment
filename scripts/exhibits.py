@@ -234,7 +234,7 @@ STATE_VERSION = 2
 def load_state(edges: Path) -> dict:
     p = statefile(edges)
     st = {'v': STATE_VERSION, 'done': [], 'dropped': 0,
-          'notes': {}, 'flags': {}}
+          'notes': {}, 'flags': {}, 'quotes': {}}
     if p.is_file():
         try:
             raw = json.loads(p.read_text())
@@ -249,13 +249,15 @@ def load_state(edges: Path) -> dict:
         st['dropped'] = len(done) - len(keys)
         st['notes'] = raw.get('notes') or {}
         st['flags'] = raw.get('flags') or {}
+        st['quotes'] = raw.get('quotes') or {}
     return st
 
 
 def save_state(edges: Path, st: dict) -> None:
     statefile(edges).write_text(json.dumps(
         {'v': STATE_VERSION, 'done': st.get('done', []),
-         'notes': st.get('notes', {}), 'flags': st.get('flags', {})},
+         'notes': st.get('notes', {}), 'flags': st.get('flags', {}),
+         'quotes': st.get('quotes', {})},
         indent=2) + '\n')
 
 
@@ -419,6 +421,10 @@ def main() -> int:
                          'a card until you clear it. Needs --note.')
     ap.add_argument('--clear', type=int, metavar='N',
                     help='the discrepancy on exhibit N is resolved')
+    ap.add_argument('--quote', metavar='TEXT',
+                    help='VERBATIM words from the document — the register\'s '
+                         'own language, copied exactly. Not your summary. '
+                         'Use with --done.')
     ap.add_argument('--notes', action='store_true',
                     help='everything recorded off the documents so far')
     a = ap.parse_args()
@@ -485,10 +491,13 @@ def main() -> int:
         for i, r in enumerate(rows, 1):
             k = edge_key(r)
             ns, fs = st['notes'].get(k, []), st['flags'].get(k, [])
-            if not ns and not fs:
+            qs = st['quotes'].get(k, [])
+            if not ns and not fs and not qs:
                 continue
             print(f'  {i:02d}  {str(r.get("entity_a"))[:30]} -> '
                   f'{str(r.get("entity_b"))[:30]}')
+            for t in qs:
+                print(grn(f'        QUOTE  "{t}"'))
             for t in ns:
                 print(f'        · {t}')
             for t in fs:
@@ -525,6 +534,11 @@ def main() -> int:
               'or\n  --flag N --note "..."\n', file=sys.stderr)
         return 2
 
+    if a.quote and a.done is None:
+        print('\n  --quote attaches to an exhibit. Use --done N '
+              '--quote "..."\n', file=sys.stderr)
+        return 2
+
 
     if a.done is not None:
         if not 1 <= a.done <= total:
@@ -537,6 +551,16 @@ def main() -> int:
             done.add(k)
         if a.note:
             st['notes'].setdefault(k, []).append(a.note)
+        if a.quote:
+            # A QUOTE IS NOT A NOTE.
+            #
+            # A note is the operator's observation about a document. A quote is
+            # the DOCUMENT'S OWN WORDS, copied exactly. Episode 01 opened on a
+            # purchase order's verbatim language and that is the beat that
+            # landed; everything since has been arrows between company names.
+            # An arrow is topology. A quotation is evidence, and it is the one
+            # thing nobody can argue is your interpretation.
+            st['quotes'].setdefault(k, []).append(a.quote)
         save_state(ep, st)
         here = sum(1 for r in rows if edge_key(r) in done)
         print(grn(f'\n  exhibit {a.done:02d} marked captured ({here}/{total} '

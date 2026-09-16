@@ -76,6 +76,16 @@ CONTACT_RISK = {'senatelda', 'fec'}
 
 IMAGE_EXT = {'.png', '.jpg', '.jpeg', '.webp'}
 
+TTY = sys.stdout.isatty()
+
+
+def _c(code, s):
+    return f'\033[{code}m{s}\033[0m' if TTY else s
+
+
+def grn(s): return _c('32', s)
+def dim(s): return _c('2', s)
+
 
 def f(role, size):
     return ImageFont.truetype(brand.font_path(role), size)
@@ -120,6 +130,80 @@ def edge_key(r):
         return ' '.join(re.sub(r'[^A-Z0-9]+', ' ', str(v or '').upper()).split())
     return '|'.join(w(r.get(x))
                     for x in ('entity_a', 'relationship', 'entity_b'))
+
+
+def draw_quote(row, text: str, index: int, n: int, of: int,
+               preset: str, theme: str) -> Image.Image:
+    """THE DOCUMENT'S OWN WORDS, BIG, WITH THE REGISTER UNDERNEATH.
+
+    Episode 01 opened on a purchase order's verbatim language — "STRATEGICALLY
+    TARGETED AUDIENCES... NEEDS A CREDIT CARD TO BE ENTERED" — and that is the
+    beat that landed. Everything built since draws arrows between company
+    names, which is topology. A quotation is evidence, and it is the one thing
+    an audience cannot be told is your interpretation.
+
+    No screenshot is needed and none is wanted. The words are the picture."""
+    P, C = brand.preset(preset), brand.theme(theme)
+    safe = P['safe']
+    im = Image.new('RGB', (P['w'], P['h']), C['paper'])
+    d = ImageDraw.Draw(im)
+
+    x0, x1 = safe['left'], safe['right']
+    inner = x1 - x0
+    accent = C[GRADE_COLOR.get(
+        str(row.get('assertion_type') or '').upper(), 'muted')]
+
+    f_kick = f('mono', 26)
+    f_src = f('mono', 24)
+    f_attr = f('sans_b', 28)
+
+    # Long quotations need smaller type or they stop being readable. Step down
+    # until the block fits the frame rather than letting it run off the bottom.
+    body = None
+    for size in (72, 62, 54, 46, 40, 34, 30):
+        fnt = f('serif_b', size)
+        lines = wrap(d, f'"{text}"', fnt, inner)
+        if len(lines) * int(size * 1.24) <= safe['bottom'] - safe['top'] - 420:
+            body, f_body, quote_lines = size, fnt, lines
+            break
+    if body is None:
+        f_body = f('serif_b', 30)
+        quote_lines = wrap(d, f'"{text}"', f_body, inner)
+
+    attr = str(row.get('entity_a') or '').upper()
+    attr_lines = wrap(d, attr, f_attr, inner)
+    src = (row.get('source') or '').lower()
+    foot = wrap(d, AUTHORITY.get(src, row.get('register') or src), f_src, inner)
+    if row.get('document_id'):
+        foot += wrap(d, str(row.get('document_id')), f_src, inner)
+
+    qh = len(quote_lines) * int(f_body.size * 1.24)
+    ah = len(attr_lines) * 36
+    fh = len(foot) * 32
+    total_h = 44 + 46 + qh + 40 + ah + 26 + fh
+    y = max(safe['top'],
+            safe['top'] + (safe['bottom'] - safe['top'] - total_h) // 2)
+
+    kick = 'IN ITS OWN WORDS' + (f'   {n} OF {of}' if of > 1 else '')
+    d.text((x0, y), kick, font=f_kick, fill=C['muted'])
+    y += 44
+    d.line([(x0, y), (x0 + 140, y)], fill=accent, width=5)
+    y += 46
+
+    for ln in quote_lines:
+        d.text((x0, y), ln, font=f_body, fill=C['ink'])
+        y += int(f_body.size * 1.24)
+    y += 40
+
+    for ln in attr_lines:
+        d.text((x0, y), ln, font=f_attr, fill=accent)
+        y += 36
+    y += 26
+    for ln in foot:
+        d.text((x0, y), ln, font=f_src, fill=C['muted'])
+        y += 32
+
+    return im
 
 
 def draw_card(row, shot: Path, index: int, total: int, preset: str,
@@ -250,13 +334,13 @@ def load(path: Path, entity=None, side=None, grade=None):
 def state(edges: Path) -> dict:
     p = edges.with_suffix('.exhibits.json')
     if not p.is_file():
-        return {'done': [], 'notes': {}, 'flags': {}}
+        return {'done': [], 'notes': {}, 'flags': {}, 'quotes': {}}
     try:
         raw = json.loads(p.read_text())
     except json.JSONDecodeError:
-        return {'done': [], 'notes': {}, 'flags': {}}
+        return {'done': [], 'notes': {}, 'flags': {}, 'quotes': {}}
     return {'done': raw.get('done') or [], 'notes': raw.get('notes') or {},
-            'flags': raw.get('flags') or {}}
+            'flags': raw.get('flags') or {}, 'quotes': raw.get('quotes') or {}}
 
 
 def main() -> int:
@@ -296,7 +380,7 @@ def main() -> int:
     out = Path(a.out).expanduser()
     out.mkdir(parents=True, exist_ok=True)
 
-    made, missing, held = 0, [], []
+    made, missing, held, quoted = 0, [], [], 0
     print(f'\n  FRAMED EXHIBITS  {a.theme} · {a.preset}\n')
     for i, r in enumerate(rows, 1):
         k = edge_key(r)
@@ -314,7 +398,14 @@ def main() -> int:
         pages = [q for q in pages if q.suffix.lower() in IMAGE_EXT]
         if not pages:
             missing.append((i, r, f'exhibit_{i:02d}_*'))
-            continue
+
+        quotes = st['quotes'].get(k, [])
+        for qn, qtext in enumerate(quotes, 1):
+            im = draw_quote(r, qtext, i, qn, len(quotes), a.preset, a.theme)
+            name = f'quote_{i:02d}_{qn:02d}_{slug(r.get("entity_a"))}.png'
+            im.save(out / name)
+            quoted += 1
+            print(grn(f'    {name}'))
 
         for n, shot in enumerate(pages, 1):
             im = draw_card(r, shot, i, len(rows), a.preset, a.theme,
@@ -327,7 +418,12 @@ def main() -> int:
             flag = '  *' if st['notes'].get(k) else ''
             print(f'    {name}{flag}')
 
-    print(f'\n  {made} framed · {len(missing)} missing · {len(held)} contested')
+    print(f'\n  {made} framed · {quoted} quote card(s) · '
+          f'{len(missing)} missing · {len(held)} contested')
+    if quoted:
+        print(grn('  A QUOTE CARD NEEDS NO SCREENSHOT. The words are the '
+                  'picture, and they'))
+        print(grn('  are the one thing nobody can call your interpretation.'))
 
     if held:
         print('\n  CONTESTED — not framed, not on screen:')
