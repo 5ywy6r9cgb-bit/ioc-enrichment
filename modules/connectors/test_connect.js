@@ -1171,6 +1171,20 @@ module.exports = function run() {
     check('an empty or missing directory is an empty list, not a throw',
       R.heldCaptures('fedregdoc', 'x', { captureDir: px.join(tmp, 'nope') }).length === 0);
     fsx.rmSync(tmp, { recursive: true, force: true });
+
+    // ── A CLEAN CONTROL CHECK IS NOT AN ABSENCE OF RELATIONSHIP ───────────
+    //
+    // The NOTHING SHARED branch used to end by asserting that separate
+    // officers and separate addresses is what unrelated committees look
+    // like. It is also what a committee built by counsel to be formally
+    // independent looks like — including ones that describe the affiliation
+    // openly in their own materials.
+    check('a clean control result says what it does NOT rule out',
+      /WHAT A CLEAN RESULT DOES NOT MEAN/.test(cliSrc));
+    check('and names administrative control as the thing measured',
+      /This measures ADMINISTRATIVE control/.test(cliSrc));
+    check('and points at the parties own statements as the evidence instead',
+      /their own published statements/.test(cliSrc));
   }
 
 

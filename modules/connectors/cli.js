@@ -2055,7 +2055,37 @@ async function cmdControl(ids, opts = {}) {
     console.log(`\n  ${C.g('NOTHING SHARED')} — no treasurer, custodian, address, email,`);
     console.log(`  website or connected organisation appears on more than one.`);
     console.log(C.dim('\n  That is a real finding and the more common one. Separate officers'));
-    console.log(C.dim('  and separate addresses is what unrelated committees look like.\n'));
+    console.log(C.dim('  and separate addresses is what unrelated committees look like.'));
+
+    // ── AND IT IS ALSO WHAT A DELIBERATE AFFILIATE LOOKS LIKE ──────────────
+    //
+    // This test measures ADMINISTRATIVE control: does one person or one
+    // address appear on two registrations. It was written as though a clean
+    // result settled the question of relationship, and it does not.
+    //
+    // The case that exposed it: a super PAC universally described — including
+    // by itself and by the organisation it is named for — as that
+    // organisation's PAC, returning NOTHING SHARED on every field. Nothing
+    // failed. Campaign-finance counsel structure these entities to be
+    // formally separate ON PAPER precisely so the affiliation can be branded
+    // openly in public while remaining legally uncoordinated. A clean control
+    // check is what that structure is DESIGNED to produce.
+    //
+    // So a clean result rules out one thing and only one thing: shared
+    // administration. It says nothing about a relationship that is disclosed
+    // in public, asserted by the parties themselves, or built into the
+    // entities' own names.
+    console.log(`\n  ${C.y('WHAT A CLEAN RESULT DOES NOT MEAN')}`);
+    console.log(C.dim('  This measures ADMINISTRATIVE control — one person or one address'));
+    console.log(C.dim('  on two registrations. Committees built by counsel to be formally'));
+    console.log(C.dim('  independent will pass this test BY DESIGN, and some of those say'));
+    console.log(C.dim('  openly, in public and in their own materials, that they are'));
+    console.log(C.dim('  affiliated. A clean result rules out shared administration. It'));
+    console.log(C.dim('  rules out nothing about a relationship the parties themselves'));
+    console.log(C.dim('  describe.'));
+    console.log(C.dim('\n  Where the parties assert a relationship this test cannot see,'));
+    console.log(C.dim('  the evidence for it is their own published statements — cite'));
+    console.log(C.dim('  those, and say the register shows no shared officers.\n'));
     return;
   }
 
