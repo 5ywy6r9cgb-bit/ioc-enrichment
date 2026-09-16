@@ -36,6 +36,9 @@
 #                                   record. It stays out of the deck until cleared.
 #   sentinel exhibits --notes       everything read off the filings so far
 #   sentinel cards --edges F.csv    evidence cards drawn from SOURCED edges
+#   sentinel frame --shots DIR      YOUR SCREENSHOT in a designed frame that
+#                                   carries its source line. The picture is the
+#                                   evidence; the frame is the only part designed.
 #   sentinel redact --check DIR     PUBLICATION GATE: nothing about the machine
 #                                   leaves it. Exits 3 on a leak.
 #   sentinel montage ...            openmontage video engine
@@ -364,6 +367,10 @@ PYSTATUS
 
   handoff)
     python3 "$ROOT/scripts/handoff.py" "$@"
+    ;;
+
+  frame)
+    python3 "$ROOT/modules/openmontage/engine/exhibitcard.py" "$@"
     ;;
 
   # NOTHING ABOUT THE MACHINE LEAVES THE MACHINE. A gate, not advice:
