@@ -144,13 +144,40 @@ def inside(spans, a: int, b: int) -> bool:
     return any(s <= a and b <= e for s, e in spans)
 
 
+def low_entropy(s: str) -> bool:
+    """A credential has variety. A rule of underscores, a row of dashes, a
+    divider of equals signs does not.
+
+    This exists because the generated episode script writes
+    `NARRATION: ______________________________` on the line a human fills in,
+    and the 32+ character rule read those thirty-eight underscores as a
+    possible API key — three 'leaks' on a file whose only secret was a blank.
+    A gate that cries wolf on its own template is a gate people start
+    passing --force to, and then it is not a gate.
+
+    Four distinct characters is the floor: a real key has many more, and no
+    formatting run has that many.
+    """
+    return len(set(s)) < 4
+
+
+# Per-rule escapes. A rule stays broad; the exception is named, narrow, and
+# testable, rather than the pattern being weakened for everyone.
+EXEMPT = {'long-token': low_entropy}
+
+
+def exempt(name: str, s: str) -> bool:
+    fn = EXEMPT.get(name)
+    return bool(fn and fn(s))
+
+
 def scan_text(text: str) -> list[dict]:
     """Every leak in a string, with the rule that caught it."""
     spans = public_spans(text)
     out = []
     for name, pat, why, _rep in RULES:
         for m in pat.finditer(text):
-            if inside(spans, m.start(), m.end()):
+            if inside(spans, m.start(), m.end()) or exempt(name, m.group(0)):
                 continue
             line = text.count('\n', 0, m.start()) + 1
             out.append({'rule': name, 'why': why, 'line': line,
@@ -161,13 +188,14 @@ def scan_text(text: str) -> list[dict]:
 def clean_text(text: str) -> str:
     spans = public_spans(text)
 
-    def repl_for(pat, rep):
+    def repl_for(name, rep):
         def f(m):
-            return m.group(0) if inside(spans, m.start(), m.end()) else rep
+            keep = inside(spans, m.start(), m.end()) or exempt(name, m.group(0))
+            return m.group(0) if keep else rep
         return f
 
-    for _name, pat, _why, rep in RULES:
-        text = pat.sub(repl_for(pat, rep), text)
+    for name, pat, _why, rep in RULES:
+        text = pat.sub(repl_for(name, rep), text)
         spans = public_spans(text)
     return text
 

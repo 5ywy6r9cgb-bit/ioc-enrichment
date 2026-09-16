@@ -67,9 +67,16 @@ def test_sides():
 
 
 def test_contains_is_lowercase():
-    r = {'entity_a': 'THE AKIN GUMP GROUP', 'entity_b': 'X'}
+    # The real namesake from the register: Hotel Blackstone is a 1980 hotel,
+    # The Blackstone Group was founded in 1985. Both contain the word.
+    r = {'entity_a': 'HOTEL BLACKSTONE, INC.', 'entity_b': 'TAX COMMISSION'}
     check('name not at the front is flagged lowercase',
-          exhibits.side_of(r, 'AKIN GUMP'), 'l')
+          exhibits.side_of(r, 'BLACKSTONE'), 'l')
+    # An article and a corporate suffix are a filing clerk's habit, not a
+    # different company — these still count as filed under the name.
+    r2 = {'entity_a': 'THE BLACKSTONE GROUP INC.', 'entity_b': 'X'}
+    check('article and suffix do not demote it',
+          exhibits.side_of(r2, 'BLACKSTONE'), 'L')
 
 
 def test_clean():
@@ -170,6 +177,39 @@ def test_bom_does_not_corrupt_the_display():
         r = run(['--next'], tmp)
         check('the name prints clean', 'C3.AI, INC.' in r.stdout, True)
         check('no stray BOM in the output', '﻿' in r.stdout, False)
+
+
+def test_cards_and_exhibits_agree():
+    """The deck and the queue must not disagree about who is in the deck.
+    They had two separate matchers; this is the test that keeps them one."""
+    sys.path.insert(0, str(HERE.parent / 'modules' / 'openmontage' / 'engine'))
+    import cards  # noqa: E402
+    cases = [({'entity_a': 'AKIN GUMP LLP', 'entity_b': 'INTERIOR'}, 'AKIN GUMP'),
+             ({'entity_a': 'DAWSON INC', 'entity_b': 'X'}, 'AWS'),
+             ({'entity_a': 'ECOLOGIX', 'entity_b': 'X'}, 'COLOGIX'),
+             ({'entity_a': 'HOTEL BLACKSTONE', 'entity_b': 'X'}, 'BLACKSTONE')]
+    for row, q in cases:
+        check(f'same verdict for {q!r} in {row["entity_a"]!r}',
+              cards.side_of(row, q), exhibits.side_of(row, q))
+    check('AWS does not match DAWSON',
+          exhibits.side_of({'entity_a': 'DAWSON INC', 'entity_b': 'X'}, 'AWS'), '')
+    check('COLOGIX does not match ECOLOGIX',
+          exhibits.side_of({'entity_a': 'ECOLOGIX', 'entity_b': 'X'}, 'COLOGIX'), '')
+
+
+def test_no_match_across_the_join():
+    """cards.py joined the two names with NO separator, so a string spanning
+    the seam existed in the joined text and in neither field."""
+    r = {'entity_a': 'AKIN GUMP', 'entity_b': 'CONTACTS INC'}
+    seam = 'GUMPCONTACTS'
+    # What the old test did, kept so the regression is visible rather than
+    # asserted: the string IS present in the naive join.
+    check('the seam string exists in the naive join',
+          seam.lower() in (r['entity_a'] + r['entity_b']).lower(), True)
+    check('and in neither actual field',
+          seam.lower() in r['entity_a'].lower()
+          or seam.lower() in r['entity_b'].lower(), False)
+    check('so it must match nothing', exhibits.side_of(r, seam), '')
 
 
 def test_mixed_sides_are_warned_about():

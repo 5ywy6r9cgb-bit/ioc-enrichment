@@ -56,9 +56,11 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
+sys.path.insert(0, str(HERE.parent.parent / 'connectors'))
 
 from PIL import Image, ImageDraw, ImageFont     # noqa: E402
 import brand                                     # noqa: E402
+from namematch import clean, matches_side, side_of   # noqa: E402
 
 # Line style per assertion type. The grade is VISIBLE, not annotated.
 STYLE = {
@@ -245,14 +247,27 @@ def card(edge: dict, index: int, preset='vertical', theme='sentinel_light',
     return im
 
 
-def read_edges(p: Path, limit: int, grade: str | None, entity: str | None) -> list[dict]:
-    rows = list(csv.DictReader(p.open(newline='', encoding='utf-8')))
+def read_edges(p: Path, limit: int, grade: str | None, entity: str | None,
+               side: str | None = None) -> list[dict]:
+    rows = list(csv.DictReader(p.open(newline='', encoding='utf-8-sig')))
+    for r in rows:
+        for k in ('entity_a', 'entity_b', 'label', 'relationship', 'register',
+                  'source', 'amount', 'source_url', 'document_id'):
+            if k in r:
+                r[k] = clean(r[k])
     if grade:
         rows = [r for r in rows if (r.get('assertion_type') or '').upper() == grade.upper()]
     if entity:
-        e = entity.lower()
-        rows = [r for r in rows
-                if e in (r.get('entity_a', '') + r.get('entity_b', '')).lower()]
+        # WHOLE-WORD, PER FIELD, AND THE SIDE IS RECORDED.
+        #
+        # This was `entity in (entity_a + entity_b).lower()` — two names joined
+        # with no separator, so a match could straddle the seam and exist in
+        # neither field, and BLACK matched BLACKSTONE. It also could not tell
+        # the firm's clients from the firm's own hires, which are opposite
+        # sentences, and drew them into one deck.
+        rows = [r for r in rows if matches_side(r, entity, side)]
+        for r in rows:
+            r['_side'] = side_of(r, entity)
     # Strongest first — a deck that opens on a co-occurrence teaches the
     # audience that this is what your evidence looks like.
     order = {'ASSERTED': 0, 'REGISTRY': 1, 'CO-OCCURRENCE': 2}
@@ -271,6 +286,10 @@ def main() -> int:
                     help='how many cards (default 20 — about 90 seconds)')
     ap.add_argument('--grade', help='ASSERTED | REGISTRY | CO-OCCURRENCE')
     ap.add_argument('--entity', help='only edges touching this name')
+    ap.add_argument('--side', choices=['left', 'right', 'any'], default='any',
+                    help='with --entity: left = the name is the SUBJECT of the '
+                         'card, right = it is the COUNTERPARTY. Opposite '
+                         'sentences. Default any, and the deck reports the mix.')
     ap.add_argument('--preset', default='vertical')
     ap.add_argument('--theme', default='sentinel_light')
     ap.add_argument('--seconds', type=float, default=90.0,
@@ -287,7 +306,11 @@ def main() -> int:
         print('\n  ' + brand.summary(), file=sys.stderr)
         return 2
 
-    rows = read_edges(ep, a.limit, a.grade, a.entity)
+    if a.side != 'any' and not a.entity:
+        print('\n  --side only means something with --entity.\n', file=sys.stderr)
+        return 2
+
+    rows = read_edges(ep, a.limit, a.grade, a.entity, a.side)
     if not rows:
         print('\n  No edges matched. Nothing drawn — an empty deck is not a deck.\n')
         return 2
@@ -318,6 +341,22 @@ def main() -> int:
             'source_note': f"{g} — card {i} of {len(rows)}. Drawn from the edge table, "
                            f"not written by hand.",
         })
+
+    if a.entity:
+        left = sum(1 for r in rows if 'L' in (r.get('_side') or '').upper())
+        right = sum(1 for r in rows if 'R' in (r.get('_side') or '').upper())
+        print(f'\n  direction: {left} card(s) have "{a.entity}" as the SUBJECT · '
+              f'{right} as the COUNTERPARTY')
+        if left and right and a.side == 'any':
+            print('  THOSE ARE OPPOSITE SENTENCES. A deck that mixes them is '
+                  'arguing two\n  things at once and proving neither. '
+                  '--side left or --side right.')
+        buried = sum(1 for r in rows
+                     if (r.get('_side') or '') != (r.get('_side') or '').upper())
+        if buried:
+            print(f'  {buried} card(s) carry the name but NOT at the front of it — '
+                  'the register did\n  not file those under your subject. Check '
+                  'them for namesakes before drawing.')
 
     print('\n  by grade:  ' + ' · '.join(f'{v} {k.lower()}' for k, v in by_grade.items()))
     if by_grade.get('CO-OCCURRENCE'):

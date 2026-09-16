@@ -70,6 +70,10 @@ import re
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent
+                       / 'modules' / 'connectors'))
+from namematch import clean, side_of  # noqa: E402
+
 GRADE_RANK = {'ASSERTED': 0, 'REGISTRY': 1, 'CO-OCCURRENCE': 2}
 
 TTY = sys.stdout.isatty()
@@ -121,50 +125,10 @@ def slug(s, n=34):
     return re.sub(r'[^a-z0-9]+', '_', str(s).lower()).strip('_')[:n] or 'x'
 
 
-# Characters that are not evidence: a byte-order mark carried in from a
-# register export, zero-width joiners, stray control codes. They render as a
-# box or a question mark and make a clean name look like a corrupt one.
-JUNK = re.compile('[' + '\\u0000-\\u0008\\u000b-\\u001f\\u007f'
-                  + '\\u200b-\\u200f\\u2028\\u2029\\ufeff' + ']')
-
-
-def clean(s):
-    """Strip unrenderable characters. Does NOT touch U+FFFD — a replacement
-    character means bytes were already lost upstream, and hiding that would be
-    hiding a defect in the capture, not fixing one."""
-    return JUNK.sub('', str(s or '')).strip()
-
-
 def words(s):
-    """Uppercase word tokens. The same normalisation the connectors use, so a
-    name filtered here and a name matched there mean the same thing."""
+    """Uppercase word tokens, for the state key only. Identity questions go to
+    namematch; this just has to be stable."""
     return re.sub(r'[^A-Z0-9]+', ' ', str(s or '').upper()).split()
-
-
-def run_at(hay, needle):
-    """Index where `needle`'s tokens appear as a contiguous run in `hay`, or -1.
-    Whole-word only: BLACK does not match BLACKSTONE."""
-    if not needle or len(needle) > len(hay):
-        return -1
-    for i in range(len(hay) - len(needle) + 1):
-        if hay[i:i + len(needle)] == needle:
-            return i
-    return -1
-
-
-def side_of(row, entity):
-    """Which side of the edge the name is on: 'L', 'R', 'LR', or '' for none.
-    Lowercase letter means the name is present but not at the front of the
-    field — CONTAINS, not FILED."""
-    q = words(entity)
-    out = ''
-    for field, mark in (('entity_a', 'L'), ('entity_b', 'R')):
-        at = run_at(words(row.get(field)), q)
-        if at == 0:
-            out += mark
-        elif at > 0:
-            out += mark.lower()
-    return out
 
 
 def load(path: Path, entity=None, grade=None, side=None, need_url=True):

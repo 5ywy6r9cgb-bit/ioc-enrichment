@@ -213,5 +213,24 @@ check('a directory expands to its files', len(files) == 2)
 check('and only the dirty one reports',
       len([f for f in files if R.scan_file(f)]) == 1)
 
+# ══ a gate that flags its own boilerplate is one people override ════════
+section('Low entropy is not a credential')
+
+# The generated episode script writes NARRATION: ______ on the line a human
+# fills in. The 32+ character rule read thirty-eight underscores as a possible
+# API key and failed the file. A gate that cries wolf on a blank is a gate that
+# gets passed --force, and then it is not a gate.
+check('a rule of underscores is not flagged',
+      R.scan_text('NARRATION: ' + '_' * 38) == [])
+check('a row of dashes is not flagged', R.scan_text('-' * 40) == [])
+check('and it survives the rewrite untouched',
+      R.clean_text('_' * 38) == '_' * 38)
+
+# The rule still has to do its job.
+KEY = 'sk_live_9fA2xQ7bT4vR1nZ8wK3jH6mP0cD5gYuE'
+check('a real high-entropy token IS still flagged',
+      'long-token' in [d['rule'] for d in R.scan_text(KEY)])
+check('and is still rewritten', KEY not in R.clean_text(KEY))
+
 print(f'\n  {"PASS" if FAIL == 0 else "FAIL"} — {PASS}/{PASS + FAIL} checks\n')
 sys.exit(1 if FAIL else 0)

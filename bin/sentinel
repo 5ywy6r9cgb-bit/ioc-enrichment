@@ -23,6 +23,9 @@
 #   sentinel pra mail send          send only what you approved
 #   sentinel pra mail fetch         read replies, log them against requests
 #   sentinel shots --spec EP.json   every picture the build will demand
+#   sentinel episode "ENTITY"       ONE ENTITY IN, ONE EPISODE PACKAGE OUT:
+#                                   script with every number's denominator, every
+#                                   citation, every limitation computed not recalled
 #   sentinel exhibits --next        THE SCREENSHOT QUEUE, one document at a time
 #   sentinel cards --edges F.csv    evidence cards drawn from SOURCED edges
 #   sentinel redact --check DIR     PUBLICATION GATE: nothing about the machine
@@ -345,6 +348,10 @@ PYSTATUS
   # time: open this, look at that, save it as this, caption it like so.
   exhibits)
     python3 "$ROOT/scripts/exhibits.py" "$@"
+    ;;
+
+  episode)
+    python3 "$ROOT/scripts/episode.py" "$@"
     ;;
 
   # NOTHING ABOUT THE MACHINE LEAVES THE MACHINE. A gate, not advice:
