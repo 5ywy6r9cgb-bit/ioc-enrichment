@@ -90,6 +90,28 @@ SPOKEN = {
     'fec': 'reported to the Federal Election Commission on a sworn schedule',
 }
 
+# WHAT KIND OF NUMBER IS THIS. The register decides, and the register says so
+# on the face of the document.
+#
+# This was one line reading "a floor" for every amount in every register, which
+# is wrong for the commonest one on this desk. An LD-2 prints its own
+# qualifier: "Provide a good faith estimate, rounded to the nearest $10,000."
+# An estimate can be HIGH. Saying "at least $15,000" about a figure the form
+# calls an estimate is a claim the document itself contradicts, and it is the
+# kind a hostile reader catches instantly because the qualifier is printed
+# three lines under the number.
+QUALIFIER = {
+    'senatelda': 'a good-faith estimate, rounded — the form says so on its face',
+    'usaspending': 'the amount obligated, which is not what was finally paid',
+    'fec': 'what was reported on that schedule, for that period only',
+}
+DEFAULT_QUALIFIER = 'a floor, not a total'
+
+
+def qualifier(row):
+    return QUALIFIER.get((row.get('source') or '').lower(), DEFAULT_QUALIFIER)
+
+
 # Registers that bear on this kind of story and that this desk CANNOT reach.
 # Naming them in the script is not a weakness; it is the reason a hostile
 # viewer cannot take the story apart.
@@ -240,10 +262,11 @@ def limitations(p, rows):
     if p['with_amount']:
         out.append(
             f'{p["with_amount"]} of the {held} carr'
-            f'{"ies" if p["with_amount"] == 1 else "y"} a dollar figure. '
-            f'{"That figure is" if p["with_amount"] == 1 else "Those figures are"}'
-            ' a FLOOR, not a total — what got filed where I can read it, not '
-            'what was spent.')
+            f'{"ies" if p["with_amount"] == 1 else "y"} a dollar figure, and '
+            'they are not all the same kind of number: '
+            + '; '.join(sorted({QUALIFIER.get(src, DEFAULT_QUALIFIER)
+                                for src in p['sources']}))
+            + '. None of them is a total of what was spent.')
 
     if p['contains']:
         out.append(
@@ -316,8 +339,10 @@ def script_md(p, rows, ep_id):
          '',
          '> **PRODUCTION RULES**',
          '> 1. Every factual claim gets its citation on screen. No card, not said.',
-         '> 2. Every dollar figure gets its qualifier spoken — "a floor", not '
-         '"a total".',
+         '> 2. Every dollar figure gets the qualifier THAT REGISTER uses, '
+         'spoken. An LD-2 income figure is a good-faith estimate and may be '
+         'high; an obligated award amount is not what was finally paid. They '
+         'are different kinds of number and "a floor" is not always true.',
          '> 3. No person\'s face under an allegation they are not charged with.',
          '> 4. Where the record stops, the narration stops. Say *"and that is '
          'where the record ends."*',
@@ -334,8 +359,11 @@ def script_md(p, rows, ep_id):
             L.append(f'| {g} | {p["grades"][g]} of {p["matched"]} |')
     L.append(f'| Distinct counterparties | {p["counterparties"]} |')
     L.append(f'| Carrying a clickable source | {p["with_url"]} of {p["matched"]} |')
-    L.append(f'| Carrying a dollar figure | {p["with_amount"]} of {p["matched"]} '
-             f'— **a floor** |')
+    quals = sorted({QUALIFIER.get(src, DEFAULT_QUALIFIER)
+                    for src in p['sources']})
+    L.append(f'| Carrying a dollar figure | {p["with_amount"]} of {p["matched"]} |')
+    for q in quals:
+        L.append(f'| What kind of number | {q} |')
     if p['from']:
         L.append(f'| Date range on the filings | {p["from"]} to {p["to"]} |')
     L.append(f'| Registers relied on | '
@@ -399,7 +427,7 @@ def card_block(j, r, ent):
                '```', f'  {a}', '      lobbied on its own behalf', '```', '',
                f'**SAY:** "{a} did not retain anybody for this. It filed for '
                f'itself — {spoken}'
-               + (f'. {amt}, and that figure is a floor' if amt else '') + '."',
+               + (f'. {amt} — {qualifier(r)}' if amt else '') + '."',
                '', f'**ON SCREEN:** Source: {reg}'
                + (f' · {amt}' if amt else '')
                + (f' · {r.get("effective_date")}' if r.get('effective_date')
@@ -414,7 +442,7 @@ def card_block(j, r, ent):
            '```', f'  {a}', f'      |  {lab}', f'      v', f'  {bb}', '```', '']
     say = f'**SAY:** "{a} {lab} {bb} — {spoken}'
     if amt:
-        say += f'. {amt}, and that figure is a floor'
+        say += f'. {amt} — {qualifier(r)}'
     out += [say + '."', '']
     out.append(f'**ON SCREEN:** Source: {reg}'
                + (f' · {amt}' if amt else '')

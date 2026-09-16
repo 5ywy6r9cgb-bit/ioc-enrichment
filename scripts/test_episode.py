@@ -108,12 +108,28 @@ def test_every_count_carries_its_denominator():
 
 
 def test_amount_never_appears_without_its_qualifier():
+    """And the qualifier must be the one THAT register uses. An LD-2 prints
+    'good faith estimate, rounded to the nearest $10,000' under the box — so
+    an LDA income figure can be HIGH, and calling it a floor is a claim the
+    document contradicts."""
     with tempfile.TemporaryDirectory() as tmp:
-        r, s, _ = make(tmp, [e('FIRSTENERGY CORP', 'AKIN GUMP', amount='670000')])
-        for line in s.read_text().splitlines():
-            if '$670,000' in line and line.startswith('**SAY:**'):
-                check('the spoken line qualifies the figure',
-                      'floor' in line, True)
+        r, s, _ = make(tmp, [e('FIRSTENERGY CORP', 'AKIN GUMP', amount='15000')])
+        said = [ln for ln in s.read_text().splitlines()
+                if '$15,000' in ln and ln.startswith('**SAY:**')]
+        check('the figure is spoken once', len(said), 1)
+        check('an LDA figure is called an estimate',
+              'good-faith estimate' in said[0], True)
+        check('and is NOT called a floor', 'floor' in said[0], False)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        r, s, _ = make(tmp, [e('FIRSTENERGY CORP', 'DEPT OF DEFENSE',
+                               amount='45000', reg='USAspending',
+                               src='usaspending', rel='received_award_from',
+                               url='https://usaspending.gov/x')])
+        said = [ln for ln in s.read_text().splitlines()
+                if '$45,000' in ln and ln.startswith('**SAY:**')]
+        check('an award figure is called obligated',
+              'obligated' in said[0], True)
 
 
 def test_singular_counts_use_singular_verbs():
