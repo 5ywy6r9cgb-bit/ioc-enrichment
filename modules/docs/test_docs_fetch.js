@@ -228,6 +228,25 @@ module.exports = async function run() {
       D.nameFor('https://x.gov/a.pdf', 'application/pdf') === 'a.pdf');
   }
 
+  // ══ 9. A PLACEHOLDER IS NOT A URL ═════════════════════════════════════
+  //
+  // A command handed over with PASTE-THE-REAL-URL in it got pasted verbatim.
+  // It made a real network call and reported "failed: empty response body",
+  // which reads like the document was unreachable rather than like no
+  // document was ever named.
+  {
+    const src = require('fs').readFileSync(
+      require('path').join(__dirname, 'cli.js'), 'utf8');
+    check('doc get names a placeholder as a placeholder',
+      /That is a placeholder, not a URL/.test(src));
+    check('and says nothing was requested',
+      /Nothing was requested/.test(src));
+    check('and refuses a string that is not a url at all',
+      /Not a URL:/.test(src));
+    check('the placeholder test covers the exact string that was pasted',
+      /PASTE/.test(src) && /REAL\[-_\]\?URL/.test(src));
+  }
+
   console.log(`\n  ${FAIL ? 'FAIL' : 'PASS'} — ${PASS}/${PASS + FAIL} checks\n`);
   if (FAIL) process.exitCode = 1;
   return { pass: PASS, fail: FAIL };

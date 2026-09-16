@@ -36,6 +36,28 @@ async function cmdGet(url, opts) {
     process.exit(2);
   }
 
+  // ── A PLACEHOLDER IS NOT A URL ─────────────────────────────────────────
+  //
+  // A command handed over with PASTE-THE-REAL-URL in it got pasted verbatim,
+  // and this made a real network call and reported "failed: empty response
+  // body" — which reads like the document was unreachable rather than like
+  // the operator never supplied one. Every second spent on that error is
+  // spent looking in the wrong place.
+  const PLACEHOLDER = /(PASTE|YOUR|REAL[-_]?URL|EXAMPLE\.COM|XXXX|\.\.\.|<|>|\{|\})/i;
+  if (PLACEHOLDER.test(url) || /^https?:\/\/\S*\bTHE[-_]/i.test(url)) {
+    console.error(`\n  ${C.r('That is a placeholder, not a URL.')}`);
+    console.error(C.dim(`  ${url}`));
+    console.error(C.dim('\n  Open the document in a browser, copy the address bar,'));
+    console.error(C.dim('  and pass that. Nothing was requested.\n'));
+    process.exit(2);
+  }
+  if (!/^https?:\/\//i.test(url)) {
+    console.error(`\n  ${C.r('Not a URL:')} ${url}`);
+    console.error(C.dim('  It has to start with http:// or https://. '
+      + 'Nothing was requested.\n'));
+    process.exit(2);
+  }
+
   const dir = path.join(R.EVIDENCE, 'documents');
   console.log('\n' + C.b('Fetch document'));
   console.log(`  ${url}`);
