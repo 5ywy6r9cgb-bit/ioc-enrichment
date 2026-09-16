@@ -79,6 +79,7 @@ const GRADE = {
   fec: 'REGISTRY',
   opencorporates: 'REGISTRY',   // filed with a state, in a jurisdiction, on a date
   opensanctions: 'REGISTRY',
+  clopinion: 'ASSERTED',        // the opinion text as the court published it
   cldocket: 'ASSERTED',         // the caption as the court keeps it
   clparties: 'ASSERTED',        // the party table, with roles
   courtlistener: 'CO-OCCURRENCE',  // a relevance-ranked search index (see §78)

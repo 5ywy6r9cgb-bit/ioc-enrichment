@@ -68,8 +68,20 @@ module.exports = async function run() {
 
     const empty = await D.fetchDocument('https://example.gov/x.pdf',
       async () => ({ status: 200, headers: {}, body: Buffer.alloc(0) }), { dir });
+    // The message used to be the bare words "empty response body", which
+    // reads like the document was missing. It now carries its own diagnosis.
     check('an empty body is a failure, not a zero-byte document',
-      !empty.ok && /empty/.test(empty.error), JSON.stringify(empty));
+      !empty.ok && /no bytes returned/.test(empty.error), JSON.stringify(empty));
+    const diag = await D.fetchDocument('https://example.gov/x.pdf',
+      async () => ({
+        status: 200,
+        headers: { 'content-type': 'text/html; charset=utf-8',
+          'content-length': '0', 'content-encoding': 'gzip' },
+        body: Buffer.alloc(0),
+      }), { dir });
+    check('and the failure names the status, the type and the encoding',
+      /HTTP 200/.test(diag.error) && /text\/html/.test(diag.error)
+      && /gzip/.test(diag.error), diag.error);
 
     const notFound = await D.fetchDocument('https://example.gov/x.pdf',
       async () => ({ status: 404, headers: {}, body: Buffer.from('nope') }), { dir });
