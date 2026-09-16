@@ -36,6 +36,30 @@ Ranked by, in order:
 
 It refuses to queue an edge with no URL. A card whose source line cannot be
 clicked is a card that asks to be trusted.
+
+─────────────────────────────────────────────────────────────────────────────
+DIRECTION IS NOT A DETAIL
+
+    AKIN GUMP  retained by  DEPARTMENT OF THE INTERIOR
+    1-800 CONTACTS  retained  AKIN GUMP
+
+Those are two different sentences about two different people. A queue that
+filters on a name and hands you both without saying which side matched has
+quietly merged a firm's clients with its own hires. Every row here is marked
+LEFT or RIGHT, and --side lets you ask for one.
+
+The name test is WHOLE-WORD, the same rule the connectors use: BLACK does not
+match BLACKSTONE, and a run that starts at the front of the name (FILED) is
+distinguished from one buried later in it (CONTAINS).
+
+─────────────────────────────────────────────────────────────────────────────
+WHAT 'DONE' MEANS
+
+Captured exhibits are remembered by the EDGE, not by its position in the list.
+Position is an artefact of whatever filter you happened to type; the fact that
+you photographed a filing is not. So --done 4 under --entity "AKIN GUMP" marks
+that document, and it still reads as captured tomorrow in an unfiltered queue,
+or after the edge table is rebuilt and everything renumbers.
 """
 from __future__ import annotations
 
@@ -97,20 +121,87 @@ def slug(s, n=34):
     return re.sub(r'[^a-z0-9]+', '_', str(s).lower()).strip('_')[:n] or 'x'
 
 
-def load(path: Path, entity=None, grade=None, need_url=True):
-    rows = list(csv.DictReader(path.open(newline='', encoding='utf-8')))
+# Characters that are not evidence: a byte-order mark carried in from a
+# register export, zero-width joiners, stray control codes. They render as a
+# box or a question mark and make a clean name look like a corrupt one.
+JUNK = re.compile('[' + '\\u0000-\\u0008\\u000b-\\u001f\\u007f'
+                  + '\\u200b-\\u200f\\u2028\\u2029\\ufeff' + ']')
+
+
+def clean(s):
+    """Strip unrenderable characters. Does NOT touch U+FFFD — a replacement
+    character means bytes were already lost upstream, and hiding that would be
+    hiding a defect in the capture, not fixing one."""
+    return JUNK.sub('', str(s or '')).strip()
+
+
+def words(s):
+    """Uppercase word tokens. The same normalisation the connectors use, so a
+    name filtered here and a name matched there mean the same thing."""
+    return re.sub(r'[^A-Z0-9]+', ' ', str(s or '').upper()).split()
+
+
+def run_at(hay, needle):
+    """Index where `needle`'s tokens appear as a contiguous run in `hay`, or -1.
+    Whole-word only: BLACK does not match BLACKSTONE."""
+    if not needle or len(needle) > len(hay):
+        return -1
+    for i in range(len(hay) - len(needle) + 1):
+        if hay[i:i + len(needle)] == needle:
+            return i
+    return -1
+
+
+def side_of(row, entity):
+    """Which side of the edge the name is on: 'L', 'R', 'LR', or '' for none.
+    Lowercase letter means the name is present but not at the front of the
+    field — CONTAINS, not FILED."""
+    q = words(entity)
+    out = ''
+    for field, mark in (('entity_a', 'L'), ('entity_b', 'R')):
+        at = run_at(words(row.get(field)), q)
+        if at == 0:
+            out += mark
+        elif at > 0:
+            out += mark.lower()
+    return out
+
+
+def load(path: Path, entity=None, grade=None, side=None, need_url=True):
+    rows = list(csv.DictReader(path.open(newline='', encoding='utf-8-sig')))
+    for r in rows:
+        for k in ('entity_a', 'entity_b', 'label', 'relationship', 'register',
+                  'source', 'amount', 'source_url', 'document_id'):
+            if k in r:
+                r[k] = clean(r[k])
     if grade:
         rows = [r for r in rows
                 if (r.get('assertion_type') or '').upper() == grade.upper()]
     if entity:
-        e = entity.lower()
-        rows = [r for r in rows
-                if e in (r.get('entity_a', '') + ' ' + r.get('entity_b', '')).lower()]
+        kept = []
+        for r in rows:
+            s = side_of(r, entity)
+            if not s:
+                continue
+            if side == 'left' and 'L' not in s.upper():
+                continue
+            if side == 'right' and 'R' not in s.upper():
+                continue
+            r['_side'] = s
+            kept.append(r)
+        rows = kept
     if need_url:
         # A CARD WHOSE SOURCE LINE CANNOT BE CLICKED IS A CARD THAT ASKS TO BE
         # TRUSTED. No URL, no queue.
         rows = [r for r in rows if (r.get('source_url') or '').startswith('http')]
     return rows
+
+
+def edge_key(r):
+    """What identifies an exhibit across filters and across rebuilds: the
+    relationship itself, not where it landed in today's list."""
+    return '|'.join(words(r.get(f)) and ' '.join(words(r.get(f))) or ''
+                    for f in ('entity_a', 'relationship', 'entity_b'))
 
 
 def pair_population(rows):
@@ -150,18 +241,30 @@ def statefile(edges: Path) -> Path:
     return edges.with_suffix('.exhibits.json')
 
 
+STATE_VERSION = 2
+
+
 def load_state(edges: Path) -> dict:
     p = statefile(edges)
+    st = {'v': STATE_VERSION, 'done': [], 'dropped': 0}
     if p.is_file():
         try:
-            return json.loads(p.read_text())
+            raw = json.loads(p.read_text())
         except json.JSONDecodeError:
-            pass
-    return {'done': []}
+            return st
+        done = raw.get('done') or []
+        # Version 1 stored positions. A position from a queue we can no longer
+        # reconstruct names no particular document, so it is not carried over —
+        # silently keeping it would mark an unrelated exhibit captured.
+        keys = [d for d in done if isinstance(d, str)]
+        st['done'] = keys
+        st['dropped'] = len(done) - len(keys)
+    return st
 
 
 def save_state(edges: Path, st: dict) -> None:
-    statefile(edges).write_text(json.dumps(st, indent=2) + '\n')
+    statefile(edges).write_text(json.dumps(
+        {'v': STATE_VERSION, 'done': st.get('done', [])}, indent=2) + '\n')
 
 
 def show(r, i, total, outdir):
@@ -170,14 +273,21 @@ def show(r, i, total, outdir):
         yel(grade) if grade == 'REGISTRY' else dim(grade))
     name = f'exhibit_{i:02d}_{slug(r.get("entity_a"))}.png'
 
+    s = r.get('_side') or ''
+    ltag = yel('  <- your name') if 'L' in s else (
+        dim('  <- contains it') if 'l' in s else '')
+    rtag = yel('  <- your name') if 'R' in s else (
+        dim('  <- contains it') if 'r' in s else '')
+
     print(f'\n{b(f"  EXHIBIT {i:02d} of {total}")}   {badge}')
-    print(f'  {b(str(r.get("entity_a"))[:60])}')
+    print(f'  {b(str(r.get("entity_a"))[:60])}{ltag}')
     print(f'    {dim(r.get("label") or r.get("relationship") or "")}')
-    print(f'  {b(str(r.get("entity_b"))[:60])}')
+    print(f'  {b(str(r.get("entity_b"))[:60])}{rtag}')
 
     pop = r.get('_pop', 1)
     print(dim(f'\n     {pop} entit{"y" if pop == 1 else "ies"} in this library '
-              f'stand in the same relationship to that counterparty'))
+              f'{"stands" if pop == 1 else "stand"} in the same relationship '
+              'to that counterparty'))
     if pop == 1:
         print(yel('     RAREST KIND. One entity crosses this — that is a question.'))
 
@@ -219,6 +329,26 @@ def wrap(text, width):
     return lines
 
 
+def filters(a) -> str:
+    """Echo back the filters that produced this queue. A '--done 4' typed
+    against a different filter set points at a different document, so the
+    command we hand back has to carry them."""
+    out = ''
+    if a.edges != 'edges.csv':
+        out += f' --edges {a.edges}'
+    if a.entity:
+        out += f' --entity "{a.entity}"'
+    if a.side and a.side != 'any':
+        out += f' --side {a.side}'
+    if a.grade:
+        out += f' --grade {a.grade}'
+    if a.limit != 20:
+        out += f' --limit {a.limit}'
+    if a.out != 'assets':
+        out += f' --out {a.out}'
+    return out
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(
         prog='sentinel exhibits',
@@ -228,6 +358,10 @@ def main() -> int:
     ap.add_argument('--out', default='assets',
                     help='where the screenshots will be saved')
     ap.add_argument('--entity', help='only exhibits touching this name')
+    ap.add_argument('--side', choices=['left', 'right', 'any'], default='any',
+                    help='with --entity: left = the name is the SUBJECT of the '
+                         'sentence, right = it is the COUNTERPARTY. Different '
+                         'claims. Default any, labelled.')
     ap.add_argument('--grade', help='ASSERTED | REGISTRY | CO-OCCURRENCE')
     ap.add_argument('--limit', type=int, default=20)
     ap.add_argument('--next', action='store_true',
@@ -244,14 +378,23 @@ def main() -> int:
               file=sys.stderr)
         return 2
 
+    if a.side != 'any' and not a.entity:
+        print('\n  --side only means something with --entity.\n', file=sys.stderr)
+        return 2
+
     st = load_state(ep)
     if a.reset:
         st = {'done': []}
         save_state(ep, st)
         print('\n  done list cleared\n')
         return 0
+    if st.get('dropped'):
+        print(dim(f'\n  {st["dropped"]} entr(y/ies) from an older state file '
+                  'recorded a POSITION, not a document.'))
+        print(dim('  Positions move when you change --entity or rebuild the '
+                  'edges. Not carried over.'))
 
-    rows = rank(load(ep, a.entity, a.grade))
+    rows = rank(load(ep, a.entity, a.grade, a.side))
     if not rows:
         print('\n  Nothing in that edge table has a URL behind it.')
         print(dim('  An edge with no clickable source cannot become an exhibit —'))
@@ -259,21 +402,29 @@ def main() -> int:
         return 2
     rows = rows[:a.limit]
     total = len(rows)
+    done = set(st['done'])
 
     if a.done is not None:
-        if a.done not in st['done']:
-            st['done'].append(a.done)
+        if not 1 <= a.done <= total:
+            print(f'\n  there is no exhibit {a.done} in this queue of {total}.\n',
+                  file=sys.stderr)
+            return 2
+        k = edge_key(rows[a.done - 1])
+        if k not in done:
+            st['done'].append(k)
+            done.add(k)
             save_state(ep, st)
-        print(grn(f'\n  exhibit {a.done:02d} marked captured '
-                  f'({len(st["done"])}/{total})'))
+        here = sum(1 for r in rows if edge_key(r) in done)
+        print(grn(f'\n  exhibit {a.done:02d} marked captured ({here}/{total} '
+                  'in this queue)'))
         a.next = True
 
     if a.next:
         for i, r in enumerate(rows, 1):
-            if i not in st['done']:
+            if edge_key(r) not in done:
                 show(r, i, total, a.out)
                 print(dim(f'\n  When you have the screenshot:'))
-                print(dim(f'    bin/sentinel exhibits --edges {a.edges} --done {i}'))
+                print(dim(f'    bin/sentinel exhibits{filters(a)} --done {i}'))
                 print('')
                 return 0
         print(grn(f'\n  All {total} captured. Build the deck:'))
@@ -282,16 +433,36 @@ def main() -> int:
         return 0
 
     # The whole queue.
-    print(f'\n{b("  EXHIBIT QUEUE")}  {total} document(s) · '
-          f'{len(st["done"])} captured')
+    here = sum(1 for r in rows if edge_key(r) in done)
+    print(f'\n{b("  EXHIBIT QUEUE")}  {total} document(s) · {here} captured')
     print(dim('  Ranked: ASSERTED first, then the RAREST domain pair, then'))
-    print(dim('  whichever carries a number. The order is the argument.\n'))
+    print(dim('  whichever carries a number. The order is the argument.'))
+    if a.entity:
+        print(dim(f'  L / R = which side of the sentence "{a.entity}" is on.'))
+    print('')
     for i, r in enumerate(rows, 1):
-        mark = grn(' ok ') if i in st['done'] else dim(' -- ')
+        mark = grn(' ok ') if edge_key(r) in done else dim(' -- ')
         g = (r.get('assertion_type') or '?').upper()[:4]
-        print(f'  {mark}{i:02d}  {g:<5} {r["_pop"]:>3}  '
+        sd = f'{(r.get("_side") or ""):<2} ' if a.entity else ''
+        print(f'  {mark}{i:02d}  {g:<5} {sd}{r["_pop"]:>3}  '
               f'{str(r.get("entity_a"))[:28]:<28} {str(r.get("entity_b"))[:26]}')
-    print(dim(f'\n  One at a time:  bin/sentinel exhibits --edges {a.edges} --next'))
+
+    if a.entity:
+        left = sum(1 for r in rows if 'L' in (r.get('_side') or '').upper())
+        right = sum(1 for r in rows if 'R' in (r.get('_side') or '').upper())
+        print(dim(f'\n  {left} of {total} have the name on the LEFT '
+                  f'(it is the subject) · {right} on the RIGHT (it is the '
+                  'counterparty).'))
+        if left and right:
+            print(yel('  THOSE ARE DIFFERENT CLAIMS. A deck that mixes them says'))
+            print(yel('  nothing. --side left or --side right to take one.'))
+        buried = sum(1 for r in rows
+                     if (r.get('_side') or '') != (r.get('_side') or '').upper())
+        if buried:
+            print(dim(f'  {buried} carry the name but not at the front of it — '
+                      'check those are not namesakes.'))
+
+    print(dim(f'\n  One at a time:  bin/sentinel exhibits{filters(a)} --next'))
     print(dim('  The screenshot is DOCUMENTARY. A generated image never is.\n'))
     return 0
 
