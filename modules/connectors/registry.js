@@ -14,6 +14,7 @@
 const fs = require('fs');
 const path = require('path');
 const https = require('https');
+const zlib = require('zlib');
 const P = require('../../core/provenance/provenance.js');
 
 const ROOT = path.resolve(__dirname, '..', '..');
@@ -230,12 +231,31 @@ function requestOnce(method, url, headers, body) {
       headers: Object.assign({
         'User-Agent': `sentinel-connectors/${VERSION} (public-records research desk)`,
         Accept: 'application/json',
+        // WITHOUT THIS, A COMPRESSED ANSWER ARRIVES AS BYTES NOBODY READS.
+        // Node does not negotiate encoding on its own, and a server that
+        // compresses anyway hands back a body that is present, non-empty and
+        // unparseable. Declaring what we accept and then actually decoding it
+        // is the only honest pair.
+        'Accept-Encoding': 'gzip, deflate, identity',
       }, headers || {}),
       timeout: 30000,
     }, (res) => {
+      const enc = String(res.headers['content-encoding'] || '').toLowerCase();
+      let stream = res;
+      if (enc === 'gzip') stream = res.pipe(zlib.createGunzip());
+      else if (enc === 'deflate') stream = res.pipe(zlib.createInflate());
+      else if (enc === 'br' && zlib.createBrotliDecompress) {
+        stream = res.pipe(zlib.createBrotliDecompress());
+      }
       const chunks = [];
-      res.on('data', (d) => chunks.push(d));
-      res.on('end', () => resolve({
+      stream.on('data', (d) => chunks.push(d));
+      stream.on('error', (e) => resolve({
+        status: res.statusCode,
+        headers: res.headers,
+        error: `decode failed (${enc || 'identity'}): ${e.code || e.message}`,
+        body: Buffer.alloc(0),
+      }));
+      stream.on('end', () => resolve({
         status: res.statusCode,
         location: res.headers.location || null,
         // Kept because a 429 answer may carry Retry-After, and guessing a
@@ -1141,6 +1161,76 @@ const CONNECTORS = {
    * it is the only combination in this toolkit that can answer "who is on
    * this case" without guessing.
    */
+  /**
+   * ─────────────────────────────────────────────────────────────────────────
+   * THE OPINION ITSELF, NOT A CARD ABOUT IT.
+   * ─────────────────────────────────────────────────────────────────────────
+   *
+   * A search for a citation returned thirteen opinions across two counties,
+   * every one of them on the question that decides the story. Reading them
+   * meant fetching the public opinion PAGES — and those came back with no
+   * bytes, thirteen times.
+   *
+   * The pages were never the right target. `type=o` search results carry an
+   * `external_id`, which IS the opinion id, and CourtListener publishes the
+   * text at /opinions/{id}/ as JSON with the same key already in use. One
+   * identifier, one call, the actual words, hashed into the ledger like
+   * everything else.
+   *
+   * This takes an ID, not a name. Searching by name is what `courtlistener`
+   * is for; once you have the id, guessing is over.
+   */
+  clopinion: {
+    label: 'CourtListener (opinion text)',
+    keyVar: 'COURTLISTENER_API_TOKEN',
+    minIntervalMs: 13000,
+    keyRequired: false,
+    calls: 1,
+    accepts: (q) => /^\d{4,}$/.test(String(q || '').trim()),
+    wants: 'an opinion id like 10358226 — the external_id from a courtlistener search',
+    describe: (q) => `GET https://www.courtlistener.com/api/rest/v4/opinions/${q}/`,
+    probe: (key) => ({
+      method: 'GET',
+      url: 'https://www.courtlistener.com/api/rest/v4/opinions/?page_size=1',
+      headers: key ? { Authorization: `Token ${key}` } : {},
+    }),
+    run: (q, key) => ({
+      method: 'GET',
+      url: 'https://www.courtlistener.com/api/rest/v4/opinions/'
+        + `${encodeURIComponent(String(q).trim())}/`,
+      headers: key ? { Authorization: `Token ${key}` } : {},
+    }),
+    parse: (json) => {
+      const rows = json && json.results ? json.results : [json];
+      return rows.filter(Boolean).map((o) => {
+        // The API offers the same opinion in several renderings and they are
+        // not equally useful. plain_text is what a person reads; the html
+        // variants carry markup a quote would have to be dug out of.
+        const text = o.plain_text || o.html_with_citations || o.html
+          || o.html_lawbox || o.html_columbia || '';
+        return {
+          external_id: String(o.id || ''),
+          name: o.cluster_id ? `opinion ${o.id} (cluster ${o.cluster_id})`
+            : `opinion ${o.id}`,
+          type: o.type || '',
+          author: o.author_str || '',
+          per_curiam: o.per_curiam ? 'per curiam' : '',
+          date_created: o.date_created || '',
+          download_url: o.download_url || '',
+          // Stripped of tags when the only rendering available was HTML, so
+          // what lands in the capture is the text and not a page of markup.
+          text: String(text).replace(/<[^>]+>/g, ' ')
+            .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&')
+            .replace(/\s+/g, ' ').trim(),
+          chars: String(text).length,
+          url: o.absolute_url
+            ? `https://www.courtlistener.com${o.absolute_url}` : '',
+        };
+      });
+    },
+    identify: (r) => r.external_id,
+  },
+
   cldocket: {
     label: 'CourtListener (docket record)',
     keyVar: 'COURTLISTENER_API_TOKEN',

@@ -1179,6 +1179,55 @@ module.exports = function run() {
     // like. It is also what a committee built by counsel to be formally
     // independent looks like — including ones that describe the affiliation
     // openly in their own materials.
+    // ── THE OPINION ITSELF, NOT A CARD ABOUT IT ───────────────────────────
+    //
+    // Thirteen opinion PAGES came back with no bytes. The pages were never
+    // the right target: search results carry external_id, which is the
+    // opinion id, and the API publishes the text against it.
+    {
+      const c = R.CONNECTORS.clopinion;
+      check('clopinion exists', !!c);
+      check('it takes an opinion id', c.accepts('10358226'));
+      check('and refuses a case name', !c.accepts('Licking Heights'));
+      check('and refuses an empty query', !c.accepts(''));
+      check('it asks the opinions endpoint by id',
+        /\/opinions\/10358226\/$/.test(c.describe('10358226')));
+      check('it sends the key in an Authorization header',
+        c.run('1', 'k').headers.Authorization === 'Token k');
+      check('and sends none when there is no key',
+        !c.run('1', null).headers.Authorization);
+
+      const one = c.parse({ id: 7, plain_text: 'para one', absolute_url: '/o/7/' })[0];
+      check('a bare object parses as one opinion', one.external_id === '7');
+      check('plain text is carried through', one.text === 'para one');
+      check('and a clickable url is built', /courtlistener\.com\/o\/7\//.test(one.url));
+
+      const html = c.parse({ id: 8, html: '<p>para&nbsp;<b>two</b></p>' })[0];
+      check('html renderings are stripped to text', html.text === 'para two');
+      check('plain_text wins over html when both exist',
+        c.parse({ id: 9, plain_text: 'plain', html: '<p>markup</p>' })[0].text === 'plain');
+      check('a results array parses too',
+        c.parse({ results: [{ id: 1 }, { id: 2 }] }).length === 2);
+    }
+
+    // ── AN EMPTY BODY IS A SYMPTOM, NOT A DIAGNOSIS ───────────────────────
+    {
+      const docSrc = require('fs').readFileSync(
+        require('path').join(__dirname, '..', 'docs', 'document.js'), 'utf8');
+      check('a zero-byte response names the status and type',
+        /no bytes returned/.test(docSrc) && /content-type/.test(docSrc));
+      check('and says whether the server claimed to compress it',
+        /content-encoding/.test(docSrc));
+      const regSrc = require('fs').readFileSync(
+        require('path').join(__dirname, 'registry.js'), 'utf8');
+      check('requests declare what encodings they accept',
+        /'Accept-Encoding': 'gzip, deflate, identity'/.test(regSrc));
+      check('and actually decompress gzip', /createGunzip/.test(regSrc));
+      check('and deflate', /createInflate/.test(regSrc));
+      check('a decode failure is reported, not returned as empty',
+        /decode failed/.test(regSrc));
+    }
+
     // ── AN IDENTIFIER IS NOT A NAME ───────────────────────────────────────
     //
     // A live search for the citation 2024-Ohio-1564 returned fifteen rows,

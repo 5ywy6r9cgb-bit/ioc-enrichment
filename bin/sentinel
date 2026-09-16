@@ -72,6 +72,8 @@
 #   sentinel connect member "NAME"    every direction money moves at one seat
 #   sentinel connect donors "NAME"    who FUNDED a committee (Schedule A, money in)
 #   sentinel connect filings "NAME"   the DOCUMENTS themselves, with PDF links
+#   sentinel connect clopinion ID     THE OPINION TEXT, by opinion id — the
+#                                   external_id a courtlistener search returns
 #   sentinel connect control C00… C00…  what several committees SHARE (treasurer, address)
 #   sentinel connect vendor "FIRM"        the REVERSE lookup: who PAYS this firm
 #   sentinel connect matrix               the library as CSVs, plus a ranked worklist

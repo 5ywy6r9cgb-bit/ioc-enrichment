@@ -250,7 +250,30 @@ async function fetchDocument(url, request, opts = {}) {
     return { ok: false, status: res.status, error: `HTTP ${res.status}` };
   }
   if (!res.body || !res.body.length) {
-    return { ok: false, status: res.status, error: 'empty response body' };
+    // AN EMPTY BODY IS A SYMPTOM, AND THE OLD MESSAGE NAMED ONLY THE SYMPTOM.
+    //
+    // Thirteen court opinions failed with the bare words "empty response
+    // body", which reads like the documents were missing. They were not
+    // missing. Something about the exchange produced no bytes, and every
+    // fact that would say WHAT was sitting in the response headers, unread:
+    // the status, the declared type, the declared length, whether the server
+    // said it had compressed something. An error that does not carry its own
+    // diagnosis sends the operator to look in the wrong place.
+    const h = res.headers || {};
+    const bits = [`HTTP ${res.status}`];
+    if (h['content-type']) bits.push(h['content-type'].split(';')[0]);
+    if (h['content-length'] !== undefined) {
+      bits.push(`content-length ${h['content-length']}`);
+    }
+    if (h['content-encoding']) bits.push(`encoded ${h['content-encoding']}`);
+    if (res.redirected_from && res.redirected_from.length) {
+      bits.push(`after ${res.redirected_from.length} redirect(s)`);
+    }
+    return {
+      ok: false,
+      status: res.status,
+      error: `no bytes returned — ${bits.join(' · ')}`,
+    };
   }
 
   const dir = opts.dir || 'documents';
