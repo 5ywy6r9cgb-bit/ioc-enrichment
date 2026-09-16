@@ -107,8 +107,49 @@ QUALIFIER = {
 }
 DEFAULT_QUALIFIER = 'a floor, not a total'
 
+# ─────────────────────────────────────────────────────────────────────────────
+# AND ON AN LD-2 THERE ARE TWO KINDS, WHICH IS WORSE.
+#
+# The form is explicit: "INCOME OR EXPENSES — YOU MUST complete either Line 12
+# or Line 13." They are mutually exclusive, and they measure opposite ends of
+# the same transaction.
+#
+#   LINE 12  INCOME   what the REGISTRANT was paid. Filed by the firm. The
+#                     rounding instruction is printed under this box and only
+#                     this box: "a good faith estimate, rounded to the nearest
+#                     $10,000".
+#   LINE 13  EXPENSE  what the ORGANISATION spent lobbying for itself. Filed
+#                     when line 7 "Self" is ticked. It carries no rounding
+#                     instruction; it carries an ACCOUNTING METHOD on line 14,
+#                     and A, B and C measure different scopes — LDA definitions,
+#                     IRC 6033(b)(8), IRC 162(e). Two $290,000 figures filed
+#                     under different methods are not the same quantity.
+#
+# Two live filings made this concrete: a firm reporting $15,000 of INCOME for
+# FirstEnergy, and FirstEnergy reporting $290,000 of its own EXPENSE. Adding
+# those, averaging them, or putting them on consecutive cards as though they
+# were the same measure is the error the whole desk exists to avoid.
+#
+# The edge table does not carry the line number. It does not have to: the form
+# ties them together. Client and registrant being the same party is what makes
+# it a line 13 filing, and that is testable from the two names.
+INCOME_Q = ('a good-faith estimate of what the firm was PAID, rounded to the '
+            'nearest ten thousand — the form says so under the box')
+EXPENSE_Q = ('what the company SPENT lobbying for itself, under whichever '
+             'accounting method it ticked on line 14 — and A, B and C measure '
+             'different things')
+
+
+def is_expense(row) -> bool:
+    """A line 13 filing. The client IS the registrant, which is what the 'Self'
+    box on line 7 declares."""
+    return ((row.get('source') or '').lower() == 'senatelda'
+            and same_entity(row.get('entity_a'), row.get('entity_b')))
+
 
 def qualifier(row):
+    if (row.get('source') or '').lower() == 'senatelda':
+        return EXPENSE_Q if is_expense(row) else INCOME_Q
     return QUALIFIER.get((row.get('source') or '').lower(), DEFAULT_QUALIFIER)
 
 
@@ -243,6 +284,11 @@ def profile(all_rows, rows, entity):
 
     p['counterparties'] = len({(r.get('entity_b') or '').lower() for r in rows})
     p['distinct_names'] = len({normalise(r.get('entity_a')) for r in rows})
+    p['kinds'] = {qualifier(r) for r in rows if r.get('amount')}
+    p['income'] = sum(1 for r in rows
+                      if r.get('amount') and not is_expense(r)
+                      and (r.get('source') or '').lower() == 'senatelda')
+    p['expense'] = sum(1 for r in rows if r.get('amount') and is_expense(r))
     p['self_edges'] = sum(1 for r in rows
                           if same_entity(r.get('entity_a'), r.get('entity_b')))
     p['with_url'] = sum(1 for r in rows
@@ -290,8 +336,7 @@ def limitations(p, rows):
             f'{p["with_amount"]} of the {held} carr'
             f'{"ies" if p["with_amount"] == 1 else "y"} a dollar figure, and '
             'they are not all the same kind of number: '
-            + '; '.join(sorted({QUALIFIER.get(src, DEFAULT_QUALIFIER)
-                                for src in p['sources']}))
+            + '; '.join(sorted(p['kinds']))
             + '. None of them is a total of what was spent.')
 
     if p['contains']:
@@ -332,6 +377,16 @@ def limitations(p, rows):
                 named.add(reg)
                 out.append(f'This desk cannot read {reg}: {why}. '
                            'So a whole class of this activity is invisible to me.')
+
+    # THE ERROR THIS DESK EXISTS TO AVOID.
+    if p.get('income') and p.get('expense'):
+        out.append(
+            f'{p["income"]} of these figures {isare(p["income"], "is", "are")} '
+            f'lobbying INCOME — what a firm was paid — and {p["expense"]} '
+            f'{isare(p["expense"], "is", "are")} lobbying EXPENSE, what the '
+            'company spent on itself. The form makes you pick one or the '
+            'other. They are opposite ends of different transactions, so I am '
+            'not adding them together and neither should anybody quoting me.')
 
     if p.get('distinct_names', 1) > 1:
         out.append(
@@ -385,8 +440,7 @@ def script_md(p, rows, ep_id):
             L.append(f'| {g} | {p["grades"][g]} of {p["matched"]} |')
     L.append(f'| Distinct counterparties | {p["counterparties"]} |')
     L.append(f'| Carrying a clickable source | {p["with_url"]} of {p["matched"]} |')
-    quals = sorted({QUALIFIER.get(src, DEFAULT_QUALIFIER)
-                    for src in p['sources']})
+    quals = sorted({qualifier(r) for r in rows if r.get('amount')})
     L.append(f'| Carrying a dollar figure | {p["with_amount"]} of {p["matched"]} |')
     for q in quals:
         L.append(f'| What kind of number | {q} |')

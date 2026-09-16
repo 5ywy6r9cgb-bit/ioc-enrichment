@@ -132,6 +132,42 @@ def test_amount_never_appears_without_its_qualifier():
               'obligated' in said[0], True)
 
 
+def test_income_and_expense_are_different_numbers():
+    """Two live filings: a firm reporting $15,000 of INCOME for FirstEnergy,
+    and FirstEnergy reporting $290,000 of its own EXPENSE. The LD-2 says
+    "complete either Line 12 or Line 13" — they are opposite ends of different
+    transactions and must never be summed."""
+    with tempfile.TemporaryDirectory() as tmp:
+        r, s, _ = make(tmp, [
+            e('FIRSTENERGY CORP', 'PERRY ROSS WHITE', amount='15000'),
+            e('FIRSTENERGY CORP', 'FIRSTENERGY CORP', amount='290000')],
+            extra=['--limit', '20'])
+        txt = s.read_text()
+        said = {ln for ln in txt.splitlines() if ln.startswith('**SAY:**')}
+        inc = [ln for ln in said if '$15,000' in ln]
+        exp = [ln for ln in said if '$290,000' in ln]
+        check('the retained filing is called what the firm was PAID',
+              'was PAID' in inc[0], True)
+        check('the self filing is called what the company SPENT',
+              'SPENT' in exp[0], True)
+        check('and names the accounting method as the qualifier',
+              'line 14' in exp[0], True)
+        check('the two are not given the same qualifier',
+              inc[0].split('—')[-1] == exp[0].split('—')[-1], False)
+        check('and the script refuses to add them',
+              'not adding them together' in txt, True)
+
+
+def test_a_retained_filing_keeps_the_rounding_qualifier():
+    with tempfile.TemporaryDirectory() as tmp:
+        r, s, _ = make(tmp, [e('FIRSTENERGY CORP', 'AKIN GUMP', amount='15000')])
+        said = [ln for ln in s.read_text().splitlines()
+                if ln.startswith('**SAY:**')][0]
+        check('income carries the rounding instruction',
+              'rounded to the nearest ten thousand' in said, True)
+        check('and is not described as spending', 'SPENT' in said, False)
+
+
 def test_singular_counts_use_singular_verbs():
     """These lines are READ ALOUD. '1 records are' is the first thing the
     audience hears."""
