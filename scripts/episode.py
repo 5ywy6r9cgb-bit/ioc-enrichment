@@ -59,7 +59,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / 'modules' / 'connectors'))
-from namematch import clean, matches_side, side_of  # noqa: E402
+from namematch import clean, matches_side, normalise, same_entity, side_of  # noqa: E402
 
 TTY = sys.stdout.isatty()
 
@@ -194,6 +194,9 @@ def profile(all_rows, rows, entity):
                              (r.get('entity_b') or '').lower())])
 
     p['counterparties'] = len({(r.get('entity_b') or '').lower() for r in rows})
+    p['distinct_names'] = len({normalise(r.get('entity_a')) for r in rows})
+    p['self_edges'] = sum(1 for r in rows
+                          if same_entity(r.get('entity_a'), r.get('entity_b')))
     p['with_url'] = sum(1 for r in rows
                         if (r.get('source_url') or '').startswith('http'))
     amts = [money(r.get('amount')) for r in rows]
@@ -281,6 +284,23 @@ def limitations(p, rows):
                 out.append(f'This desk cannot read {reg}: {why}. '
                            'So a whole class of this activity is invisible to me.')
 
+    if p.get('distinct_names', 1) > 1:
+        out.append(
+            f'These records are filed under {p["distinct_names"]} different '
+            f'names, all of them beginning "{ent}". Some of those are '
+            'subsidiaries and some may be unrelated companies that picked the '
+            'same word — the filing\'s jurisdiction and incorporation date '
+            'decide which, and I have checked that on the ones I am showing '
+            'you.')
+
+    if p.get('self_edges'):
+        out.append(
+            f'{p["self_edges"]} of these '
+            f'{"record has" if p["self_edges"] == 1 else "records have"} the '
+            'same company on both sides — it filed for itself rather than '
+            'hiring anyone. That is in-house work, and it is not a connection '
+            'to anybody.')
+
     out.append(
         f'This is {n} record{"" if n == 1 else "s"} out of {p["library"]:,} '
         'in my library. It is what I found, not what exists.')
@@ -366,6 +386,29 @@ def card_block(j, r, ent):
     grade = (r.get('assertion_type') or '?').upper()
     amt = money(r.get('amount'))
     pop = r.get('_pop', 1)
+
+    # SAME COMPANY ON BOTH SIDES IS NOT AN ARROW.
+    #
+    # On a Senate LDA filing, client == registrant means the company employs
+    # its own lobbyists instead of retaining a firm. That is a real, sworn,
+    # reportable fact — and drawn as a card it reads FIRSTENERGY CORP ->
+    # FIRSTENERGY CORP, which tells an audience nothing and tells a hostile
+    # one that nobody looked.
+    if same_entity(a, bb):
+        out = [f'### Card {j:02d} — {grade} · IN-HOUSE', '',
+               '```', f'  {a}', '      lobbied on its own behalf', '```', '',
+               f'**SAY:** "{a} did not retain anybody for this. It filed for '
+               f'itself — {spoken}'
+               + (f'. {amt}, and that figure is a floor' if amt else '') + '."',
+               '', f'**ON SCREEN:** Source: {reg}'
+               + (f' · {amt}' if amt else '')
+               + (f' · {r.get("effective_date")}' if r.get('effective_date')
+                  else '')]
+        if r.get('document_id'):
+            out.append(f'**DOCUMENT:** {r.get("document_id")}')
+        out += ['**DO NOT DRAW AN ARROW.** Both sides of this record are the '
+                'same company. It is one box, not two.', '']
+        return out
 
     out = [f'### Card {j:02d} — {grade}', '',
            '```', f'  {a}', f'      |  {lab}', f'      v', f'  {bb}', '```', '']

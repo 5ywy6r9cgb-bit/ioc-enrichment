@@ -72,7 +72,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent
                        / 'modules' / 'connectors'))
-from namematch import clean, side_of  # noqa: E402
+from namematch import clean, normalise, same_entity, side_of  # noqa: E402
 
 GRADE_RANK = {'ASSERTED': 0, 'REGISTRY': 1, 'CO-OCCURRENCE': 2}
 
@@ -412,19 +412,57 @@ def main() -> int:
               f'{str(r.get("entity_a"))[:28]:<28} {str(r.get("entity_b"))[:26]}')
 
     if a.entity:
-        left = sum(1 for r in rows if 'L' in (r.get('_side') or '').upper())
-        right = sum(1 for r in rows if 'R' in (r.get('_side') or '').upper())
-        print(dim(f'\n  {left} of {total} have the name on the LEFT '
-                  f'(it is the subject) · {right} on the RIGHT (it is the '
-                  'counterparty).'))
-        if left and right:
+        # BOTH is its own bucket, not a tick in each column. Counting a
+        # both-sides row as one LEFT and one RIGHT printed "20 of 20 on the
+        # LEFT, 1 on the RIGHT" — twenty-one out of twenty — and then advised
+        # --side left to an operator who had already passed --side left.
+        both = [r for r in rows if len(set((r.get('_side') or '').upper())) > 1]
+        left = sum(1 for r in rows
+                   if (r.get('_side') or '').upper() == 'L')
+        right = sum(1 for r in rows
+                    if (r.get('_side') or '').upper() == 'R')
+        print(dim(f'\n  {left} of {total} have the name ONLY on the left '
+                  f'(it is the subject) · {right} only on the right '
+                  f'(it is the counterparty) · {len(both)} on both.'))
+        if left and right and a.side == 'any':
             print(yel('  THOSE ARE DIFFERENT CLAIMS. A deck that mixes them says'))
             print(yel('  nothing. --side left or --side right to take one.'))
+
+        selves = [r for r in rows if same_entity(r.get('entity_a'),
+                                                 r.get('entity_b'))]
+        if selves:
+            print(yel(f'  {len(selves)} row(s) have the SAME company on both '
+                      'sides. On a lobbying'))
+            print(yel('  filing that is IN-HOUSE work, not a relationship — a '
+                      'real fact and'))
+            print(yel('  a meaningless arrow. Do not draw it as a card.'))
+
         buried = sum(1 for r in rows
                      if (r.get('_side') or '') != (r.get('_side') or '').upper())
         if buried:
             print(dim(f'  {buried} carry the name but not at the front of it — '
                       'check those are not namesakes.'))
+
+        # THE HEAD TEST CANNOT CATCH THIS ONE.
+        #
+        # FIRSTENERGY CAPITAL CORP. is a Calgary investment bank. FIRSTENERGY
+        # CHAINS & TECHNOLOGIES files in India. FIRSTENERGY SRL files in
+        # Romania. Every one of them is filed under a name that BEGINS with
+        # the query, so every one passes the name rule correctly — and they
+        # are different companies. What separates them is jurisdiction and
+        # incorporation date, which is a question only the document answers.
+        names = {normalise(r.get('entity_a')) for r in rows}
+        if len(names) > 1:
+            print(dim(f'\n  {total} row(s), {len(names)} distinct name(s) on '
+                      'the subject side.'))
+            print(yel('  A REGISTER FILING UNDER SEVERAL NAMES MAY BE FILING '
+                      'FOR SEVERAL COMPANIES.'))
+            print(dim('  These all pass the name test — the query is at the '
+                      'front of each. Only'))
+            print(dim('  the jurisdiction and the incorporation date on the '
+                      'document can separate'))
+            print(dim('  a subsidiary from a stranger that picked the same '
+                      'word.'))
 
     print(dim(f'\n  One at a time:  bin/sentinel exhibits{filters(a)} --next'))
     print(dim('  The screenshot is DOCUMENTARY. A generated image never is.\n'))

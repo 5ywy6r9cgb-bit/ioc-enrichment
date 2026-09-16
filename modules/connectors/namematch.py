@@ -175,6 +175,19 @@ def side_of(row, entity) -> str:
     return out
 
 
+def same_entity(a, b) -> bool:
+    """Are these two fields the same company.
+
+    A row whose two sides are one name is not a relationship between two
+    parties. On a Senate LDA filing it is IN-HOUSE LOBBYING — the company
+    employs its own lobbyists rather than retaining a firm — which is a real
+    and reportable fact and a meaningless arrow. Drawn as a card it reads
+    FIRSTENERGY CORP -> FIRSTENERGY CORP, which tells an audience nothing and
+    tells a hostile one that nobody checked."""
+    na, nb = normalise(a), normalise(b)
+    return bool(na) and na == nb
+
+
 def matches_side(row, entity, side=None) -> bool:
     """Does this edge touch the name, on the side asked for."""
     s = side_of(row, entity)

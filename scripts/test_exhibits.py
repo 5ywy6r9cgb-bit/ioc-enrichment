@@ -212,6 +212,67 @@ def test_no_match_across_the_join():
     check('so it must match nothing', exhibits.side_of(r, seam), '')
 
 
+def test_self_edge_is_flagged_not_drawn():
+    """FIRSTENERGY CORP -> FIRSTENERGY CORP came out of the real table. On a
+    Senate filing that is in-house lobbying: a real sworn fact and a
+    meaningless arrow."""
+    with tempfile.TemporaryDirectory() as tmp:
+        csvfile([row('FIRSTENERGY CORP', 'represented_by', 'FIRSTENERGY CORP'),
+                 row('FIRSTENERGY CORP', 'represented_by', 'AKIN GUMP')], tmp)
+        r = run(['--entity', 'FIRSTENERGY'], tmp)
+        check('a same-company row is called out',
+              'SAME company on both sides' in r.stdout, True)
+        check('and named as in-house', 'IN-HOUSE' in r.stdout, True)
+
+
+def test_both_sides_is_its_own_bucket():
+    """Counting a both-sides row once as LEFT and once as RIGHT printed
+    '20 of 20 on the left, 1 on the right' — twenty-one out of twenty."""
+    with tempfile.TemporaryDirectory() as tmp:
+        csvfile([row('FIRSTENERGY CORP', 'represented_by', 'FIRSTENERGY CORP'),
+                 row('FIRSTENERGY CORP', 'represented_by', 'AKIN GUMP')], tmp)
+        r = run(['--entity', 'FIRSTENERGY'], tmp)
+        check('the tallies sum to the total',
+              '1 of 2 have the name ONLY on the left' in r.stdout, True)
+        check('and both-sides is counted separately',
+              '1 on both.' in r.stdout, True)
+
+
+def test_side_already_chosen_is_not_advised_again():
+    """The warning fired even when --side left was already passed, telling the
+    operator to do the thing they had just done."""
+    with tempfile.TemporaryDirectory() as tmp:
+        csvfile([row('FIRSTENERGY CORP', 'represented_by', 'FIRSTENERGY CORP'),
+                 row('SOME CLIENT', 'represented_by', 'FIRSTENERGY CORP')], tmp)
+        r = run(['--entity', 'FIRSTENERGY', '--side', 'left'], tmp)
+        check('no direction advice once a side is chosen',
+              'THOSE ARE DIFFERENT CLAIMS' in r.stdout, False)
+
+
+def test_namesake_cluster_is_reported():
+    """FIRSTENERGY CAPITAL CORP. is a Calgary bank and FIRSTENERGY SRL files in
+    Romania. Both are filed under a name BEGINNING with the query, so both
+    pass the name test correctly, and neither is the Ohio utility."""
+    with tempfile.TemporaryDirectory() as tmp:
+        csvfile([row('FIRSTENERGY CORP', 'represented_by', 'AKIN GUMP'),
+                 row('FIRSTENERGY CAPITAL CORP.', 'registered_in', 'ca_ns'),
+                 row('FIRSTENERGY SRL', 'registered_in', 'ro')], tmp)
+        r = run(['--entity', 'FIRSTENERGY'], tmp)
+        check('distinct subject names are counted',
+              '3 distinct name(s)' in r.stdout, True)
+        check('and the risk is stated',
+              'MAY BE FILING FOR SEVERAL COMPANIES' in r.stdout, True)
+
+
+def test_one_name_does_not_raise_the_cluster_warning():
+    with tempfile.TemporaryDirectory() as tmp:
+        csvfile([row('FIRSTENERGY CORP', 'represented_by', 'AKIN GUMP'),
+                 row('FIRSTENERGY CORP', 'represented_by', 'VALIANT')], tmp)
+        r = run(['--entity', 'FIRSTENERGY'], tmp)
+        check('a single consistent name is not flagged',
+              'SEVERAL COMPANIES' in r.stdout, False)
+
+
 def test_mixed_sides_are_warned_about():
     with tempfile.TemporaryDirectory() as tmp:
         csvfile([row('AKIN GUMP LLP', 'represented_by', 'INTERIOR'),
