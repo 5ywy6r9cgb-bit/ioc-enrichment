@@ -98,6 +98,41 @@ def test_a_missing_screenshot_gets_no_placeholder():
               'exhibit_02' in r.stdout, True)
 
 
+def test_every_page_of_a_filing_is_framed():
+    """An LD-2 cover page carries the money; pages 2-n carry the LOBBYING
+    ACTIVITY box — the issue codes, the bill numbers, the named lobbyists.
+    Framing page 1 and dropping four pages of substance is the wrong way
+    round."""
+    with tempfile.TemporaryDirectory() as tmp:
+        a = setup(tmp, [e('A CORP', 'B CORP')], shots=())
+        for tag in ('a_cover', 'b_eng', 'c_bud'):
+            Image.new('RGB', (1200, 800), (250, 250, 248)).save(
+                a / f'exhibit_01_{tag}.png')
+        r = run(BASE, tmp)
+        made = sorted(q.name for q in Path(tmp, 'out').glob('*.png'))
+        check('all three pages are framed', len(made), 3)
+        check('and numbered in order', made[0].startswith('framed_01_p01'), True)
+        check('the count is reported', '3 framed' in r.stdout, True)
+
+
+def test_a_single_page_gets_no_page_suffix():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup(tmp, [e('A CORP', 'B CORP')], shots=(1,))
+        run(BASE, tmp)
+        name = next(Path(tmp, 'out').glob('*.png')).name
+        check('one page needs no p01', '_p01_' in name, False)
+
+
+def test_non_images_in_the_shots_folder_are_ignored():
+    with tempfile.TemporaryDirectory() as tmp:
+        a = setup(tmp, [e('A CORP', 'B CORP')], shots=(1,))
+        (a / 'exhibit_01_notes.txt').write_text('not a picture')
+        r = run(BASE, tmp)
+        check('a stray text file does not become a frame',
+              len(list(Path(tmp, 'out').glob('*.png'))), 1)
+        check('and does not crash the run', r.returncode, 0)
+
+
 def test_no_edges_is_refused():
     with tempfile.TemporaryDirectory() as tmp:
         r = run(BASE, tmp)

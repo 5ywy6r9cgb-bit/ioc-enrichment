@@ -74,6 +74,8 @@ QUALIFIER = {
 # filing is lawfully public; a staffer's direct line on screen serves nothing.
 CONTACT_RISK = {'senatelda', 'fec'}
 
+IMAGE_EXT = {'.png', '.jpg', '.jpeg', '.webp'}
+
 
 def f(role, size):
     return ImageFont.truetype(brand.font_path(role), size)
@@ -121,7 +123,8 @@ def edge_key(r):
 
 
 def draw_card(row, shot: Path, index: int, total: int, preset: str,
-              theme: str, notes=()) -> Image.Image:
+              theme: str, notes=(), page: int = 1,
+              pages: int = 1) -> Image.Image:
     P, C = brand.preset(preset), brand.theme(theme)
     W, H = P['w'], P['h']
     safe = P['safe']
@@ -182,8 +185,10 @@ def draw_card(row, shot: Path, index: int, total: int, preset: str,
             safe['top'] + (safe['bottom'] - safe['top'] - total_h) // 2)
 
     # ── header ──────────────────────────────────────────────────────────────
-    d.text((x0, y), f'EXHIBIT {index:02d} / {total:02d}', font=f_kick,
-           fill=C['muted'])
+    kick = f'EXHIBIT {index:02d} / {total:02d}'
+    if pages > 1:
+        kick += f'   PAGE {page} OF {pages}'
+    d.text((x0, y), kick, font=f_kick, fill=C['muted'])
     gw = d.textlength(grade, font=f_kick)
     d.text((x1 - gw, y), grade, font=f_kick, fill=accent)
     y += 46
@@ -298,21 +303,29 @@ def main() -> int:
         if st['flags'].get(k):
             held.append((i, r, st['flags'][k]))
             continue
-        shot = shots / f'exhibit_{i:02d}_{slug(r.get("entity_a"))}.png'
-        if not shot.is_file():
-            hit = sorted(shots.glob(f'exhibit_{i:02d}_*'))
-            shot = hit[0] if hit else shot
-        if not shot.is_file():
-            missing.append((i, r, shot.name))
+        # ONE FILING IS OFTEN SEVERAL PAGES, AND THE LATER ONES ARE BETTER.
+        #
+        # This took the FIRST match and dropped the rest. An LD-2 cover page
+        # carries the money; pages 2-n carry the LOBBYING ACTIVITY box, which
+        # is the only place the filing says what the lobbying was ABOUT — the
+        # issue codes, the bill numbers, the named lobbyists. Silently framing
+        # page 1 and discarding four pages of substance is the wrong way round.
+        pages = sorted(shots.glob(f'exhibit_{i:02d}_*'))
+        pages = [q for q in pages if q.suffix.lower() in IMAGE_EXT]
+        if not pages:
+            missing.append((i, r, f'exhibit_{i:02d}_*'))
             continue
 
-        im = draw_card(r, shot, i, len(rows), a.preset, a.theme,
-                       st['notes'].get(k, []))
-        name = f'framed_{i:02d}_{slug(r.get("entity_a"))}.png'
-        im.save(out / name)
-        made += 1
-        flag = '  *' if st['notes'].get(k) else ''
-        print(f'    {name}{flag}')
+        for n, shot in enumerate(pages, 1):
+            im = draw_card(r, shot, i, len(rows), a.preset, a.theme,
+                           st['notes'].get(k, []),
+                           page=n, pages=len(pages))
+            suffix = f'_p{n:02d}' if len(pages) > 1 else ''
+            name = f'framed_{i:02d}{suffix}_{slug(r.get("entity_a"))}.png'
+            im.save(out / name)
+            made += 1
+            flag = '  *' if st['notes'].get(k) else ''
+            print(f'    {name}{flag}')
 
     print(f'\n  {made} framed · {len(missing)} missing · {len(held)} contested')
 
