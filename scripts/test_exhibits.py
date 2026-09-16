@@ -273,6 +273,68 @@ def test_one_name_does_not_raise_the_cluster_warning():
               'SEVERAL COMPANIES' in r.stdout, False)
 
 
+def test_a_note_is_recorded_against_the_edge():
+    """Exhibit 01 of the real queue was a TERMINATION report, an AMENDMENT, and
+    carried two id numbers — none of it in the edge table, all of it gone the
+    moment the screenshot is filed."""
+    with tempfile.TemporaryDirectory() as tmp:
+        csvfile([row('FIRSTENERGY', 'represented_by', 'PERRY ROSS WHITE'),
+                 row('ZZZ CORP', 'represented_by', 'NAVY')], tmp)
+        r = run(['--done', '1', '--note', 'termination date 6/30/2025'], tmp)
+        check('--done with --note exits 0', r.returncode, 0)
+        st = json.loads((Path(tmp) / 'edges.exhibits.json').read_text())
+        check('the note is keyed to the edge, not the position',
+              st['notes'], {'FIRSTENERGY|REPRESENTED BY|PERRY ROSS WHITE':
+                            ['termination date 6/30/2025']})
+        out = run(['--notes'], tmp)
+        check('and it reads back', 'termination date 6/30/2025' in out.stdout,
+              True)
+
+
+def test_notes_accumulate_rather_than_overwrite():
+    with tempfile.TemporaryDirectory() as tmp:
+        csvfile([row('A CORP', 'represented_by', 'B CORP')], tmp)
+        run(['--done', '1', '--note', 'first thing'], tmp)
+        run(['--done', '1', '--note', 'second thing'], tmp)
+        out = run(['--notes'], tmp)
+        check('both notes survive',
+              'first thing' in out.stdout and 'second thing' in out.stdout, True)
+
+
+def test_a_flag_needs_a_reason():
+    with tempfile.TemporaryDirectory() as tmp:
+        csvfile([row('A CORP', 'represented_by', 'B CORP')], tmp)
+        r = run(['--flag', '1'], tmp)
+        check('--flag without --note exits 2', r.returncode, 2)
+        check('and says why', 'needs --note' in r.stderr, True)
+
+
+def test_a_contested_exhibit_is_marked_in_the_queue():
+    with tempfile.TemporaryDirectory() as tmp:
+        csvfile([row('A CORP', 'represented_by', 'B CORP')], tmp)
+        run(['--flag', '1', '--note', 'name order differs'], tmp)
+        out = run([], tmp)
+        check('the row is marked', '!!' in out.stdout, True)
+        check('and the count is reported', '1 CONTESTED' in out.stdout, True)
+
+
+def test_clearing_a_flag_restores_it():
+    with tempfile.TemporaryDirectory() as tmp:
+        csvfile([row('A CORP', 'represented_by', 'B CORP')], tmp)
+        run(['--flag', '1', '--note', 'name order differs'], tmp)
+        r = run(['--clear', '1'], tmp)
+        check('--clear exits 0', r.returncode, 0)
+        check('and the row is no longer contested',
+              'CONTESTED' in run([], tmp).stdout, False)
+
+
+def test_note_without_a_target_is_refused():
+    with tempfile.TemporaryDirectory() as tmp:
+        csvfile([row('A CORP', 'represented_by', 'B CORP')], tmp)
+        r = run(['--note', 'floating text'], tmp)
+        check('a note with no exhibit exits 2', r.returncode, 2)
+
+
 def test_mixed_sides_are_warned_about():
     with tempfile.TemporaryDirectory() as tmp:
         csvfile([row('AKIN GUMP LLP', 'represented_by', 'INTERIOR'),

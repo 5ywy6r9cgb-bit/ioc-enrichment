@@ -173,6 +173,32 @@ def load(path: Path):
     return rows
 
 
+def capture_state(edges: Path) -> dict:
+    """What the operator recorded off the documents themselves.
+
+    The edge table holds what the register said. The FILING holds more: a
+    termination date, an amendment flag, an id number, a name spelled in a
+    different order. Those are read off the page during capture and written
+    against the edge, and the script has to carry them or the reading was
+    write-only work."""
+    p = edges.with_suffix('.exhibits.json')
+    if not p.is_file():
+        return {'notes': {}, 'flags': {}}
+    try:
+        raw = json.loads(p.read_text())
+    except json.JSONDecodeError:
+        return {'notes': {}, 'flags': {}}
+    return {'notes': raw.get('notes') or {}, 'flags': raw.get('flags') or {}}
+
+
+def state_key(r):
+    """Must match exhibits.edge_key exactly, or a note lands on nothing."""
+    def w(v):
+        return ' '.join(re.sub(r'[^A-Z0-9]+', ' ', str(v or '').upper()).split())
+    return '|'.join(w(r.get(f))
+                    for f in ('entity_a', 'relationship', 'entity_b'))
+
+
 def dedupe(rows):
     """One relationship, not one filing. Four quarterly filings of the same
     arrangement is one fact stated four times."""
@@ -378,7 +404,8 @@ def script_md(p, rows, ep_id):
                      f'{round(50.0 / max(len(rows), 1), 1)}s each.*')
             L.append('')
             for j, r in enumerate(rows, 1):
-                L += card_block(j, r, ent)
+                L += card_block(j, r, ent,
+                                r.get('_notes', []))
         elif title == 'WHAT THIS DOES NOT PROVE':
             L.append('**NARRATION — say every one of these:**')
             L.append('')
@@ -405,7 +432,7 @@ def script_md(p, rows, ep_id):
     return '\n'.join(L) + '\n'
 
 
-def card_block(j, r, ent):
+def card_block(j, r, ent, notes=()):
     a, bb = r.get('entity_a'), r.get('entity_b')
     lab = r.get('label') or r.get('relationship') or ''
     reg = r.get('register') or r.get('source') or ''
@@ -456,6 +483,11 @@ def card_block(j, r, ent):
         out.append(f'**DENOMINATOR:** {pop} entity in the library stands in '
                    f'this relationship to {bb}. That is rare — and rare is a '
                    'question, not an answer.')
+    if notes:
+        out.append('**THE DOCUMENT ALSO SAYS:** ' + ' · '.join(notes))
+        out.append('These came off the filing itself, not the register. They '
+                   'are the strongest lines available — a date on a form '
+                   'cannot be argued with.')
     if grade == 'CO-OCCURRENCE':
         out.append('**THIS IS TWO NAMES IN ONE DOCUMENT.** If it is on screen '
                    'it is labelled as what it is, out loud.')
@@ -548,10 +580,25 @@ def main() -> int:
         print(dim(f'    bin/sentinel connect explain "{a.entity}"\n'))
         return 3
 
+    cap = capture_state(ep)
+    for r in rows:
+        k = state_key(r)
+        r['_notes'] = cap['notes'].get(k, [])
+        r['_flags'] = cap['flags'].get(k, [])
+
+    # A CONTESTED EXHIBIT DOES NOT BECOME A CARD.
+    #
+    # Flagged means the operator opened the document and found it disagreeing
+    # with the register — a name in a different order, a figure that does not
+    # match, a party that is not there. Whatever the truth turns out to be,
+    # putting it on screen now is putting an unresolved contradiction on
+    # screen, and it is the one a hostile reader will find.
+    contested = [r for r in rows if r['_flags']]
     shown = [r for r in rows
              if (a.grade.upper() == 'ALL'
                  or (r.get('assertion_type') or '').upper() == a.grade.upper())
-             and (r.get('source_url') or '').startswith('http')]
+             and (r.get('source_url') or '').startswith('http')
+             and not r['_flags']]
     shown.sort(key=lambda r: (r.get('_pop', 1), -(1 if r.get('amount') else 0)))
     shown = shown[:a.limit]
     if not shown:
@@ -595,6 +642,19 @@ def main() -> int:
     if p['contains']:
         print(yel(f'  {p["contains"]} record(s) do not carry the name at the '
                   'front — check for namesakes.'))
+    noted = sum(1 for r in shown if r['_notes'])
+    if noted:
+        print(grn(f'  {noted} card(s) carry something read off the document '
+                  'itself.'))
+    if contested:
+        print(red(f'  {len(contested)} CONTESTED exhibit(s) held OUT of the '
+                  'deck:'))
+        for r in contested:
+            print(f'      {str(r.get("entity_a"))[:30]} -> '
+                  f'{str(r.get("entity_b"))[:30]}')
+            for t in r['_flags']:
+                print(dim(f'        {t}'))
+
     print(f'\n  {b("SCRIPT.md")}       narration and citations. Publishable.')
     print(f'  {b("PRODUCTION.md")}   paths and commands. Never published.')
     print(dim(f'\n  {len(limitations(p, shown))} limitation(s) written into the '

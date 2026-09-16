@@ -210,7 +210,8 @@ STATE_VERSION = 2
 
 def load_state(edges: Path) -> dict:
     p = statefile(edges)
-    st = {'v': STATE_VERSION, 'done': [], 'dropped': 0}
+    st = {'v': STATE_VERSION, 'done': [], 'dropped': 0,
+          'notes': {}, 'flags': {}}
     if p.is_file():
         try:
             raw = json.loads(p.read_text())
@@ -223,15 +224,19 @@ def load_state(edges: Path) -> dict:
         keys = [d for d in done if isinstance(d, str)]
         st['done'] = keys
         st['dropped'] = len(done) - len(keys)
+        st['notes'] = raw.get('notes') or {}
+        st['flags'] = raw.get('flags') or {}
     return st
 
 
 def save_state(edges: Path, st: dict) -> None:
     statefile(edges).write_text(json.dumps(
-        {'v': STATE_VERSION, 'done': st.get('done', [])}, indent=2) + '\n')
+        {'v': STATE_VERSION, 'done': st.get('done', []),
+         'notes': st.get('notes', {}), 'flags': st.get('flags', {})},
+        indent=2) + '\n')
 
 
-def show(r, i, total, outdir):
+def show(r, i, total, outdir, notes=(), flags=()):
     grade = (r.get('assertion_type') or '?').upper()
     badge = grn(grade) if grade == 'ASSERTED' else (
         yel(grade) if grade == 'REGISTRY' else dim(grade))
@@ -273,6 +278,15 @@ def show(r, i, total, outdir):
     print(f'  {b("SOURCE")}      Source: {reg}{(" · " + extra) if extra else ""}')
     if r.get('document_id'):
         print(f'  {b("DOC")}         {r.get("document_id")}')
+
+    if notes:
+        print(dim('\n  ALREADY RECORDED OFF THIS DOCUMENT'))
+        for t in notes:
+            print(f'     · {t}')
+    if flags:
+        print(red('\n  CONTESTED'))
+        for t in flags:
+            print(red(f'     {t}'))
 
     if grade == 'CO-OCCURRENCE':
         print(red('\n     THIS IS TWO NAMES IN ONE DOCUMENT. Not a relationship.'))
@@ -333,6 +347,17 @@ def main() -> int:
     ap.add_argument('--done', type=int, metavar='N',
                     help='mark exhibit N captured and show the next')
     ap.add_argument('--reset', action='store_true', help='clear the done list')
+    ap.add_argument('--note', metavar='TEXT',
+                    help='what the DOCUMENT said that the register did not — '
+                         'a termination date, an amendment, an id number. '
+                         'Use with --done or --flag.')
+    ap.add_argument('--flag', type=int, metavar='N',
+                    help='exhibit N contradicts the record. It will not become '
+                         'a card until you clear it. Needs --note.')
+    ap.add_argument('--clear', type=int, metavar='N',
+                    help='the discrepancy on exhibit N is resolved')
+    ap.add_argument('--notes', action='store_true',
+                    help='everything recorded off the documents so far')
     a = ap.parse_args()
 
     ep = Path(a.edges).expanduser()
@@ -352,21 +377,91 @@ def main() -> int:
         save_state(ep, st)
         print('\n  done list cleared\n')
         return 0
+    def key_at(n):
+        """Resolve a queue position to the edge it names, so a note survives
+        the filter it was typed under."""
+        if not 1 <= n <= len(ranked):
+            print(f'\n  there is no exhibit {n} in this queue of '
+                  f'{len(ranked)}.\n', file=sys.stderr)
+            raise SystemExit(2)
+        return edge_key(ranked[n - 1]), ranked[n - 1]
+
     if st.get('dropped'):
         print(dim(f'\n  {st["dropped"]} entr(y/ies) from an older state file '
                   'recorded a POSITION, not a document.'))
         print(dim('  Positions move when you change --entity or rebuild the '
                   'edges. Not carried over.'))
 
-    rows = rank(load(ep, a.entity, a.grade, a.side))
+    ranked = rank(load(ep, a.entity, a.grade, a.side))
+    rows = ranked
     if not rows:
         print('\n  Nothing in that edge table has a URL behind it.')
         print(dim('  An edge with no clickable source cannot become an exhibit —'))
         print(dim('  a card that asks to be trusted is not evidence.\n'))
         return 2
     rows = rows[:a.limit]
+    ranked = rows
     total = len(rows)
     done = set(st['done'])
+
+    # ── WHAT THE DOCUMENT SAID ──────────────────────────────────────────────
+    #
+    # A filing carries facts the register's row does not. Exhibit 01 of the
+    # FirstEnergy queue was a TERMINATION report dated 6/30/2025, an AMENDMENT
+    # to an earlier version, with a Senate id and a House id on it — none of
+    # which is in the edge table, and all of which is gone the moment the
+    # screenshot is filed. Capturing without recording is write-only work.
+    if a.notes:
+        if not st['notes'] and not st['flags']:
+            print(dim('\n  Nothing recorded off a document yet.'))
+            print(dim('  When a filing says something the register did not:'))
+            print(dim(f'    bin/sentinel exhibits{filters(a)} --done N '
+                      '--note "what it said"\n'))
+            return 0
+        print(f'\n{b("  OFF THE DOCUMENTS")}\n')
+        for i, r in enumerate(rows, 1):
+            k = edge_key(r)
+            ns, fs = st['notes'].get(k, []), st['flags'].get(k, [])
+            if not ns and not fs:
+                continue
+            print(f'  {i:02d}  {str(r.get("entity_a"))[:30]} -> '
+                  f'{str(r.get("entity_b"))[:30]}')
+            for t in ns:
+                print(f'        · {t}')
+            for t in fs:
+                print(red(f'        CONTESTED  {t}'))
+            print('')
+        return 0
+
+    if a.clear is not None:
+        k, _ = key_at(a.clear)
+        if st['flags'].pop(k, None):
+            save_state(ep, st)
+            print(grn(f'\n  exhibit {a.clear:02d} no longer contested\n'))
+        else:
+            print(dim(f'\n  exhibit {a.clear:02d} was not contested\n'))
+        return 0
+
+    if a.flag is not None:
+        if not a.note:
+            print('\n  --flag needs --note. A contested exhibit with no reason '
+                  'recorded\n  is just a missing exhibit.\n', file=sys.stderr)
+            return 2
+        k, r = key_at(a.flag)
+        st['flags'].setdefault(k, []).append(a.note)
+        save_state(ep, st)
+        print(red(f'\n  exhibit {a.flag:02d} CONTESTED'))
+        print(f'  {r.get("entity_a")} -> {r.get("entity_b")}')
+        print(f'    {a.note}')
+        print(dim('\n  It stays out of the card deck until this is resolved:'))
+        print(dim(f'    bin/sentinel exhibits{filters(a)} --clear {a.flag}\n'))
+        return 0
+
+    if a.note and a.done is None:
+        print('\n  --note attaches to an exhibit. Use --done N --note "..." '
+              'or\n  --flag N --note "..."\n', file=sys.stderr)
+        return 2
+
 
     if a.done is not None:
         if not 1 <= a.done <= total:
@@ -377,7 +472,9 @@ def main() -> int:
         if k not in done:
             st['done'].append(k)
             done.add(k)
-            save_state(ep, st)
+        if a.note:
+            st['notes'].setdefault(k, []).append(a.note)
+        save_state(ep, st)
         here = sum(1 for r in rows if edge_key(r) in done)
         print(grn(f'\n  exhibit {a.done:02d} marked captured ({here}/{total} '
                   'in this queue)'))
@@ -386,9 +483,18 @@ def main() -> int:
     if a.next:
         for i, r in enumerate(rows, 1):
             if edge_key(r) not in done:
-                show(r, i, total, a.out)
+                k = edge_key(r)
+                show(r, i, total, a.out,
+                     st['notes'].get(k, []), st['flags'].get(k, []))
                 print(dim(f'\n  When you have the screenshot:'))
                 print(dim(f'    bin/sentinel exhibits{filters(a)} --done {i}'))
+                print(dim('  If the document says something the register did '
+                          'not, record it:'))
+                print(dim(f'    bin/sentinel exhibits{filters(a)} --done {i} '
+                          '--note "termination date 6/30/2025"'))
+                print(dim('  If it CONTRADICTS the record, flag it instead:'))
+                print(dim(f'    bin/sentinel exhibits{filters(a)} --flag {i} '
+                          '--note "name order differs from the register"'))
                 print('')
                 return 0
         print(grn(f'\n  All {total} captured. Build the deck:'))
@@ -404,12 +510,26 @@ def main() -> int:
     if a.entity:
         print(dim(f'  L / R = which side of the sentence "{a.entity}" is on.'))
     print('')
+    contested = 0
     for i, r in enumerate(rows, 1):
-        mark = grn(' ok ') if edge_key(r) in done else dim(' -- ')
+        k = edge_key(r)
+        if st['flags'].get(k):
+            mark, contested = red(' !! '), contested + 1
+        elif k in done:
+            mark = grn(' ok ')
+        else:
+            mark = dim(' -- ')
         g = (r.get('assertion_type') or '?').upper()[:4]
         sd = f'{(r.get("_side") or ""):<2} ' if a.entity else ''
+        note = dim('  *') if st['notes'].get(k) else ''
         print(f'  {mark}{i:02d}  {g:<5} {sd}{r["_pop"]:>3}  '
-              f'{str(r.get("entity_a"))[:28]:<28} {str(r.get("entity_b"))[:26]}')
+              f'{str(r.get("entity_a"))[:28]:<28} '
+              f'{str(r.get("entity_b"))[:24]}{note}')
+    if contested:
+        print(red(f'\n  {contested} CONTESTED — something on the document does '
+                  'not match the record.'))
+        print(dim('  These do not become cards. See why:  '
+                  f'bin/sentinel exhibits{filters(a)} --notes'))
 
     if a.entity:
         # BOTH is its own bucket, not a tick in each column. Counting a

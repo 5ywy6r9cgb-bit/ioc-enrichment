@@ -243,6 +243,36 @@ def test_no_angle_brackets_or_backticks_in_terminal_output():
               '<' in r.stdout or '>' in r.stdout, False)
 
 
+def test_a_contested_exhibit_never_becomes_a_card():
+    """Flagged means the operator opened the document and found it disagreeing
+    with the register. Whatever the truth turns out to be, an unresolved
+    contradiction does not go on screen."""
+    import json
+    with tempfile.TemporaryDirectory() as tmp:
+        build([e('FIRSTENERGY CORP', 'PERRY ROSS WHITE'),
+               e('FIRSTENERGY CORP', 'VALIANT STRATEGIES')], tmp)
+        (Path(tmp) / 'edges.exhibits.json').write_text(json.dumps({
+            'v': 2, 'done': [],
+            'notes': {'FIRSTENERGY CORP|REPRESENTED BY|VALIANT STRATEGIES':
+                      ['termination date 6/30/2025']},
+            'flags': {'FIRSTENERGY CORP|REPRESENTED BY|PERRY ROSS WHITE':
+                      ['name order differs from the register']}}))
+        r = run(['FIRSTENERGY', '--id', 'ept', '--out', f'{tmp}/ept'], tmp)
+        txt = (Path(tmp) / 'ept' / 'SCRIPT.md').read_text()
+        check('the contested edge is held out', 'PERRY ROSS WHITE' in txt, False)
+        check('and the hold is reported', 'CONTESTED' in r.stdout, True)
+        check('the clean edge is still drawn', 'VALIANT STRATEGIES' in txt, True)
+        check('and carries what the document said',
+              'THE DOCUMENT ALSO SAYS' in txt, True)
+        check('with the fact itself', 'termination date 6/30/2025' in txt, True)
+
+
+def test_no_capture_state_is_not_an_error():
+    with tempfile.TemporaryDirectory() as tmp:
+        r, s, _ = make(tmp, [e('FIRSTENERGY CORP', 'AKIN GUMP')])
+        check('an episode with no notes still builds', r.returncode, 0)
+
+
 if __name__ == '__main__':
     print('\n  episode\n')
     for fn in [v for k, v in sorted(globals().items()) if k.startswith('test_')]:

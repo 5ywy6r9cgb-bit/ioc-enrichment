@@ -30,6 +30,11 @@
 #   sentinel handoff ep03 --verify F.md   what it sent back, checked against the
 #                                   evidence. Exits 3 on an invented figure.
 #   sentinel exhibits --next        THE SCREENSHOT QUEUE, one document at a time
+#   sentinel exhibits --done N --note "..."   what the DOCUMENT said and the
+#                                   register did not. Kept against the edge.
+#   sentinel exhibits --flag N --note "..."   the document CONTRADICTS the
+#                                   record. It stays out of the deck until cleared.
+#   sentinel exhibits --notes       everything read off the filings so far
 #   sentinel cards --edges F.csv    evidence cards drawn from SOURCED edges
 #   sentinel redact --check DIR     PUBLICATION GATE: nothing about the machine
 #                                   leaves it. Exits 3 on a leak.
