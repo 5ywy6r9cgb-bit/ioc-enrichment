@@ -39,6 +39,7 @@
 
 const path = require('path');
 const fs = require('fs');
+const { classifyError } = require('./outbox.js');
 
 class MailError extends Error {}
 
@@ -187,9 +188,28 @@ async function smtpTransport(cfg) {
 /**
  * Send the approved messages in an outbox. Returns a per-message result.
  *
- * The gate is the outbox's, not this function's: `sendable()` decides, and
+ * The gate is the outbox's, not this function's: `claim()` decides, and
  * anything it refuses is skipped with its reason recorded. This function's
  * only judgement is the per-run ceiling.
+ *
+ * ─────────────────────────────────────────────────────────────────────────
+ * THE ORDER OF THE THREE STATEMENTS IN THE LOOP IS THE WHOLE POINT
+ *
+ *   1. claim   — writes `in_flight` to disk
+ *   2. sendMail
+ *   3. markSent / markFailed / markUnknown
+ *
+ * Kill the process between 2 and 3 and the outbox still holds a record that an
+ * attempt was under way, which the next run reads as an unresolved delivery
+ * rather than as a message that never went. Put the claim after the send and
+ * that same crash leaves the message looking untouched, so the next run sends
+ * it again — and the agency receives the same request twice under the
+ * operator's name.
+ *
+ * A failed send is still never silently retried. What changed is that a send
+ * whose outcome we cannot establish is no longer FILED as a failure, because
+ * filing it that way is what makes the duplicate look like the correct
+ * recovery.
  */
 async function sendApproved(outbox, cfg, opts = {}) {
   // A dry run must never need a mail library or a credential. Building the
@@ -200,8 +220,25 @@ async function sendApproved(outbox, cfg, opts = {}) {
   const transport = opts.dryRun
     ? null
     : (opts.transport || await smtpTransport(cfg));
-  const approved = outbox.list({ state: 'approved' });
+
   const results = [];
+
+  // Before anything else: a message left `in_flight` belongs to a run that
+  // died mid-transport. A dry run reports them and changes nothing, because
+  // "show me what would happen" must not be a way to mutate state.
+  if (opts.dryRun) {
+    for (const m of outbox.list({ state: 'in_flight' })) {
+      results.push({ message_id: m.message_id, skipped: true,
+        reason: 'left in flight by an earlier run — a real run will mark it unresolved' });
+    }
+  } else {
+    for (const m of outbox.sweepStranded()) {
+      results.push({ message_id: m.message_id, unknown: true, to: m.to,
+        reason: m.unknown_reason });
+    }
+  }
+
+  const approved = outbox.list({ state: 'approved' });
   let sent = 0;
 
   for (const msg of approved) {
@@ -210,30 +247,49 @@ async function sendApproved(outbox, cfg, opts = {}) {
         reason: `per-run ceiling of ${cfg.maxPerRun} reached — run again to continue` });
       continue;
     }
-    const gate = outbox.sendable(msg);
-    if (!gate.ok) {
-      results.push({ message_id: msg.message_id, skipped: true, reason: gate.reason });
-      continue;
-    }
+
     if (opts.dryRun) {
+      const gate = outbox.sendable(msg);
+      if (!gate.ok) {
+        results.push({ message_id: msg.message_id, skipped: true, reason: gate.reason });
+        continue;
+      }
       results.push({ message_id: msg.message_id, dryRun: true, to: msg.to,
         subject: msg.subject });
       continue;
     }
+
+    // Check and claim in one locked step. Everything after this point is
+    // recorded on disk as an attempt in progress.
+    const claim = outbox.claim(msg.message_id);
+    if (!claim.ok) {
+      results.push({ message_id: msg.message_id, skipped: true, reason: claim.reason });
+      continue;
+    }
+    const live = claim.message;
+
     try {
-      const receipt = await transport.sendMail(buildMessage(msg, cfg));
-      outbox.markSent(msg.message_id, {
+      const receipt = await transport.sendMail(buildMessage(live, cfg));
+      outbox.markSent(live.message_id, {
         messageId: receipt.messageId || null,
         accepted: receipt.accepted || null,
       });
-      results.push({ message_id: msg.message_id, sent: true, to: msg.to,
+      results.push({ message_id: live.message_id, sent: true, to: live.to,
         messageId: receipt.messageId || null });
       sent++;
     } catch (e) {
-      // A failed send is recorded, never silently retried. The operator
-      // decides whether it goes out at all after a failure.
-      outbox.markFailed(msg.message_id, e.message);
-      results.push({ message_id: msg.message_id, failed: true, error: e.message });
+      const { outcome, detail } = classifyError(e);
+      if (outcome === 'failed') {
+        outbox.markFailed(live.message_id, detail);
+        results.push({ message_id: live.message_id, failed: true, error: detail });
+      } else {
+        outbox.markUnknown(live.message_id, detail);
+        results.push({ message_id: live.message_id, unknown: true, to: live.to,
+          reason: detail });
+        // An unresolved delivery counts against the ceiling. Whatever happened,
+        // bytes may have gone out, and the ceiling exists to bound that.
+        sent++;
+      }
     }
   }
   return results;

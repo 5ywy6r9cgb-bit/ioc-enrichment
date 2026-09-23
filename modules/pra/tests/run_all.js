@@ -30,6 +30,7 @@ const SUITES = [
   ['foia_store',                require('./foia_store.test.js')],
   ['foia_db_adapter',           require('./foia_db_adapter.test.js')],
   ['outbox',                    require('./outbox.test.js')],
+  ['outbox_delivery',           require('./outbox_delivery.test.js')],
   ['mail',                      require('./mail.test.js')],
 ];
 

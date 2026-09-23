@@ -28,7 +28,17 @@ function fakeTransport(behaviour = {}) {
   return {
     sent,
     async sendMail(m) {
-      if (behaviour.throwOn && behaviour.throwOn(m)) throw new Error('SMTP 550 rejected');
+      if (behaviour.throwOn && behaviour.throwOn(m)) {
+        // Shaped the way nodemailer actually raises a rejection: the response
+        // code is a FIELD. It used to be the string 'SMTP 550 rejected', which
+        // no real error looks like, and that mattered the moment the outbox
+        // started deciding whether a failure is knowable — a bare Error with
+        // the code buried in prose is exactly the case it must NOT read as a
+        // clean rejection. Pass `behaviour.error` to raise something else.
+        throw behaviour.error || Object.assign(
+          new Error('Message failed: 550 5.1.1 recipient rejected'),
+          { code: 'EENVELOPE', responseCode: 550, rejected: [m.to], accepted: [] });
+      }
       sent.push(m);
       return { messageId: `<${sent.length}@test>`, accepted: [m.to] };
     },
