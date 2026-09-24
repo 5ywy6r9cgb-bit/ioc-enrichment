@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<meta name="sentinel-token" content="%%TOKEN%%">
+<title>Sentinel Command</title>
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<div class="shell">
+  <aside class="rail" aria-label="Sections">
+    <div class="brand">
+      <div class="mark">SENTINEL<span>COMMAND</span></div>
+      <div class="motto">Named sources · Public documents · Verified facts</div>
+    </div>
+    <nav id="nav"></nav>
+    <div class="rail-foot">
+      <div id="health" class="muted">checking…</div>
+      <div class="muted small">v%%VERSION%% · this machine only</div>
+    </div>
+  </aside>
+  <div class="work">
+    <header class="topbar">
+      <button id="search-open" class="searchbox" type="button" aria-label="Search everything">
+        <span>Search requests, letters, cases, library…</span><kbd id="kbd">⌘K</kbd>
+      </button>
+      <div id="crumb" class="crumb"></div>
+    </header>
+    <main id="main" tabindex="-1"></main>
+  </div>
+</div>
+
+<div id="palette" class="palette" hidden role="dialog" aria-modal="true" aria-label="Command palette">
+  <div class="palette-box">
+    <input id="palette-input" type="text" autocomplete="off" spellcheck="false"
+           placeholder="Go to a section, or search everything…" aria-label="Search">
+    <ul id="palette-list" role="listbox"></ul>
+    <div class="palette-foot">↑↓ move · Enter open · Esc close</div>
+  </div>
+</div>
+<div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+<script src="/app.js"></script>
+</body>
+</html>

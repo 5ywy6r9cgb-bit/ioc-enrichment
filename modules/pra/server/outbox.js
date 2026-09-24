@@ -384,14 +384,31 @@ class Outbox {
     });
   }
 
-  /** Sign off on one message. Records WHAT was approved, not merely that something was. */
-  approve(id, who) {
+  /**
+   * Sign off on one message. Records WHAT was approved, not merely that something was.
+   *
+   * `expectedHash` is for any approver that is not reading the file at the
+   * moment it approves — a browser, above all. The page shows the text, the
+   * operator reads it, clicks; meanwhile the desk may have re-drafted it. The
+   * page sends the hash of what it DISPLAYED, and approval is refused unless
+   * that is still the text on disk, checked inside the lock. Without it, a
+   * click approves whatever is there now, which is not what was read.
+   */
+  approve(id, who, expectedHash) {
     if (!this.get(id)) throw new OutboxError(`no message ${id}`);
-    return this._transition(id, 'approved', (msg) => ({
-      approved_at: nowIso(),
-      approved_hash: bodyHash(msg),
-      approved_by: who || process.env.PRA_OPERATOR_NAME || 'operator',
-    }), `approved by ${who || 'operator'}`);
+    return this._transition(id, 'approved', (msg) => {
+      const now = bodyHash(msg);
+      if (expectedHash !== undefined && expectedHash !== now) {
+        throw new OutboxError(
+          `${id} changed after you read it — the text on screen is not the text `
+          + `on disk. Reload, read it again, and approve what is there now.`);
+      }
+      return {
+        approved_at: nowIso(),
+        approved_hash: now,
+        approved_by: who || process.env.PRA_OPERATOR_NAME || 'operator',
+      };
+    }, `approved by ${who || 'operator'}`);
   }
 
   reject(id, why) {

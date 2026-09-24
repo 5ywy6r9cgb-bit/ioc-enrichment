@@ -76,10 +76,58 @@ bin/sentinel vuln ...             # atlas CVE prioritization
 bin/sentinel doc get <url>        # fetch one primary source, hashed
 bin/sentinel corpus <sub> ...     # inventory / OCR a folder of records
 bin/sentinel shelf <sub> ...      # external drives, by volume identity
+
+bin/sentinel today                # ONE SCREEN: what needs you, in the order you'd lose it
+bin/sentinel today --json         # the same sections, as JSON
+bin/sentinel command              # SENTINEL COMMAND: the whole desk in a browser, this machine only
+bin/sentinel command --port 8791 --no-open
+
+bin/sentinel shots --spec EP.json # every picture the build will demand
+bin/sentinel episode "ENTITY"     # one entity in, one episode package out
+bin/sentinel handoff ep03 --tool text     # brief for an OUTSIDE model, gate-checked
+bin/sentinel handoff ep03 --verify F.md   # what it sent back, checked; exits 3 on an invented figure
+bin/sentinel exhibits --next      # the screenshot queue, one document at a time
+bin/sentinel exhibits --done N --note "..."   # what the DOCUMENT said
+bin/sentinel exhibits --flag N --note "..."   # the document CONTRADICTS the record
+bin/sentinel cards --edges F.csv  # evidence cards drawn from SOURCED edges
+bin/sentinel frame --shots DIR    # your screenshot in a frame that carries its source line
+bin/sentinel redact --check DIR   # PUBLICATION GATE: exits 3 if anything about the machine leaks
 ```
 
-`bin/sentinel test` runs nine suites and **exits non-zero if any of them
-fail**. A missing suite is reported and skipped rather than aborting the
+### `sentinel command` — the desk in a browser
+
+One page over everything above: **Today**, **Records requests**, **Outbox**,
+**Library**, **Cases & claims**, and **System**, with one search box
+(⌘K / Ctrl-K) across requests, letters, cases and captures.
+
+It is a front door, not a second system. Every number on it comes from the
+module that owns it — `sentinel today --json`, `foia_tracker.js`,
+`outbox.js`, `case.py`'s `compute()`, the provenance ledger's `verify()` — so
+it cannot disagree with the terminal. Its own test suite checks that the
+requests screen is byte-for-byte `sentinel pra foia --json`.
+
+**What it can change — three things, all in the outbox:**
+
+- **Approve** a letter, but only the text you are looking at. The page sends
+  the fingerprint of what it displayed; if the desk re-drafted the letter after
+  the page loaded, approval is refused and you are asked to read it again.
+- **Reject** a letter, with a reason.
+- **Reconcile** a send whose outcome is unknown, with a written basis.
+
+**What it cannot do:** send mail. Sending stays `sentinel pra mail send`,
+typed by you. It cannot edit a case, a claim or a citation, reach the
+internet, or be reached from another machine.
+
+**Why another website cannot drive it.** It binds to 127.0.0.1 only and
+refuses any other address. It answers only when the browser's Host header
+names this machine (which defeats DNS rebinding). Every change needs a token
+minted at startup and written only into the page it serves. It loads no
+fonts, scripts or maps from anywhere, and its Content-Security-Policy forbids
+it. `node modules/command/test_command.js` proves each of those by removing it
+and watching the suite fail.
+
+`bin/sentinel test` runs every module's suite and **exits non-zero if any of
+them fail**. A missing suite is reported and skipped rather than aborting the
 run — a suite that isn't there must not hide the results of the ones that
 are.
 
@@ -255,7 +303,26 @@ bin/sentinel connect graph --push            # write it into Neo4j
 bin/sentinel connect graph --dashboard       # → evidence/graph-dashboard.html
 bin/sentinel connect graph --dashboard --side-a "ENERGY|POWER|GAS" --side-b "AWS|META|MICROSOFT"
 bin/sentinel connect <connector> "<query>"   # one source only
+
+bin/sentinel connect nexus                   # entities crossing two DOMAINS, graded
+bin/sentinel connect coverage                # OF HOW MANY? the denominator under every number
+bin/sentinel connect box                     # one HTML page: coverage, chart, denominators
+bin/sentinel connect edges                   # rows become EDGES: who, how, on whose word
+bin/sentinel connect explain "<entity>"      # what this desk ACTUALLY knows about an entity
+bin/sentinel connect challenge "<entity>"    # the anti-confirmation engine — run it LAST
+bin/sentinel connect vendor "<firm>"         # the REVERSE lookup: who PAYS this firm
+bin/sentinel connect matrix                  # the library as CSVs, plus a ranked worklist
+bin/sentinel connect awards "<name>"         # federal contracts, paged, with what they bought
+bin/sentinel connect fedreg 2026-00512       # READ one Federal Register document, by number
+bin/sentinel connect fedreg 2026-00512 --grep "a phrase"
+bin/sentinel connect docket "0:22-cr-00223"  # the docket as the COURT keeps it, with party ROLES
 ```
+
+`fedreg` reads; it does not search. A title in a findings file is not a
+reading of the document — unread is unsayable. `docket` exists because the
+`party` line on a search result is a truncated sample: it once carried one
+state's officials into another state's case. The court's party table, with
+roles, is the difference between "named on a case" and "charged".
 
 ### The money commands
 

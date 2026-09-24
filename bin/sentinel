@@ -8,6 +8,9 @@
 #
 #   sentinel today                  ONE SCREEN: what needs you, in order.
 #                                   No model, no network, no key.
+#   sentinel command                THE WHOLE DESK IN A BROWSER, this machine
+#                                   only. Reads everything; approves, rejects
+#                                   or reconciles a letter. Cannot send one.
 #   sentinel help                   this list (sentinel commands works too)
 #   sentinel status                 what is set up, what is not
 #   sentinel test                   run every module's test suite
@@ -300,6 +303,12 @@ PYSTATUS
     echo "== publication gate =="
     python3 "$ROOT/scripts/test_redact.py" || FAILED=1
     echo ""
+    echo "== sentinel command (the browser desk) =="
+    node "$ROOT/modules/command/test_command.js" || FAILED=1
+    echo ""
+    echo "== fetch_foia_emails =="
+    ( cd "$ROOT/scripts" && PYTHONDONTWRITEBYTECODE=1 python3 test_fetch_foia_emails.py ) || FAILED=1
+    echo ""
     [ "$FAILED" = "0" ] && bold "All present suites passed." || bold "One or more suites FAILED."
     exit "$FAILED"
     ;;
@@ -387,6 +396,12 @@ PYSTATUS
   # your head, and it is the only thing the AI was doing day to day.
   today)
     python3 "$ROOT/scripts/today.py" "$@"
+    ;;
+
+  command)
+    # One screen over the whole desk. Loopback only; see modules/command/server.js
+    # for what it may change (three outbox actions) and what it may not (send).
+    exec node "$ROOT/modules/command/server.js" "$@"
     ;;
 
   vuln)

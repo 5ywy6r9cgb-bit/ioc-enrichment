@@ -121,15 +121,51 @@ def backup(state: dict) -> list[str]:
 def clocks(state: dict) -> list[str]:
     head(2, 'CLOCKS', 'the only deadlines here that a statute cares about')
     todo = []
-    pra_env = ROOT / 'modules' / 'pra' / '.env'
-    if not pra_env.is_file():
-        print(yel('     The records desk is not configured, so no clock is running.'))
+    # ASK THE RECORDS DESK, DO NOT GUESS FROM A CONFIG FILE.
+    #
+    # This used to check for modules/pra/.env and, finding none, report that
+    # no clock was running. But `sentinel pra foia` keeps requests in
+    # evidence/foia_requests.json and needs no database at all — so this
+    # screen could say "nothing is being tracked" over a store full of
+    # overdue requests. The rules that decide what is overdue live in
+    # foia_tracker.js; this runs them rather than restating them.
+    store = Path(os.environ.get('PRA_FOIA_STORE', evidence_dir() / 'foia_requests.json'))
+    if not store.is_file():
+        print(yel('     No records requests are recorded, so no clock is running.'))
         print(dim('     Nothing is overdue because nothing is being tracked — which'))
         print(dim('     is NOT the same as nothing being owed to you.'))
-        print(dim('       bin/sentinel pra foia'))
-        todo.append('configure the records desk, or record requests elsewhere')
+        print(dim('       bin/sentinel pra foia add REQ-ID "Agency" --on YYYY-MM-DD'))
+        todo.append('record your open records requests so their clocks run')
         return todo
-    print(dim('     bin/sentinel pra foia      what needs you today'))
+    import subprocess
+    try:
+        r = subprocess.run(['node', str(ROOT / 'modules' / 'pra' / 'scripts' / 'foia.js'), '--json'],
+                           capture_output=True, text=True, timeout=30,
+                           env=dict(os.environ, PRA_FOIA_STORE=str(store)))
+        report = json.loads(r.stdout)
+    except FileNotFoundError:
+        print(yel('     Node is not installed, so the records clock cannot be read.'))
+        todo.append('install Node so the records clock can be read')
+        return todo
+    except (subprocess.TimeoutExpired, json.JSONDecodeError) as e:
+        print(red(f'     The records desk did not answer ({type(e).__name__}).'))
+        print(dim('       bin/sentinel pra foia'))
+        todo.append('the records desk would not report — run `sentinel pra foia`')
+        return todo
+
+    total, need = report.get('total', 0), report.get('needs_attention', 0)
+    print(f'     {total} request(s) tracked, {need} need you')
+    for item in (report.get('items') or [])[:5]:
+        days = item.get('business_days_elapsed')
+        print((red if item.get('priority', 9) <= 3 else yel)(
+            f"     {item.get('request_id')}  {item.get('agency') or ''}  —  "
+            f"{item.get('label')}" + (f'  ({days} business days)' if days is not None else '')))
+    if need:
+        top = report['items'][0]
+        todo.append(f"{top.get('request_id')}: {top.get('label')}")
+    elif total:
+        print(grn('     Every request is inside its cadence.'))
+    print(dim(f"     {report.get('clock_note', '')}"))
     print(dim('     Ohio R.C. 149.43(C)(2): only hand delivery, electronic'))
     print(dim('     submission or certified mail preserves statutory damages.'))
     return todo
@@ -261,16 +297,65 @@ def gaps(state: dict) -> list[str]:
     return todo
 
 
+# ── JSON, for the command center ─────────────────────────────────────────
+#
+# The web view shows these same sections. It does NOT re-implement them: the
+# rules above (a backup older than 7 days, a key in the ledger, an uncited
+# claim) exist once, here. This runs each section exactly as the terminal
+# does and returns what it printed and what it asked for. Two copies of "what
+# is losable" would drift, and the one that drifted would be the one on screen.
+SECTIONS = [
+    ('backup', 1, 'BACKUP', backup),
+    ('clocks', 2, 'CLOCKS', clocks),
+    ('security', 3, 'SECURITY', security),
+    ('publish', 4, 'PUBLISH', publish),
+    ('gaps', 5, 'GAPS', gaps),
+]
+
+
+def emit_json() -> int:
+    import contextlib
+    import io
+    out, todo, state = [], [], {}
+    for key, n, title, fn in SECTIONS:
+        buf = io.StringIO()
+        items, error = [], None
+        try:
+            with contextlib.redirect_stdout(buf):
+                items = fn(state) or []
+        except Exception as e:      # a broken section must not hide the rest
+            error = str(e)
+        lines = buf.getvalue().splitlines()
+        # Drop the heading the terminal prints; the page renders its own.
+        body = [l[5:] if l.startswith('     ') else l.strip()
+                for l in lines[3:]] if len(lines) > 3 else []
+        out.append({'key': key, 'n': n, 'title': title,
+                    'text': '\n'.join(body).strip(), 'todo': items, 'error': error})
+        todo += items
+    print(json.dumps({
+        'generated_at': datetime.now(timezone.utc).isoformat(),
+        'sections': out,
+        'next': todo[:1],
+        'then': todo[1:6],
+        'rule': 'This sorts by what is LOSABLE, not by what is interesting.',
+    }, indent=2))
+    return 0
+
+
 # ── 6. NEXT ──────────────────────────────────────────────────────────────
 def main() -> int:
     ap = argparse.ArgumentParser(
         prog='sentinel today',
         description='What needs you, in order. Deterministic. No model, no network.')
     ap.add_argument('--plain', action='store_true', help='no colour')
+    ap.add_argument('--json', action='store_true',
+                    help='the same sections, as JSON, for the command center')
     a = ap.parse_args()
-    if a.plain:
+    if a.plain or a.json:
         global TTY
         TTY = False
+    if a.json:
+        return emit_json()
 
     now = datetime.now(timezone.utc).astimezone()
     print(b(f'\n  SENTINEL — {now:%A %d %B %Y, %H:%M}'))
