@@ -465,9 +465,13 @@ class Outbox {
    * says we cannot claim either way, which is a different and more honest
    * thing to have written down.
    */
-  markUnknown(id, why) {
+  markUnknown(id, why, extra) {
     if (!why) throw new OutboxError('an unknown outcome needs a reason — what went wrong, and at what point');
-    return this._transition(id, 'unknown', { unknown_reason: String(why), unknown_at: nowIso() },
+    // `extra` carries what the transport DID report — per-recipient
+    // acceptance, above all — so the person reconciling sees who already
+    // has a copy.
+    return this._transition(id, 'unknown',
+      Object.assign({ unknown_reason: String(why), unknown_at: nowIso() }, extra || {}),
       String(why));
   }
 

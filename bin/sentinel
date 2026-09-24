@@ -224,92 +224,91 @@ PYSTATUS
 
   test)
     bold "Running every module's tests"
+    # PASS, FAIL and SKIP are three different answers and are reported as
+    # three. A suite is SKIPPED only when a named prerequisite is missing,
+    # and the skip says which. Anything that ran and exited non-zero is a
+    # FAIL and fails this command.
+    #
+    # This used to run the OpenMontage self-test as
+    #   ... --self-test 2>/dev/null && echo ok || echo "skipped — needs ffmpeg"
+    # so a real failure, on a machine that HAD ffmpeg, printed as a skip.
+    # Two suites also ran without their exit code being checked at all.
     FAILED=0
-    echo ""
-    echo "== provenance spine =="
-    python3 "$ROOT/core/provenance/test_provenance.py"
-    echo ""
-    echo "== operator manual vs. dispatcher =="
-    node "$ROOT/core/test_docs.js" || FAILED=1
-    echo ""
-    echo "== notification content guard =="
-    node "$ROOT/modules/watch/test_notify.js"
-    echo ""
-    echo "== connector verdicts =="
-    node "$ROOT/modules/connectors/test_connect.js" || FAILED=1
-    echo ""
-    echo "== crosslink =="
-    node "$ROOT/modules/connectors/test_crosslink.js" || FAILED=1
-    echo ""
-    echo "== lobbying filings =="
-    node "$ROOT/modules/connectors/test_lobby.js" || FAILED=1
+    RESULTS=""
+    record() { RESULTS="${RESULTS}$1|$2|$3"$'\n'; }
+    run_suite() {            # name, then the command
+      local name="$1"; shift
+      echo ""; echo "== $name =="
+      local rc=0
+      "$@" || rc=$?          # the suite's own exit code, not the `if`'s
+      if [ "$rc" = "0" ]; then record PASS "$name" ""; else record FAIL "$name" "exit $rc"; FAILED=1; fi
+    }
+    in_dir() { ( cd "$1" && shift && "$@" ); }
+    skip_suite() { echo ""; echo "== $1 =="; echo "SKIPPED — $2"; record SKIP "$1" "$2"; }
 
-    echo "== graph =="
-    node "$ROOT/modules/connectors/test_graph.js" || FAILED=1
-
-    echo "== document fetch =="
-    node "$ROOT/modules/docs/test_docs_fetch.js" || FAILED=1
-
-    echo "== bill correlation =="
-    node "$ROOT/modules/docs/test_bills.js" || FAILED=1
-    echo ""
-    echo "== records desk (overnight stage) =="
-    node "$ROOT/modules/watch/test_records_desk.js" || FAILED=1
-    echo ""
-    echo "== case gate =="
-    python3 "$ROOT/modules/research-desk/test_case.py" || FAILED=1
-
-    echo "== shelves (external drives) =="
-    python3 "$ROOT/modules/corpus/test_shelf.py" || FAILED=1
-
-    echo "== inventory (drives that vanish mid-scan) =="
-    python3 "$ROOT/modules/corpus/test_inventory.py" || FAILED=1
-
-    echo "== captures -> claims bridge =="
-    node "$ROOT/modules/bridge/test_draft.js" || FAILED=1
-    echo ""
-    echo "== pra =="
-    # A missing suite must not abort the whole run: under `set -e` one absent
-    # module would hide every result after it, which is the opposite of what a
-    # test command is for. Report and carry on; track the exit code instead.
+    run_suite "provenance spine"            python3 "$ROOT/core/provenance/test_provenance.py"
+    run_suite "operator manual vs. dispatcher" node "$ROOT/core/test_docs.js"
+    run_suite "notification content guard"  node "$ROOT/modules/watch/test_notify.js"
+    run_suite "connector verdicts"          node "$ROOT/modules/connectors/test_connect.js"
+    run_suite "crosslink"                   node "$ROOT/modules/connectors/test_crosslink.js"
+    run_suite "lobbying filings"            node "$ROOT/modules/connectors/test_lobby.js"
+    run_suite "graph"                       node "$ROOT/modules/connectors/test_graph.js"
+    run_suite "document fetch"              node "$ROOT/modules/docs/test_docs_fetch.js"
+    run_suite "bill correlation"            node "$ROOT/modules/docs/test_bills.js"
+    run_suite "records desk (overnight stage)" node "$ROOT/modules/watch/test_records_desk.js"
+    run_suite "case gate"                   python3 "$ROOT/modules/research-desk/test_case.py"
+    run_suite "shelves (external drives)"   python3 "$ROOT/modules/corpus/test_shelf.py"
+    run_suite "inventory (drives that vanish mid-scan)" python3 "$ROOT/modules/corpus/test_inventory.py"
+    run_suite "captures -> claims bridge"   node "$ROOT/modules/bridge/test_draft.js"
     if [ -f "$ROOT/modules/pra/tests/run_all.js" ]; then
-      ( cd "$ROOT/modules/pra" && node tests/run_all.js ) || FAILED=1
+      run_suite "pra"                       in_dir "$ROOT/modules/pra" node tests/run_all.js
     else
-      echo "(not present yet — see docs/RECONSTRUCTION_STATUS.md, priority 4)"
+      skip_suite "pra" "modules/pra/tests/run_all.js is not present"
     fi
+    run_suite "sentinel desk"               in_dir "$ROOT/modules/sentinel-desk" python3 test_sentinel.py
+    run_suite "desk -> video seam"          in_dir "$ROOT/modules/sentinel-desk" python3 test_video_seam.py
+
+    # OpenMontage renders video, so it genuinely needs ffmpeg, ffprobe and
+    # Pillow. Check for them BY NAME; if they are all here, run it and let
+    # its exit code count.
+    om_missing=""
+    command -v ffmpeg  >/dev/null 2>&1 || om_missing="$om_missing ffmpeg"
+    command -v ffprobe >/dev/null 2>&1 || om_missing="$om_missing ffprobe"
+    python3 -c "import PIL" >/dev/null 2>&1 || om_missing="$om_missing Pillow"
+    if [ -n "$om_missing" ]; then
+      skip_suite "openmontage self-test" "missing:$om_missing (brew install ffmpeg; pip3 install pillow)"
+    else
+      run_suite "openmontage self-test"     python3 "$ROOT/modules/openmontage/engine/openmontage.py" --self-test
+    fi
+
+    run_suite "shot assignment"             in_dir "$ROOT/modules/openmontage/engine" python3 test_shots.py
+    run_suite "nexus"                       node "$ROOT/modules/connectors/test_nexus.js"
+    run_suite "coverage + the box"          node "$ROOT/modules/connectors/test_coverage.js"
+    run_suite "edges, explain, challenge"   node "$ROOT/modules/connectors/test_edges.js"
+    run_suite "publication gate"            python3 "$ROOT/scripts/test_redact.py"
+    run_suite "sentinel command (the browser desk)" node "$ROOT/modules/command/test_command.js"
+    run_suite "fetch_foia_emails"           in_dir "$ROOT/scripts" env PYTHONDONTWRITEBYTECODE=1 python3 test_fetch_foia_emails.py
+
     echo ""
-    echo "== sentinel desk =="
-    ( cd "$ROOT/modules/sentinel-desk" && python3 test_sentinel.py ) || FAILED=1
+    bold "Summary"
+    printf '%s' "$RESULTS" | while IFS='|' read -r st name why; do
+      [ -z "$st" ] && continue
+      case "$st" in
+        PASS) printf '  \033[32mPASS\033[0m  %s\n' "$name" ;;
+        FAIL) printf '  \033[31mFAIL\033[0m  %s  (%s)\n' "$name" "$why" ;;
+        SKIP) printf '  \033[33mSKIP\033[0m  %s  — %s\n' "$name" "$why" ;;
+      esac
+    done
+    np=$(printf '%s' "$RESULTS" | grep -c '^PASS|' || true)
+    nf=$(printf '%s' "$RESULTS" | grep -c '^FAIL|' || true)
+    ns=$(printf '%s' "$RESULTS" | grep -c '^SKIP|' || true)
     echo ""
-    echo "== desk -> video seam =="
-    ( cd "$ROOT/modules/sentinel-desk" && python3 test_video_seam.py ) || FAILED=1
-    echo ""
-    echo "== openmontage self-test =="
-    python3 "$ROOT/modules/openmontage/engine/openmontage.py" --self-test 2>/dev/null \
-      && echo "openmontage self-test ok" || echo "(openmontage self-test skipped — needs ffmpeg/Pillow)"
-    echo ""
-    echo "== shot assignment =="
-    ( cd "$ROOT/modules/openmontage/engine" && python3 test_shots.py ) || FAILED=1
-    echo ""
-    echo "== nexus =="
-    node "$ROOT/modules/connectors/test_nexus.js" || FAILED=1
-    echo ""
-    echo "== coverage + the box =="
-    node "$ROOT/modules/connectors/test_coverage.js" || FAILED=1
-    echo ""
-    echo "== edges, explain, challenge =="
-    node "$ROOT/modules/connectors/test_edges.js" || FAILED=1
-    echo ""
-    echo "== publication gate =="
-    python3 "$ROOT/scripts/test_redact.py" || FAILED=1
-    echo ""
-    echo "== sentinel command (the browser desk) =="
-    node "$ROOT/modules/command/test_command.js" || FAILED=1
-    echo ""
-    echo "== fetch_foia_emails =="
-    ( cd "$ROOT/scripts" && PYTHONDONTWRITEBYTECODE=1 python3 test_fetch_foia_emails.py ) || FAILED=1
-    echo ""
-    [ "$FAILED" = "0" ] && bold "All present suites passed." || bold "One or more suites FAILED."
+    if [ "$FAILED" = "0" ]; then
+      bold "$np passed, $nf failed, $ns skipped."
+      [ "$ns" != "0" ] && echo "A skipped suite is NOT a pass. Install what it names and run again before relying on it."
+    else
+      bold "$np passed, $nf FAILED, $ns skipped."
+    fi
     exit "$FAILED"
     ;;
 

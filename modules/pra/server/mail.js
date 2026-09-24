@@ -185,6 +185,35 @@ async function smtpTransport(cfg) {
   });
 }
 
+/** The bare address out of "Name <a@b>", lowercased; commas split lists. */
+function addresses(v) {
+  if (!v) return [];
+  const list = Array.isArray(v) ? v : String(v).split(',');
+  return list.map((x) => {
+    const s = typeof x === 'object' && x ? (x.address || '') : String(x);
+    const m = /<([^>]+)>/.exec(s);
+    return (m ? m[1] : s).trim().toLowerCase();
+  }).filter(Boolean);
+}
+
+/**
+ * Which recipients the server accepted and refused, measured against the
+ * REQUIRED ones — the `to` line the operator approved. A cc is a courtesy
+ * copy; the custodian is the point.
+ */
+function recipientVerdict(msg, receipt) {
+  const required = addresses(msg.to);
+  const accepted = addresses(receipt && receipt.accepted);
+  const rejected = addresses(receipt && receipt.rejected);
+  // If the transport reports acceptance at all, a required address missing
+  // from it was not accepted. If it reports nothing, we cannot tell, and we
+  // fall back to what it did say (rejected) rather than inventing a refusal.
+  const haveAccepted = receipt && Array.isArray(receipt.accepted);
+  const requiredRefused = required.filter((a) =>
+    rejected.includes(a) || (haveAccepted && !accepted.includes(a)));
+  return { required, accepted, rejected, requiredRefused };
+}
+
 /**
  * Send the approved messages in an outbox. Returns a per-message result.
  *
@@ -273,12 +302,38 @@ async function sendApproved(outbox, cfg, opts = {}) {
 
     try {
       const receipt = await transport.sendMail(buildMessage(live, cfg));
-      outbox.markSent(live.message_id, {
-        messageId: receipt.messageId || null,
-        accepted: receipt.accepted || null,
-      });
-      results.push({ message_id: live.message_id, sent: true, to: live.to,
-        messageId: receipt.messageId || null });
+      const verdict = recipientVerdict(live, receipt);
+      if (verdict.requiredRefused.length) {
+        // The server took the message but REFUSED the custodian. Nodemailer
+        // resolves (it does not throw) when at least one recipient was
+        // accepted — so a letter whose only accepted recipient was the cc
+        // used to be marked SENT. It was not sent to the agency.
+        //
+        // It is not `failed` either: the accepted recipients already have a
+        // copy, and failed's recovery (queue a new message) would send them
+        // a second one. So it is held as unresolved, with every recipient's
+        // outcome kept, for a person to decide.
+        const detail = `the mail server REFUSED the required recipient(s) `
+          + `${verdict.requiredRefused.join(', ')}`
+          + (verdict.accepted.length ? ` and ACCEPTED ${verdict.accepted.join(', ')}` : '')
+          + `. The agency did not receive this through this send. `
+          + (verdict.accepted.length ? `Those accepted already have a copy — do not resend to them.` : '');
+        outbox.markUnknown(live.message_id, detail, { recipients: verdict });
+        results.push({ message_id: live.message_id, unknown: true, partial: true,
+          to: live.to, reason: detail, recipients: verdict });
+      } else {
+        outbox.markSent(live.message_id, {
+          messageId: receipt.messageId || null,
+          accepted: verdict.accepted,
+          rejected: verdict.rejected,
+          // Accepted by the SUBMISSION server. Not proof the agency received
+          // it, and not proof a person read it. Keep those distinct.
+          meaning: 'accepted for delivery by the submission server',
+        });
+        results.push({ message_id: live.message_id, sent: true, to: live.to,
+          messageId: receipt.messageId || null,
+          cc_refused: verdict.rejected.length ? verdict.rejected : undefined });
+      }
       sent++;
     } catch (e) {
       const { outcome, detail } = classifyError(e);
@@ -309,6 +364,14 @@ async function sendApproved(outbox, cfg, opts = {}) {
  * the normal case, and filing a reply against the wrong one puts a false fact
  * in a ledger that cannot be edited.
  */
+function escapeRe(s) { return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+
+/** True only when `id` appears as a complete token, not inside a longer id. */
+function mentionsId(text, id) {
+  if (!id) return false;
+  return new RegExp(`(?<![A-Za-z0-9-])${escapeRe(id)}(?![A-Za-z0-9-]|-[A-Za-z0-9])`).test(String(text || ''));
+}
+
 function matchRequest(mail, requestIds) {
   const header = mail.headers && (mail.headers['x-sentinel-request']
     || mail.headers['X-Sentinel-Request']);
@@ -316,7 +379,11 @@ function matchRequest(mail, requestIds) {
     return { request_id: String(header).trim(), how: 'header', confident: true };
   }
   const haystack = `${mail.subject || ''}\n${mail.text || ''}`;
-  const hits = requestIds.filter((id) => haystack.includes(id));
+  // WHOLE IDENTIFIERS ONLY. This was `haystack.includes(id)`, so a reply
+  // about RR-2026-10 "confidently" matched request RR-2026-1 — and every
+  // RR-2026-1x after it. An id counts only when nothing that could continue
+  // an identifier (a letter, a digit, a hyphen) touches either end of it.
+  const hits = requestIds.filter((id) => mentionsId(haystack, id));
   if (hits.length === 1) return { request_id: hits[0], how: 'id in text', confident: true };
   if (hits.length > 1) {
     return { request_id: null, how: 'ambiguous', confident: false,
@@ -390,6 +457,7 @@ function parseHeaders(buf) {
 
 module.exports = {
   loadEnv, config, checkConfig, assertDedicated, buildMessage,
-  sendApproved, fetchInbound, matchRequest, smtpTransport, imapClient,
+  sendApproved, fetchInbound, matchRequest, mentionsId, recipientVerdict, addresses,
+  smtpTransport, imapClient,
   parseHeaders, PRESETS, MailError,
 };

@@ -224,23 +224,47 @@ bin/sentinel pra mail approve <MSG-ID>   # sign off on ONE letter
 bin/sentinel pra mail reject  <MSG-ID> "why"
 bin/sentinel pra mail send               # send only what you approved
 bin/sentinel pra mail send --dry-run     # show exactly what WOULD go out; sends nothing
-bin/sentinel pra mail fetch              # read replies, show what they match
+bin/sentinel pra mail fetch              # CONNECTS and reads replies, shows what they match
 bin/sentinel pra mail fetch --apply      # ...and log them against the requests
 bin/sentinel pra mail log                # the full outbox history
+bin/sentinel pra mail unresolved         # sends whose outcome is not known (exits 1 if any)
+bin/sentinel pra mail reconcile <MSG-ID> sent|failed "what you checked, and what it showed"
 ```
+
+`mail fetch` has no dry run. It always connects to the mailbox; it logs
+nothing and leaves messages unread unless you add `--apply`. The check that
+makes no connection at all is `mail setup`.
 
 **The rules the outbox enforces, so you don't have to remember them:**
 
 - An approval covers `{to, cc, subject, body}` hashed together. Change one
   character afterwards and the signature is void — `send` refuses with *"the
   text changed after it was approved."* Re-read it and approve again.
-- States are `drafted → approved → sent | failed | rejected`. `sent`,
-  `failed` and `rejected` are terminal. There is no delete.
+- States are `drafted → approved → in_flight → sent | failed | unknown`,
+  plus `rejected`. `sent`, `failed` and `rejected` are terminal. There is no
+  delete.
+- `in_flight` is written to disk **before** the mail server is contacted. A
+  run that dies mid-send leaves it there, and the next run marks it `unknown`
+  rather than sending it again.
+- `failed` means the desk can name why nothing was delivered (the server
+  refused with a code, login failed, no connection was made). Anything else —
+  a timeout, a reset connection — is `unknown`.
+- **A refused custodian is never `sent`.** If the server refuses the `to`
+  address but accepts the cc, the letter is `unknown`, with every recipient's
+  outcome kept, because the cc already has a copy and a plain retry would
+  send them a second one. A refused cc with an accepted custodian is `sent`,
+  with the refusal on the receipt.
+- `unknown` blocks sending and blocks queuing a replacement. The only way out
+  is `mail reconcile`, with a written basis — what you checked, and what it
+  showed. That sentence is kept.
+- "Sent" means **accepted by your mail provider's server**. It is not proof
+  the agency received it, and not proof anyone read it.
 - Only one `drafted`/`approved` message per request at a time.
 - `--dry-run` needs no mail library and no password — you can check what
   would be sent on a machine that isn't set up yet.
 - Replies are matched by the `X-Sentinel-Request` header first, then by a
-  single request id in the subject or body. **Two ids means ambiguous**, and
+  single request id in the subject or body — as a **whole** id: a reply about
+  `RR-2026-10` does not match `RR-2026-1`. **Two ids means ambiguous**, and
   the desk says so rather than guessing. It never matches on sender address.
 
 **Mailbox setup** (in `modules/pra/.env`):

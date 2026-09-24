@@ -1892,16 +1892,23 @@ def self_test() -> int:
 
             # not answering is not the same as answering no
             globals()["has_audio_stream"] = real_aud
-            import shutil as _sh
-            real_which = _sh.which
-            _sh.which = lambda n: None if n == "ffprobe" else real_which(n)
-            try:
-                has_audio_stream(clip)
-                ok_p = False
-            except SpecError as e:
-                ok_p = "ffprobe not found" in str(e)
+            # Simulate absence the way it actually happens: ffprobe is not on
+            # PATH. This used to patch shutil.which, which has_audio_stream()
+            # never calls — it runs ffprobe directly — so on any machine that
+            # HAS ffprobe the "missing" case was never missing, the check
+            # failed, and the dispatcher reported the failure as "skipped".
+            import tempfile as _tf
+            real_path = os.environ.get("PATH", "")
+            with _tf.TemporaryDirectory() as empty:
+                os.environ["PATH"] = empty
+                try:
+                    has_audio_stream(clip)
+                    ok_p = False
+                except SpecError as e:
+                    ok_p = "ffprobe not found" in str(e)
+                finally:
+                    os.environ["PATH"] = real_path
             check("a missing ffprobe raises rather than reporting 'no audio'", ok_p)
-            _sh.which = real_which
         finally:
             globals()["ffprobe_duration"] = real_dur
             globals()["has_audio_stream"] = real_aud

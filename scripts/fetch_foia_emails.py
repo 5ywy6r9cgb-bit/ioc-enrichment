@@ -235,16 +235,48 @@ def inside(path, root):
 
 # ---------------------------------------------------------------- manifest
 
+def verify_held(records_dir, rel, digest):
+    """Is the file the manifest names still exactly the bytes it was?
+
+    Returns "ok", or a short reason. Checks, in order: the path stays inside
+    records/, it is a regular file and not a symlink, and its bytes hash to
+    the digest it was filed under.
+    """
+    if not isinstance(rel, str) or not rel or os.path.isabs(rel):
+        return "manifest path is not a relative path"
+    p = records_dir / rel
+    if not inside(p, records_dir):
+        return "manifest path points outside records/ — refused"
+    if p.is_symlink():
+        return "the saved copy is a symlink — refused"
+    if not p.is_file():
+        return "the saved copy is missing"
+    h = hashlib.sha256()
+    with open(p, "rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(chunk)
+    if h.hexdigest() != digest:
+        return f"the saved copy was ALTERED after it was filed (now {h.hexdigest()[:16]}…)"
+    return "ok"
+
+
 def load_manifest(records_dir):
     p = records_dir / MANIFEST_NAME
     if not p.exists():
         return {}
     try:
-        return json.loads(p.read_text())
+        data = json.loads(p.read_text())
     except json.JSONDecodeError:
         # Refuse rather than start over: an empty manifest would re-save
         # every attachment, which is the duplication this file exists to stop.
         sys.exit(f"{p} is not valid JSON. It has not been modified. Fix or move it, then run again.")
+    # Valid JSON is not the same as a valid manifest.
+    if not isinstance(data, dict) or not all(
+            isinstance(k, str) and re.fullmatch(r"[0-9a-f]{64}", k) and isinstance(v, str)
+            for k, v in data.items()):
+        sys.exit(f"{p} is valid JSON but not a manifest (expected sha256 → relative path). "
+                 f"It has not been modified. Fix or move it, then run again.")
+    return data
 
 
 def save_manifest(records_dir, manifest):
@@ -300,13 +332,25 @@ def save_attachments(msg, folder_key, records_dir=None, manifest=None):
         digest = hashlib.sha256(payload).hexdigest()
         entry["sha256"] = digest
 
-        # Same bytes seen before: point at the first copy, write nothing.
+        # Same bytes seen before: point at the first copy, write nothing —
+        # but ONLY after proving the first copy still IS those bytes.
+        #
+        # This used to check that the file existed. If the saved copy had
+        # been altered since, the fresh, correct bytes were thrown away and
+        # the entry pointed at the altered file under the ORIGINAL hash —
+        # evidence silently replaced by whatever was on disk. And a manifest
+        # entry like "../outside.bin" was followed out of records/.
         known = manifest.get(digest)
-        if known and (records_dir / known).exists():
-            entry["saved_path"] = str(records_dir / known)
-            entry["duplicate_of_earlier_copy"] = True
-            saved.append(entry)
-            continue
+        if known:
+            status = verify_held(records_dir, known, digest)
+            if status == "ok":
+                entry["saved_path"] = str(records_dir / known)
+                entry["duplicate_of_earlier_copy"] = True
+                saved.append(entry)
+                continue
+            # Keep the discrepancy on the record; never overwrite the suspect
+            # file. The fresh bytes are written below as a new, valid copy.
+            entry["earlier_copy_problem"] = {"manifest_path": known, "problem": status}
 
         dest_dir.mkdir(parents=True, exist_ok=True)
         stem, suffix = os.path.splitext(name)
@@ -374,7 +418,17 @@ def load_review(path):
     except json.JSONDecodeError:
         sys.exit(f"{path} is not valid JSON. It has not been modified — it may hold "
                  f"decisions you made in the dashboard. Fix or move it, then run again.")
-    return data if isinstance(data, list) else []
+    # Valid JSON in the wrong shape used to become [] — and the next write
+    # replaced whatever the file held. Refuse it instead, and leave it alone.
+    if not isinstance(data, list) or not all(isinstance(e, dict) and e.get("message_hash") for e in data):
+        sys.exit(f"{path} is valid JSON but not a review queue (expected a list of entries, "
+                 f"each with a message_hash). It has not been modified — it may hold decisions "
+                 f"you made in the dashboard. Fix or move it, then run again.")
+    hashes = [e["message_hash"] for e in data]
+    if len(hashes) != len(set(hashes)):
+        sys.exit(f"{path} lists the same message twice. It has not been modified. "
+                 f"Resolve the duplicate by hand, then run again.")
+    return data
 
 
 # ---------------------------------------------------------------- main
@@ -465,6 +519,7 @@ def main():
                     if a.get("saved_path") and not a.get("duplicate_of_earlier_copy"))
     dupes = sum(1 for r in review_items for a in r["attachments"] if a.get("duplicate_of_earlier_copy"))
     held = [(r["subject"], a) for r in review_items for a in r["attachments"] if a.get("held_back")]
+    problems = [(r["subject"], a) for r in review_items for a in r["attachments"] if a.get("earlier_copy_problem")]
     renamed = sum(1 for r in review_items for a in r["attachments"] if a.get("renamed_to"))
 
     print(f"\nWrote {REVIEW_FILE} — {len(review_items)} message(s) this run, {len(merged)} total.")
@@ -480,6 +535,12 @@ def main():
         print(f"\n  {len(held)} attachment(s) NOT written — read these:")
         for subj, a in held:
             print(f"    {a['filename']!r} in {subj[:50]!r}: {a['held_back']}")
+    if problems:
+        print(f"\n  {len(problems)} earlier saved copy/copies did NOT match what the agency sent — read these:")
+        for subj, a in problems:
+            pr = a["earlier_copy_problem"]
+            print(f"    {pr['manifest_path']!r}: {pr['problem']}. The agency's bytes were saved again "
+                  f"at {a.get('saved_path')}; the suspect file was left untouched.")
     print("\nNothing in foia_requests.json was touched. Open review_dashboard.html")
     print("to review and accept suggestions, or edit foia_requests.json yourself.")
 

@@ -153,6 +153,15 @@ module.exports = function run_() {
 
   {
     const ob = fresh();
+    const r = run(ob, ['fetch', '--dry-run']);
+    H.eq('`fetch --dry-run` is refused rather than silently connecting', r.code, 2);
+    H.check('and says fetch always connects', /always CONNECTS/.test(r.out), r.out);
+    const s = run(ob, ['setup']);
+    H.check('`setup` no longer suggests a dry-run fetch', !/fetch --dry-run/.test(s.out), s.out);
+  }
+
+  {
+    const ob = fresh();
     const r = run(ob, ['frobnicate']);
     H.check('the unknown-command message lists reconcile and unresolved',
       /unresolved reconcile/.test(r.out), r.out);

@@ -194,6 +194,82 @@ try:
 except SystemExit as e:
     check("a corrupt manifest stops the run rather than starting over", "not valid JSON" in str(e))
 
+# ════════════════════════════════════════════════════════════ reuse is verified
+suite("an earlier copy is reused only if it is still exactly those bytes")
+
+import hashlib as _h
+box = sandbox()
+records = box / "records"
+payload = b"%PDF the production as the agency sent it"
+digest = _h.sha256(payload).hexdigest()
+manifest = {}
+first = F.save_attachments(message(("production.pdf", payload)), "RR-2026-9", records, manifest)[0]
+Path(first["saved_path"]).write_bytes(b"%PDF something else entirely")   # altered on disk
+again = F.save_attachments(message(("production.pdf", payload)), "RR-2026-9", records, manifest)[0]
+check("an ALTERED earlier copy is not reused as a duplicate", not again.get("duplicate_of_earlier_copy"))
+check("the discrepancy is recorded", "ALTERED" in again.get("earlier_copy_problem", {}).get("problem", ""),
+      again.get("earlier_copy_problem"))
+check("the agency's real bytes are saved again, intact",
+      Path(again["saved_path"]).read_bytes() == payload)
+check("the suspect file is left exactly as found, not overwritten",
+      Path(first["saved_path"]).read_bytes() == b"%PDF something else entirely")
+check("the manifest now points at the good copy", (records / manifest[digest]).read_bytes() == payload)
+
+box = sandbox()
+records = box / "records"
+outside = box / "outside.bin"
+outside.write_bytes(payload)
+out = F.save_attachments(message(("production.pdf", payload)), "RR-2026-9", records,
+                         {digest: "../outside.bin"})[0]
+check("a manifest entry pointing outside records/ is refused", not out.get("duplicate_of_earlier_copy"))
+check("and named as such", "outside records" in out.get("earlier_copy_problem", {}).get("problem", ""))
+check("the real bytes land inside records/", F.inside(Path(out["saved_path"]), records))
+
+box = sandbox()
+records = box / "records"
+records.mkdir(parents=True)
+(box / "target.bin").write_bytes(payload)
+(records / "out-link.bin").symlink_to(box / "target.bin")
+out = F.save_attachments(message(("production.pdf", payload)), "RR-2026-9", records, {digest: "out-link.bin"})[0]
+check("a symlink leading out of records/ is refused, even when the bytes match",
+      not out.get("duplicate_of_earlier_copy") and out.get("earlier_copy_problem"), out.get("earlier_copy_problem"))
+(records / "real.bin").write_bytes(payload)
+(records / "in-link.bin").symlink_to(records / "real.bin")
+out = F.save_attachments(message(("production.pdf", payload)), "RR-2026-9", records, {digest: "in-link.bin"})[0]
+check("a symlink is refused even when it stays inside records/",
+      "symlink" in out.get("earlier_copy_problem", {}).get("problem", ""), out.get("earlier_copy_problem"))
+
+# ════════════════════════════════════════════════════════════ valid JSON, wrong shape
+suite("valid JSON in the wrong shape is refused, never replaced")
+
+def refuses(fn, path):
+    before = path.read_text()
+    try:
+        fn(path)
+        return False
+    except SystemExit:
+        return path.read_text() == before
+
+box = sandbox()
+q = box / "review_queue.json"
+q.write_text('{"unexpected_shape": true}')
+check("a review queue that is an object, not a list, is refused and untouched", refuses(F.load_review, q))
+q.write_text('[1, 2, 3]')
+check("so is a list of things that are not entries", refuses(F.load_review, q))
+q.write_text('[{"message_hash": "a"}, {"message_hash": "a"}]')
+check("so is a queue listing the same message twice", refuses(F.load_review, q))
+q.write_text('[{"message_hash": "a", "accepted": true}]')
+check("a well-formed queue still loads", F.load_review(q)[0]["accepted"] is True)
+
+rec = box / "records"
+rec.mkdir()
+(rec / F.MANIFEST_NAME).write_text('["not", "a", "manifest"]')
+check("a manifest that is not sha256 -> path is refused and untouched",
+      refuses(lambda _p: F.load_manifest(rec), rec / F.MANIFEST_NAME))
+(rec / F.MANIFEST_NAME).write_text('{"not-a-hash": "x.pdf"}')
+check("so is one keyed by something that is not a sha256",
+      refuses(lambda _p: F.load_manifest(rec), rec / F.MANIFEST_NAME))
+
 # ════════════════════════════════════════════════════════════ domains
 suite("the sender's ADDRESS decides the agency, not the display name")
 

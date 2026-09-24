@@ -107,7 +107,10 @@ function cmdSetup() {
     console.log(`\n  ${C.r(e.message)}`);
     return 2;
   }
-  console.log(C.dim('\n  Nothing has been sent or read. Try:  sentinel pra mail fetch --dry-run\n'));
+  console.log(C.dim('\n  Nothing has been sent or read. This check made no network connection.'));
+  console.log(C.dim('  To READ the mailbox (a real connection; it logs nothing and leaves'));
+  console.log(C.dim('  messages unread):   sentinel pra mail fetch'));
+  console.log(C.dim('  To also log matched replies against requests:  sentinel pra mail fetch --apply\n'));
   return 0;
 }
 
@@ -290,6 +293,16 @@ async function cmdSend(argv) {
 
 // ------------------------------------------------------------------ fetch
 async function cmdFetch(argv) {
+  // Refuse flags this command does not have. `fetch --dry-run` used to be
+  // suggested by `setup`, was silently ignored, and connected anyway — a
+  // "dry run" that reads your mailbox over the network is not one.
+  const unknown = argv.filter((a) => a.startsWith('--') && a !== '--apply');
+  if (unknown.length) {
+    console.error(`\n  ${C.r(`mail fetch does not take ${unknown.join(' ')}.`)}`);
+    console.error(C.dim('  `mail fetch` always CONNECTS and reads (it logs nothing without --apply).'));
+    console.error(C.dim('  For a check that makes no connection at all:  sentinel pra mail setup\n'));
+    return 2;
+  }
   const apply = argv.includes('--apply');
   const cfg = M.config();
   const missing = M.checkConfig(cfg);

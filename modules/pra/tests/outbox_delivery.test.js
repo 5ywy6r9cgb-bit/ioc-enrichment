@@ -102,7 +102,10 @@ module.exports = async function run() {
         // Read the file from scratch, as a separate process would. This is the
         // instant a kill -9 would land.
         stateDuringSend = new Outbox(ob.file).get(m.message_id).state;
-        return { messageId: '<ok@test>', accepted: ['x'] };
+        // The custodian is what a real server reports as accepted. This used
+        // to say accepted: ['x'], which only passed while a resolved send was
+        // assumed to mean "delivered to the right person".
+        return { messageId: '<ok@test>', accepted: ['records@agency.oh.gov'], rejected: [] };
       },
     };
     const res = await M.sendApproved(ob, CFG, { transport: watcher });
@@ -111,6 +114,51 @@ module.exports = async function run() {
       stateDuringSend, 'in_flight');
     H.eq('and on success it becomes sent', ob.get(m.message_id).state, 'sent');
     H.eq('which is what the run reports', res[0].sent, true);
+  }
+
+  // ══ the custodian refused, the cc accepted: that is NOT sent ═══════════
+  {
+    const ob = tmp();
+    const m = approved(ob, { cc: 'Me <me@example.org>' });
+    const res = await M.sendApproved(ob, CFG, { transport: { async sendMail() {
+      return { messageId: '<p@test>', accepted: ['me@example.org'], rejected: ['records@agency.oh.gov'] };
+    } } });
+    const got = ob.get(m.message_id);
+    H.check('a refused custodian with an accepted cc is not recorded as sent', got.state !== 'sent', got.state);
+    H.eq('it is held as unresolved for a person to decide', got.state, 'unknown');
+    H.check('the run does not report it as sent', !res[0].sent);
+    H.check('the reason names the refused custodian',
+      /REFUSED the required recipient\(s\) records@agency\.oh\.gov/.test(got.unknown_reason), got.unknown_reason);
+    H.check('and warns the cc already has a copy', /do not resend to them/.test(got.unknown_reason));
+    H.eq('per-recipient outcomes are kept on the letter', got.recipients.accepted, ['me@example.org']);
+    H.throws('and a replacement cannot be queued until it is reconciled',
+      () => ob.queue({ request_id: 'OH-2026-0001', to: 'records@agency.oh.gov',
+        subject: 'Public records request', body: LETTER }), 'delivery is unresolved');
+  }
+
+  // ══ the cc refused, the custodian accepted: that IS sent, with a note ══
+  {
+    const ob = tmp();
+    const m = approved(ob, { cc: 'me@example.org' });
+    const res = await M.sendApproved(ob, CFG, { transport: { async sendMail() {
+      return { messageId: '<c@test>', accepted: ['records@agency.oh.gov'], rejected: ['me@example.org'] };
+    } } });
+    H.eq('a refused cc does not undo a delivered letter', ob.get(m.message_id).state, 'sent');
+    H.eq('but the refused cc is kept on the receipt', ob.get(m.message_id).receipt.rejected, ['me@example.org']);
+    H.check('and reported by the run', res[0].cc_refused && res[0].cc_refused[0] === 'me@example.org');
+    H.check('the receipt says what acceptance means — and does not mean',
+      /submission server/.test(ob.get(m.message_id).receipt.meaning));
+  }
+
+  // ══ display names and case do not fool the comparison ═════════════════
+  {
+    const v = M.recipientVerdict({ to: 'Records Office <Records@Agency.OH.gov>' },
+      { accepted: ['records@agency.oh.gov'], rejected: [] });
+    H.eq('"Name <Addr>" and upper case compare as the same address', v.requiredRefused, []);
+    const w = M.recipientVerdict({ to: 'a@x.gov, b@x.gov' }, { accepted: ['a@x.gov'], rejected: [] });
+    H.eq('with two required recipients, one missing from accepted is refused', w.requiredRefused, ['b@x.gov']);
+    const n = M.recipientVerdict({ to: 'a@x.gov' }, { messageId: '<no-lists@test>' });
+    H.eq('a transport that reports no lists is not invented into a refusal', n.requiredRefused, []);
   }
 
   // ══ a run that died mid-transport does not look like one that never ran ═

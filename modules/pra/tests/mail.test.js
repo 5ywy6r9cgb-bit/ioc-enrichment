@@ -239,6 +239,23 @@ module.exports = async function run() {
         text: '', fromAddress: 'clerk@gahanna.gov' }, ids).request_id === null);
   }
 
+  // ══ a request id is a whole token, never a prefix ═════════════════════
+  {
+    const ids = ['RR-2026-1', 'OH-FLOCK-001'];
+    H.eq('RR-2026-10 does not match RR-2026-1',
+      M.matchRequest({ subject: '[RR-2026-10] Response', text: '' }, ids).request_id, null);
+    H.eq('nor does RR-2026-1A', M.matchRequest({ subject: 'RR-2026-1A', text: '' }, ids).request_id, null);
+    H.eq('nor XRR-2026-1', M.matchRequest({ subject: 'XRR-2026-1', text: '' }, ids).request_id, null);
+    H.eq('nor RR-2026-1-B (a hyphenated continuation)',
+      M.matchRequest({ subject: 'RR-2026-1-B', text: '' }, ids).request_id, null);
+    H.eq('the exact id in brackets matches',
+      M.matchRequest({ subject: '[RR-2026-1] Response', text: '' }, ids).request_id, 'RR-2026-1');
+    H.eq('so does the id at the end of a sentence',
+      M.matchRequest({ subject: 'Re: your request RR-2026-1.', text: '' }, ids).request_id, 'RR-2026-1');
+    H.eq('and inside Re:/Fwd: prefixes',
+      M.matchRequest({ subject: 'Fwd: Re: OH-FLOCK-001 records', text: '' }, ids).request_id, 'OH-FLOCK-001');
+  }
+
   // ══ header parsing ════════════════════════════════════════════════════
   {
     const h = M.parseHeaders(Buffer.from(
