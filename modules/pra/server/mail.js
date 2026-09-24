@@ -217,15 +217,14 @@ async function sendApproved(outbox, cfg, opts = {}) {
   // installed" on exactly the machine where someone is trying to check what
   // WOULD be sent before installing anything — which is the one moment the
   // dry run exists to serve.
-  const transport = opts.dryRun
-    ? null
-    : (opts.transport || await smtpTransport(cfg));
-
   const results = [];
 
-  // Before anything else: a message left `in_flight` belongs to a run that
-  // died mid-transport. A dry run reports them and changes nothing, because
-  // "show me what would happen" must not be a way to mutate state.
+  // Before anything else — before the transport is even built: a message left
+  // `in_flight` belongs to a run that died mid-transport. Resolving that needs
+  // no mail library and no network, so it must not wait on either; a missing
+  // nodemailer used to throw first and leave the stranded message stranded.
+  // A dry run reports them and changes nothing, because "show me what would
+  // happen" must not be a way to mutate state.
   if (opts.dryRun) {
     for (const m of outbox.list({ state: 'in_flight' })) {
       results.push({ message_id: m.message_id, skipped: true,
@@ -237,6 +236,10 @@ async function sendApproved(outbox, cfg, opts = {}) {
         reason: m.unknown_reason });
     }
   }
+
+  const transport = opts.dryRun
+    ? null
+    : (opts.transport || await smtpTransport(cfg));
 
   const approved = outbox.list({ state: 'approved' });
   let sent = 0;

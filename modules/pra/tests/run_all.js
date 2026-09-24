@@ -32,6 +32,7 @@ const SUITES = [
   ['outbox',                    require('./outbox.test.js')],
   ['outbox_delivery',           require('./outbox_delivery.test.js')],
   ['mail',                      require('./mail.test.js')],
+  ['mail_cli',                  require('./mail_cli.test.js')],
 ];
 
 (async () => {

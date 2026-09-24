@@ -126,3 +126,9 @@ crosscheck.csv
 /husted_orgs.csv
 !/requirements.txt
 !/README.txt
+
+# fetch_foia_emails.py writes received records and its review queue into
+# the folder it is run from. Agency productions are evidence, not source.
+/records/
+/scripts/records/
+review_queue.json

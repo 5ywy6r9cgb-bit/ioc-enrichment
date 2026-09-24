@@ -11,6 +11,8 @@
  *   sentinel pra mail send [--dry-run]      send ONLY what you approved
  *   sentinel pra mail fetch [--apply]       read replies, log them
  *   sentinel pra mail log                   everything queued, approved, sent
+ *   sentinel pra mail unresolved            sends whose outcome is not known
+ *   sentinel pra mail reconcile MSG-ID sent|failed "what you checked"
  *
  * THE SHAPE OF IT
  *
@@ -173,8 +175,14 @@ function cmdReview() {
   const ob = new Outbox();
   const drafted = ob.list({ state: 'drafted' });
   const approved = ob.list({ state: 'approved' });
+  const open = ob.unresolved();
+
+  // First, always. The only state where the desk does not know whether a
+  // letter already reached an agency outranks everything waiting behind it.
+  if (open.length) printUnresolved(open);
 
   if (!drafted.length && !approved.length) {
+    if (open.length) return 0;
     console.log(`\n  ${C.dim('Nothing waiting. Queue one:  sentinel pra mail queue <REQUEST-ID>')}\n`);
     return 0;
   }
@@ -210,8 +218,13 @@ async function cmdSend(argv) {
   const cfg = M.config();
 
   const approved = ob.list({ state: 'approved' });
-  if (!approved.length) {
+  const stranded = ob.list({ state: 'in_flight' });
+  // A stranded in_flight message has to reach sendApproved even when nothing
+  // is approved — that is where it gets resolved to unknown.
+  if (!approved.length && !stranded.length) {
     console.log(`\n  ${C.dim('Nothing approved. Nothing sent.')}`);
+    const open = ob.unresolved();
+    if (open.length) printUnresolved(open);
     console.log(C.dim('  sentinel pra mail review\n'));
     return 0;
   }
@@ -240,8 +253,27 @@ async function cmdSend(argv) {
   for (const r of results) {
     if (r.sent) console.log(`  ${C.g('SENT')}     ${r.message_id} → ${r.to}`);
     else if (r.dryRun) console.log(`  ${C.y('WOULD SEND')} ${r.message_id} → ${r.to}  ${C.dim(r.subject)}`);
+    // Checked BEFORE the catch-all. An unknown outcome printed as a dim
+    // "skipped" is the most dangerous line this command could print: it
+    // reads as "nothing happened" about a letter that may be in the
+    // agency's inbox right now.
+    else if (r.unknown) {
+      console.log(`  ${C.r(C.b('UNRESOLVED'))} ${r.message_id} → ${r.to || ''}`);
+      console.log(wrap(C.r(r.reason || ''), 70, 13));
+    }
     else if (r.failed) console.log(`  ${C.r('FAILED')}   ${r.message_id}  ${r.error}`);
     else console.log(`  ${C.dim('skipped')}  ${r.message_id}  ${C.dim(r.reason)}`);
+  }
+
+  const unknown = results.filter((r) => r.unknown);
+  if (unknown.length) {
+    console.log('');
+    console.log(wrap(C.r(C.b(`${unknown.length} letter(s) may or may not have reached the agency.`)), 74, 2));
+    console.log(wrap(C.r('Do NOT re-send and do NOT queue a replacement. Check the sent folder '
+      + 'of the records mailbox, then record what you found:'), 74, 2));
+    for (const r of unknown) {
+      console.log(C.c(`    sentinel pra mail reconcile ${r.message_id} sent "sent folder shows it at HH:MM"`));
+    }
   }
 
   const sent = results.filter((r) => r.sent).length;
@@ -329,7 +361,8 @@ function cmdLog() {
   const all = ob.list();
   if (!all.length) { console.log(`\n  ${C.dim('Outbox is empty.')}\n`); return 0; }
   console.log(`\n  ${C.b('OUTBOX')}  ${C.dim(ob.file)}\n`);
-  const colour = { drafted: C.y, approved: C.c, sent: C.g, failed: C.r, rejected: C.dim };
+  const colour = { drafted: C.y, approved: C.c, in_flight: C.r, unknown: (x) => C.r(C.b(x)),
+    sent: C.g, failed: C.r, rejected: C.dim };
   for (const m of all) {
     const c = colour[m.state] || C.dim;
     console.log(`  ${c(m.state.toUpperCase().padEnd(9))} ${C.b(m.message_id)}  `
@@ -338,8 +371,61 @@ function cmdLog() {
     if (m.sent_at) console.log(C.dim(`  ${' '.repeat(10)} sent ${m.sent_at}`));
     if (m.rejected_reason) console.log(C.dim(`  ${' '.repeat(10)} rejected: ${m.rejected_reason}`));
     if (m.error) console.log(C.r(`  ${' '.repeat(10)} ${m.error}`));
+    if (m.state === 'unknown') console.log(C.r(`  ${' '.repeat(10)} ${m.unknown_reason || ''}`));
+    if (m.reconciled_basis) console.log(C.dim(`  ${' '.repeat(10)} reconciled: ${m.reconciled_basis}`));
   }
   console.log('');
+  return 0;
+}
+
+// ------------------------------------------------------------- unresolved
+function printUnresolved(open) {
+  console.log('\n' + C.r(C.b('  ── OUTCOME UNKNOWN — check these before anything else ' + '─'.repeat(20))));
+  for (const m of open) {
+    console.log(`  ${C.r(C.b(m.state.toUpperCase()))}  ${C.b(m.message_id)}  ${C.dim(m.request_id)}  → ${m.to}`);
+    console.log(C.dim(`  ${' '.repeat(10)} ${m.subject.slice(0, 66)}`));
+    const why = m.state === 'in_flight'
+      ? 'a send run is in progress, or died mid-send. The next `mail send` will mark it unknown.'
+      : (m.unknown_reason || '');
+    console.log(wrap(C.r(why), 70, 12));
+    if (m.state === 'unknown') {
+      console.log(C.c(`            sentinel pra mail reconcile ${m.message_id} sent "what you checked"`));
+      console.log(C.dim(`            sentinel pra mail reconcile ${m.message_id} failed "what you checked"`));
+    }
+  }
+  console.log(wrap(C.dim('Look in the SENT folder of the records mailbox. If it is there, the '
+    + 'agency has it. If it is not there and no bounce arrived, it most likely did not go. '
+    + 'Either way, write down what you looked at — that sentence is kept.'), 74, 2));
+}
+
+function cmdUnresolved() {
+  const open = new Outbox().unresolved();
+  if (!open.length) {
+    console.log(`\n  ${C.g('Nothing unresolved.')} ${C.dim('Every send has a known outcome.')}\n`);
+    return 0;
+  }
+  printUnresolved(open);
+  console.log('');
+  return 1;   // non-zero so a script or a morning check can notice
+}
+
+function cmdReconcile(positional) {
+  const [, id, outcome, ...rest] = positional;
+  const basis = rest.join(' ');
+  if (!id || !['sent', 'failed'].includes(outcome) || !basis) {
+    console.error('\n  usage: mail reconcile <MSG-ID> sent|failed "what you checked, and what it showed"\n');
+    return 2;
+  }
+  const m = new Outbox().reconcile(id, outcome, basis);
+  console.log(`\n  ${outcome === 'sent' ? C.g('reconciled: SENT') : C.y('reconciled: FAILED')}  ${C.b(m.message_id)}`);
+  console.log(C.dim(`  basis kept on the record: ${m.reconciled_basis}`));
+  if (outcome === 'sent') {
+    console.log(C.dim(`\n  Log it against the request so the desk's clock starts:`));
+    console.log(C.dim(`    sentinel pra foia sent ${m.request_id} --via email\n`));
+  } else {
+    console.log(C.dim(`\n  It never reached them, so a new letter may now be queued:`));
+    console.log(C.dim(`    sentinel pra mail queue ${m.request_id}\n`));
+  }
   return 0;
 }
 
@@ -356,6 +442,8 @@ async function main() {
       case 'queue':   return process.exit(cmdQueue(positional[1], argv));
       case 'review':  return process.exit(cmdReview());
       case 'log':     return process.exit(cmdLog());
+      case 'unresolved': return process.exit(cmdUnresolved());
+      case 'reconcile':  return process.exit(cmdReconcile(positional));
       case 'send':    return process.exit(await cmdSend(argv));
       case 'fetch':   return process.exit(await cmdFetch(argv));
       case 'approve': {
@@ -377,7 +465,7 @@ async function main() {
       }
       default:
         console.error(`\n  unknown: ${cmd}`);
-        console.error('  mail subcommands: setup queue review approve reject send fetch log\n');
+        console.error('  mail subcommands: setup queue review approve reject send fetch log unresolved reconcile\n');
         return process.exit(2);
     }
   } catch (e) {
