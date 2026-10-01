@@ -1,0 +1,706 @@
+{
+  "schema": "sentinel.library/1",
+  "as_of": "2026-09-30",
+  "rules": [
+    "ACTIVE sources are the connectors already on this desk. PROPOSED sources were brought in by Claude on 2026-09-30 at the operator's request; each records what was checked and on which page.",
+    "Nothing PROPOSED is used until the operator approves it: bin/sentinel-cycle library approve ID --by NAME.",
+    "authoritative=false means an aggregator, mirror or index. Its rows are leads; the publisher's own record is the source.",
+    "Individuals who appear in any source (donors, parties, excluded persons, defendants who are not officials) are counted, never named.",
+    "An address is not a person. A label from any index is UNVERIFIED until separate evidence ties it to someone."
+  ],
+  "sources": [
+    {
+      "id": "SRC-OPENSANCTIONS",
+      "status": "ACTIVE",
+      "connector": "opensanctions",
+      "name": "OpenSanctions API",
+      "publisher": "OpenSanctions (aggregator of official lists)",
+      "kind": "api",
+      "authoritative": false,
+      "topics": [
+        "sanctions"
+      ],
+      "key": {
+        "needed": true,
+        "where": "modules/pra/.env (see docs/API_KEYS.md)"
+      },
+      "base": "https://api.opensanctions.org/",
+      "probe": "https://www.opensanctions.org/docs/api/",
+      "holds": "Sanctions, watch-list and politically exposed entities gathered from many official lists.",
+      "cannot_show": "A name match is not an identity match. The official list (for US designations, OFAC) is the primary source; see SRC-OFAC-SLS."
+    },
+    {
+      "id": "SRC-COURTLISTENER",
+      "status": "ACTIVE",
+      "connector": "courtlistener, cldocket, clparties",
+      "name": "CourtListener REST API v4",
+      "publisher": "Free Law Project (mirror of court records)",
+      "kind": "api",
+      "authoritative": false,
+      "topics": [
+        "courts"
+      ],
+      "key": {
+        "needed": true,
+        "where": "modules/pra/.env"
+      },
+      "base": "https://www.courtlistener.com/api/rest/v4/",
+      "probe": "https://www.courtlistener.com/help/api/rest/",
+      "limits": "The desk budgets 125 calls a day. Sweeps use --new-only.",
+      "holds": "Opinions, dockets, parties and RECAP filings.",
+      "cannot_show": "A docket entry is a filing, not a finding. Party lists name private people: count them, cite by docket number."
+    },
+    {
+      "id": "SRC-FEDREG",
+      "status": "ACTIVE",
+      "connector": "federalregister, fedregdoc, fedregtext",
+      "name": "Federal Register API v1",
+      "publisher": "Office of the Federal Register",
+      "kind": "api",
+      "authoritative": true,
+      "topics": [
+        "rulemaking"
+      ],
+      "key": {
+        "needed": false
+      },
+      "base": "https://www.federalregister.gov/api/v1/",
+      "probe": "https://www.federalregister.gov/api/v1/documents.json?per_page=1",
+      "note": "The human docs page redirected a script to an unblock page on 2026-09-30; the API itself answered, so the API is probed.",
+      "holds": "Rules, proposed rules, notices and presidential documents, with document numbers.",
+      "cannot_show": "Anything decided before or outside publication."
+    },
+    {
+      "id": "SRC-FEC",
+      "status": "ACTIVE",
+      "connector": "fec, fecpac, fecspend",
+      "name": "OpenFEC API",
+      "publisher": "Federal Election Commission",
+      "kind": "api",
+      "authoritative": true,
+      "topics": [
+        "money-in-politics"
+      ],
+      "key": {
+        "needed": true,
+        "env": "FEC_API_KEY",
+        "where": "modules/pra/.env"
+      },
+      "base": "https://api.open.fec.gov/v1/",
+      "probe": "https://api.open.fec.gov/developers/",
+      "holds": "Committees, filings, receipts, disbursements and independent expenditures.",
+      "cannot_show": "Money kinds are not interchangeable: an independent expenditure is not a gift, a transfer is not a contribution. The ledger never sums across kinds."
+    },
+    {
+      "id": "SRC-LDA",
+      "status": "ACTIVE",
+      "connector": "senatelda",
+      "name": "Lobbying Disclosure API",
+      "publisher": "LDA filing system (lda.gov)",
+      "kind": "api",
+      "authoritative": true,
+      "topics": [
+        "lobbying",
+        "money-in-politics"
+      ],
+      "key": {
+        "needed": "see docs/API_KEYS.md"
+      },
+      "base": "https://lda.gov/api/v1/",
+      "probe": "https://lda.gov/api/",
+      "note": "On 2026-09-30 lda.senate.gov/api/ redirected to lda.gov/api/.",
+      "holds": "LD-1 registrations, LD-2 activity reports (clients, issues, bills, income/expenses) and LD-203 contribution reports.",
+      "cannot_show": "A bill listed on a filing was lobbied on; that is not evidence the lobbying changed it."
+    },
+    {
+      "id": "SRC-REGSGOV",
+      "status": "ACTIVE",
+      "connector": "regulationsgov",
+      "name": "Regulations.gov API v4",
+      "publisher": "General Services Administration",
+      "kind": "api",
+      "authoritative": true,
+      "topics": [
+        "rulemaking"
+      ],
+      "key": {
+        "needed": true,
+        "where": "modules/pra/.env"
+      },
+      "base": "https://api.regulations.gov/v4/",
+      "probe": "https://open.gsa.gov/api/regulationsgov/",
+      "holds": "Rulemaking dockets, documents and public comments.",
+      "cannot_show": "A comment is what a commenter said. Comment volume is not public opinion."
+    },
+    {
+      "id": "SRC-BLS",
+      "status": "ACTIVE",
+      "connector": "bls",
+      "name": "BLS Public Data API",
+      "publisher": "Bureau of Labor Statistics",
+      "kind": "api",
+      "authoritative": true,
+      "topics": [
+        "statistics"
+      ],
+      "key": {
+        "needed": "see docs/API_KEYS.md"
+      },
+      "probe": null,
+      "note": "Its developer page answered a generic script with 403 on 2026-09-30. `bin/sentinel connect test` checks the connector itself.",
+      "holds": "Statistical series, queried by series identifier, not by name."
+    },
+    {
+      "id": "SRC-OPENCORPORATES",
+      "status": "ACTIVE",
+      "connector": "opencorporates",
+      "name": "OpenCorporates API v0.4",
+      "publisher": "OpenCorporates (aggregator of company registries)",
+      "kind": "api",
+      "authoritative": false,
+      "topics": [
+        "companies"
+      ],
+      "key": {
+        "needed": true,
+        "where": "modules/pra/.env"
+      },
+      "base": "https://api.opencorporates.com/v0.4/",
+      "probe": "https://api.opencorporates.com/documentation/API-Reference",
+      "holds": "Company registrations by jurisdiction and number.",
+      "cannot_show": "Who owns or controls a company. The state registry record is the source; two companies with similar names are two nodes until a number matches."
+    },
+    {
+      "id": "SRC-USASPENDING",
+      "status": "ACTIVE",
+      "connector": "usaspending",
+      "name": "USAspending API v2",
+      "publisher": "U.S. Department of the Treasury (USAspending.gov)",
+      "kind": "api",
+      "authoritative": true,
+      "topics": [
+        "contracts-grants"
+      ],
+      "key": {
+        "needed": false
+      },
+      "base": "https://api.usaspending.gov/api/v2/",
+      "probe": "https://api.usaspending.gov/",
+      "holds": "Federal contract and assistance awards, obligations and recipients.",
+      "cannot_show": "An award ceiling is not cash paid. Obligations are not outlays."
+    },
+    {
+      "id": "SRC-CFPB",
+      "status": "ACTIVE",
+      "connector": "cfpb",
+      "name": "Consumer Complaint Database API",
+      "publisher": "Consumer Financial Protection Bureau",
+      "kind": "api",
+      "authoritative": true,
+      "topics": [
+        "consumer"
+      ],
+      "key": {
+        "needed": false
+      },
+      "probe": "https://cfpb.github.io/api/ccdb/",
+      "holds": "Consumer complaints and company responses.",
+      "cannot_show": "A complaint is what a consumer said, not a verified fact, and the data has no denominator."
+    },
+    {
+      "id": "SRC-SEC",
+      "status": "ACTIVE",
+      "connector": "sec",
+      "name": "SEC EDGAR APIs",
+      "publisher": "U.S. Securities and Exchange Commission",
+      "kind": "api",
+      "authoritative": true,
+      "topics": [
+        "companies"
+      ],
+      "key": {
+        "needed": false
+      },
+      "probe": null,
+      "note": "SEC answers a generic script with 403; its fair-access rules expect a declared User-Agent. `bin/sentinel connect test` checks the connector.",
+      "holds": "Company filings and structured financial data."
+    },
+    {
+      "id": "SRC-ADLIBRARY",
+      "status": "ACTIVE",
+      "connector": "adlibrary",
+      "name": "Ad library connector",
+      "publisher": "see modules/connectors/registry.js",
+      "kind": "api",
+      "authoritative": null,
+      "topics": [
+        "ads"
+      ],
+      "probe": null,
+      "note": "Listed from the connector roster only; this library does not describe it further."
+    },
+    {
+      "id": "SRC-FARA",
+      "status": "ACTIVE",
+      "connector": "fara, faradocs",
+      "name": "FARA eFile API",
+      "publisher": "U.S. Department of Justice, FARA Unit",
+      "kind": "api",
+      "authoritative": true,
+      "topics": [
+        "foreign-agents"
+      ],
+      "key": {
+        "needed": "see docs/API_KEYS.md"
+      },
+      "probe": "https://efile.fara.gov/ords/fara/r/fara_ws/api/fara-api",
+      "holds": "Registrants, foreign principals, short forms, and filed documents including informational materials.",
+      "cannot_show": "A registration is a statement of a relationship; it does not show the effect of the work."
+    },
+    {
+      "id": "SRC-FEDGRANTS",
+      "status": "ACTIVE",
+      "connector": "federalgrants",
+      "name": "Federal grants connector",
+      "publisher": "see modules/connectors/registry.js",
+      "kind": "api",
+      "authoritative": null,
+      "topics": [
+        "contracts-grants"
+      ],
+      "probe": null,
+      "note": "Listed from the connector roster only; this library does not describe it further."
+    },
+    {
+      "id": "SRC-CONGRESS",
+      "status": "PROPOSED",
+      "outside": true,
+      "name": "Congress.gov API v3",
+      "publisher": "Library of Congress",
+      "kind": "api",
+      "authoritative": true,
+      "topics": [
+        "legislation",
+        "lobbying"
+      ],
+      "key": {
+        "needed": true,
+        "how": "Sign up at https://api.congress.gov/sign-up/ . The README points to api.data.gov for key guidance, so an existing api.data.gov key may already work."
+      },
+      "limits": "5,000 requests an hour. 20 results per page by default, up to 250.",
+      "base": "https://api.congress.gov/v3/",
+      "docs": "https://github.com/LibraryOfCongress/api.congress.gov/",
+      "probe": "https://api.congress.gov/",
+      "holds": "Bills and amendments with their actions and dates, members, and other congressional records (the README documents the bill and amendment endpoints; the rest are in its Documentation folder).",
+      "cannot_show": "Why anyone acted. It turns the bill numbers on lobbying filings into dated actions for the timeline; it does not connect the two.",
+      "first_use": "bin/sentinel doc bills",
+      "first_use_why": "Lists the bills that appear in more than one lobbying filing: the short list worth looking up on Congress.gov first.",
+      "verified": {
+        "on": "2026-09-30",
+        "via": "https://github.com/LibraryOfCongress/api.congress.gov/blob/main/README.md",
+        "found": "v3; key required; 5,000 requests/hour; up to 250 results per page."
+      }
+    },
+    {
+      "id": "SRC-GOVINFO",
+      "status": "PROPOSED",
+      "outside": true,
+      "name": "GovInfo API",
+      "publisher": "U.S. Government Publishing Office",
+      "kind": "api",
+      "authoritative": true,
+      "topics": [
+        "legislation",
+        "rulemaking"
+      ],
+      "key": {
+        "needed": true,
+        "how": "api.data.gov key (DEMO_KEY works for testing at reduced limits)."
+      },
+      "limits": "Default 36,000 requests an hour, 1,200 a minute, 40 a second.",
+      "base": "https://api.govinfo.gov/",
+      "docs": "https://api.govinfo.gov/docs/",
+      "probe": "https://www.govinfo.gov/features/api",
+      "holds": "Official published text by collection: BILLS, CHRG (hearings), CREC (Congressional Record), CRPT (reports), FR, CFR, PLAW (laws), CDIR.",
+      "cannot_show": "Anything GPO has not published. Hearing transcripts arrive on GPO's schedule, often well after the hearing.",
+      "verified": {
+        "on": "2026-09-30",
+        "via": "https://github.com/usgpo/api/blob/main/README.md",
+        "found": "api.data.gov key; 36,000/hour, 1,200/minute, 40/second; collection codes as listed."
+      },
+      "note": "api.govinfo.gov answered robots.txt with HTTP 500 on 2026-09-30. Under RFC 9309 that means stay off the host, so the check probes the API page on www.govinfo.gov instead."
+    },
+    {
+      "id": "SRC-OFAC-SLS",
+      "status": "PROPOSED",
+      "outside": true,
+      "name": "OFAC Sanctions List Service",
+      "publisher": "U.S. Department of the Treasury, Office of Foreign Assets Control",
+      "kind": "bulk",
+      "authoritative": true,
+      "topics": [
+        "sanctions"
+      ],
+      "key": {
+        "needed": false,
+        "how": "The service page states no key or registration."
+      },
+      "base": "https://sanctionslist.ofac.treas.gov/",
+      "docs": "https://ofac.treasury.gov/sanctions-list-service",
+      "probe": "https://sanctionslist.ofac.treas.gov/Home/SdnList",
+      "paths": [
+        "/Home/SdnList",
+        "/Home/ConsolidatedList",
+        "/Home/CustomizeSanctionsDataset",
+        "/Home/DeltaFileArchive"
+      ],
+      "holds": "The SDN list and the consolidated non-SDN lists, with an archive of change files.",
+      "cannot_show": "That anyone absent from the list is clean. Match on identifiers, not names. This is the primary record behind US rows in SRC-OPENSANCTIONS.",
+      "first_use": "bin/sentinel doc get \"https://sanctionslist.ofac.treas.gov/Home/SdnList\"",
+      "first_use_why": "Captures the list page into evidence with a hash, so later designations can be compared against a dated copy.",
+      "verified": {
+        "on": "2026-09-30",
+        "via": "https://ofac.treasury.gov/sanctions-list-service",
+        "found": "Host and paths as listed; the page offers the SDN list, consolidated lists, a customization tool and a change archive."
+      }
+    },
+    {
+      "id": "SRC-DOJ-NEWS",
+      "status": "PROPOSED",
+      "outside": true,
+      "name": "DOJ API v1 (press releases, blog entries)",
+      "publisher": "U.S. Department of Justice, Office of Public Affairs",
+      "kind": "api",
+      "authoritative": true,
+      "topics": [
+        "courts",
+        "foreign-agents"
+      ],
+      "key": {
+        "needed": false,
+        "how": "The v1 documentation mentions no key."
+      },
+      "limits": "The documentation warns that more than 4 requests a second may be degraded or blocked. pagesize up to 50.",
+      "base": "https://www.justice.gov/api/v1/",
+      "docs": "https://www.justice.gov/developer/api-documentation/api_v1",
+      "probe": "https://www.justice.gov/developer/api-documentation/api_v1",
+      "paths": [
+        "/api/v1/press_releases.json",
+        "/api/v1/blog_entries.json"
+      ],
+      "holds": "The Department's own announcements of charges, pleas, sentences and settlements, with dates.",
+      "cannot_show": "Guilt. A release is the Department's statement (OFFICIAL_ATTRIBUTION); a charge is an allegation until a court decides. Private defendants are counted, never named.",
+      "verified": {
+        "on": "2026-09-30",
+        "via": "https://www.justice.gov/developer/api-documentation/api_v1",
+        "found": "Endpoints, pagesize up to 50, and the more-than-4-requests-a-second warning, as documented. The endpoint answered 200 from a script once, then 401 on repeat calls from the same shared address."
+      },
+      "note": "From a shared cloud address on 2026-09-30 the press-release endpoint answered 200 once, then 401 block pages on repeat calls. BLOCKED in a check means try later or open it in a browser. Keep well under the documented 4 requests a second."
+    },
+    {
+      "id": "SRC-FAC",
+      "status": "PROPOSED",
+      "outside": true,
+      "name": "Federal Audit Clearinghouse API",
+      "publisher": "General Services Administration (FAC.gov)",
+      "kind": "api",
+      "authoritative": true,
+      "topics": [
+        "contracts-grants"
+      ],
+      "key": {
+        "needed": true,
+        "how": "api.data.gov key, sent as the X-Api-Key header."
+      },
+      "limits": "DEMO_KEY: 30 requests an hour and 50 a day per IP. Personal keys are higher. Production data updates weekly, usually Wednesdays.",
+      "base": "https://api.fac.gov/",
+      "docs": "https://www.fac.gov/api/getting-started/",
+      "probe": "https://www.fac.gov/api/getting-started/",
+      "holds": "Single audits of organizations that spend federal awards. The getting-started page documents /general; the other tables are in the FAC data dictionary.",
+      "cannot_show": "Organizations below the single-audit threshold. An audit finding is the auditor's statement, not a legal finding.",
+      "verified": {
+        "on": "2026-09-30",
+        "via": "https://www.fac.gov/api/getting-started/",
+        "found": "api.fac.gov; X-Api-Key header; DEMO_KEY limits; weekly production updates."
+      }
+    },
+    {
+      "id": "SRC-SAM-EXCL",
+      "status": "PROPOSED",
+      "outside": true,
+      "name": "SAM.gov Exclusions API v4",
+      "publisher": "General Services Administration (SAM.gov)",
+      "kind": "api",
+      "authoritative": true,
+      "topics": [
+        "contracts-grants"
+      ],
+      "key": {
+        "needed": true,
+        "how": "Key from a SAM.gov account (Account Details) or a system account."
+      },
+      "limits": "10 requests a day for a non-federal personal key with no role; 1,000 a day with a role or a non-federal system account. Spend them only on award recipients already in a finding.",
+      "base": "https://api.sam.gov/entity-information/v4/exclusions",
+      "docs": "https://open.gsa.gov/api/exclusions-api/",
+      "probe": "https://open.gsa.gov/api/exclusions-api/",
+      "holds": "Exclusions (debarments and suspensions): excluding agency, exclusion type, dates, and UEI/CAGE for entities.",
+      "cannot_show": "Absence is not good standing. Results include individuals: count them, never name them.",
+      "verified": {
+        "on": "2026-09-30",
+        "via": "https://open.gsa.gov/api/exclusions-api/",
+        "found": "v4 endpoint; key types and daily limits as listed."
+      }
+    },
+    {
+      "id": "SRC-IRS-EOBMF",
+      "status": "PROPOSED",
+      "outside": true,
+      "name": "IRS Exempt Organizations Business Master File extract",
+      "publisher": "Internal Revenue Service",
+      "kind": "bulk",
+      "authoritative": true,
+      "topics": [
+        "nonprofits"
+      ],
+      "key": {
+        "needed": false
+      },
+      "base": "https://www.irs.gov/pub/irs-soi/",
+      "docs": "https://www.irs.gov/charities-non-profits/exempt-organizations-business-master-file-extract-eo-bmf",
+      "probe": "https://www.irs.gov/charities-non-profits/exempt-organizations-business-master-file-extract-eo-bmf",
+      "paths": [
+        "eo_oh.csv (Ohio; eo_XX.csv per state)",
+        "eo1.csv to eo4.csv (regions)",
+        "eo_xx.csv (international)",
+        "eo_pr.csv"
+      ],
+      "holds": "The registry of tax-exempt organizations by EIN: name, location, subsection, ruling date and filing codes. Page updated 2026-09-08, 1,964,958 records.",
+      "cannot_show": "Donors, grants, or who controls an organization.",
+      "first_use": "bin/sentinel doc get \"https://www.irs.gov/pub/irs-soi/eo_oh.csv\"",
+      "first_use_why": "A dated, hashed copy of Ohio's exempt-organization registry, so an EIN on a filing can be checked offline.",
+      "verified": {
+        "on": "2026-09-30",
+        "via": "https://www.irs.gov/charities-non-profits/exempt-organizations-business-master-file-extract-eo-bmf",
+        "found": "CSV per state and region; URL pattern; last updated 2026-09-08."
+      }
+    },
+    {
+      "id": "SRC-WAYBACK",
+      "status": "PROPOSED",
+      "outside": true,
+      "name": "Wayback Machine availability and CDX APIs",
+      "publisher": "Internet Archive (nonprofit)",
+      "kind": "index",
+      "authoritative": false,
+      "topics": [
+        "preservation"
+      ],
+      "key": {
+        "needed": false,
+        "how": "Lookups need no key."
+      },
+      "base": "https://archive.org/wayback/available",
+      "docs": "https://archive.org/help/wayback_api.php",
+      "probe": "https://archive.org/help/wayback_api.php",
+      "note": "The availability endpoint rate-limited a shared script address (HTTP 429) on 2026-09-30. Space requests out.",
+      "holds": "Archived snapshots of public pages, with capture times.",
+      "cannot_show": "That a page never existed or never changed. An archived copy is a second custody record, not the original.",
+      "use_when": "verify-sources reports a cited URL changed or gone.",
+      "verified": {
+        "on": "2026-09-30",
+        "via": "https://archive.org/help/wayback_api.php",
+        "found": "Availability endpoint and parameters; CDX documentation lives on GitHub."
+      }
+    },
+    {
+      "id": "SRC-OH-SOS-CF",
+      "status": "PROPOSED",
+      "outside": true,
+      "name": "Ohio Secretary of State campaign finance data portal",
+      "publisher": "Ohio Secretary of State",
+      "kind": "page",
+      "authoritative": true,
+      "topics": [
+        "ohio",
+        "money-in-politics"
+      ],
+      "key": {
+        "needed": "unknown"
+      },
+      "probe": "https://data.ohiosos.gov/portal/campaign-finance",
+      "note": "A JavaScript app; it answered a script with 403 on 2026-09-30. Its files and formats were NOT confirmed. Open it in a browser.",
+      "holds": "State-level campaign finance data (contents unconfirmed).",
+      "verified": {
+        "on": "2026-09-30",
+        "via": "web search result for the portal URL",
+        "found": "The portal exists; contents not readable without a browser."
+      }
+    },
+    {
+      "id": "SRC-PUCO-DIS",
+      "status": "PROPOSED",
+      "outside": true,
+      "name": "PUCO Docketing Information System",
+      "publisher": "Public Utilities Commission of Ohio",
+      "kind": "page",
+      "authoritative": true,
+      "topics": [
+        "ohio",
+        "utilities"
+      ],
+      "key": {
+        "needed": false
+      },
+      "probe": "https://dis.puc.state.oh.us/",
+      "paths": [
+        "/AdvS.aspx (advanced search)",
+        "/FulltextSearch.aspx (full-text search)"
+      ],
+      "note": "No public API found. Search in a browser, then capture the filings you choose with bin/sentinel doc get.",
+      "holds": "Utility case dockets: applications, testimony, entries and orders.",
+      "cannot_show": "What was decided off the record. A filing is a party's position.",
+      "verified": {
+        "on": "2026-09-30",
+        "via": "https://puco.ohio.gov/documents-and-rules/resources/dis",
+        "found": "DIS search pages; answered 200 from a script."
+      }
+    },
+    {
+      "id": "SRC-ODNR-WELLS",
+      "status": "PROPOSED",
+      "outside": true,
+      "name": "ODNR oil and gas wells (GIS open data, RBDMS reports)",
+      "publisher": "Ohio Department of Natural Resources",
+      "kind": "page",
+      "authoritative": true,
+      "topics": [
+        "ohio",
+        "wells"
+      ],
+      "key": {
+        "needed": "unknown"
+      },
+      "probe": "https://gis-odnr.opendata.arcgis.com/datasets/oil-and-gas-wells-locations-of-ohio-statewide",
+      "paths": [
+        "https://apps.ohiodnr.gov/oilgas/rbdmsreports/"
+      ],
+      "note": "Both pages answered 200 on 2026-09-30, but they are JavaScript apps: fields, formats and update dates were NOT confirmed.",
+      "holds": "Locations of known oil and gas well activity in Ohio (per the dataset's description).",
+      "verified": {
+        "on": "2026-09-30",
+        "via": "https://gis-odnr.opendata.arcgis.com/datasets/oil-and-gas-wells-locations-of-ohio-statewide",
+        "found": "Dataset exists; description only."
+      }
+    },
+    {
+      "id": "SRC-OPENSTATES",
+      "status": "PROPOSED",
+      "outside": true,
+      "name": "Open States API v3",
+      "publisher": "Plural (open.pluralpolicy.com)",
+      "kind": "api",
+      "authoritative": false,
+      "topics": [
+        "ohio",
+        "legislation"
+      ],
+      "key": {
+        "needed": true,
+        "how": "Register at open.pluralpolicy.com; send as the X-API-KEY header or ?apikey=."
+      },
+      "base": "https://v3.openstates.org/",
+      "docs": "https://docs.openstates.org/api-v3/",
+      "probe": "https://docs.openstates.org/api-v3/",
+      "note": "The overview page does not state rate limits.",
+      "holds": "State bills, legislators, committees and events, aggregated from the legislatures.",
+      "cannot_show": "It is a copy. Confirm each item on the legislature's own site before it enters the ledger.",
+      "verified": {
+        "on": "2026-09-30",
+        "via": "https://docs.openstates.org/api-v3/",
+        "found": "Base URL, key header, endpoint families."
+      }
+    },
+    {
+      "id": "SRC-CIRCLE-USDC",
+      "status": "PROPOSED",
+      "outside": true,
+      "name": "USDC contract addresses (issuer page)",
+      "publisher": "Circle (USDC issuer)",
+      "kind": "page",
+      "authoritative": true,
+      "topics": [
+        "chain"
+      ],
+      "key": {
+        "needed": false
+      },
+      "probe": "https://developers.circle.com/stablecoins/usdc-contract-addresses",
+      "holds": "The issuer's own list of USDC contracts by network.",
+      "cannot_show": "Anything about who holds or moves the tokens.",
+      "kit_check": "Read on 2026-09-30: Ethereum 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48 and Base 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913 are listed exactly as the coin module has them. Record your own reading with bin/sentinel-coin token verify.",
+      "verified": {
+        "on": "2026-09-30",
+        "via": "https://developers.circle.com/stablecoins/usdc-contract-addresses",
+        "found": "Ethereum and Base addresses match the coin module character for character."
+      }
+    },
+    {
+      "id": "SRC-TETHER-USDT",
+      "status": "PROPOSED",
+      "outside": true,
+      "name": "Tether supported protocols (issuer page)",
+      "publisher": "Tether (USDT issuer)",
+      "kind": "page",
+      "authoritative": true,
+      "topics": [
+        "chain"
+      ],
+      "key": {
+        "needed": false
+      },
+      "probe": "https://tether.to/en/supported-protocols/",
+      "holds": "The issuer's list of supported networks and contract addresses, and the networks it no longer supports.",
+      "cannot_show": "Anything about who holds or moves the tokens.",
+      "kit_check": "Read on 2026-09-30: the Ethereum address is listed in lowercase, 0xdac17f958d2ee523a2206206994597c13d831ec7. It is the same address the coin module holds in EIP-55 form (capitalization is only a checksum). The page also says Tether no longer issues or redeems on Kusama, Bitcoin Cash SLP, Omni, EOS and Algorand.",
+      "verified": {
+        "on": "2026-09-30",
+        "via": "https://tether.to/en/supported-protocols/",
+        "found": "Ethereum address matches, case-insensitively."
+      }
+    },
+    {
+      "id": "SRC-MEMPOOL",
+      "status": "PROPOSED",
+      "outside": true,
+      "name": "mempool.space REST API",
+      "publisher": "mempool (open-source Bitcoin explorer)",
+      "kind": "index",
+      "authoritative": false,
+      "topics": [
+        "chain"
+      ],
+      "key": {
+        "needed": false
+      },
+      "limits": "Rate-limited: over the limit returns HTTP 429, and repeated excess can get a client banned. No numbers published on the docs page.",
+      "base": "https://mempool.space/api/",
+      "docs": "https://mempool.space/docs/api/rest",
+      "probe": "https://mempool.space/docs/api/rest",
+      "paths": [
+        "/api/tx/:txid/hex",
+        "/api/tx/:txid/merkle-proof",
+        "/api/block/:hash/header",
+        "/api/block-height/:height",
+        "/api/address/:address/txs"
+      ],
+      "holds": "Raw transactions, merkle proofs and block headers: what V1/V2 verification needs, from an index you do not run.",
+      "cannot_show": "Who controls an address. Trust it for availability, never for truth: the bytes are proven locally.",
+      "use_when": "As a second index for V3, if bin/sentinel-coin sources shows its REST client expects these paths.",
+      "verified": {
+        "on": "2026-09-30",
+        "via": "https://mempool.space/docs/api/rest",
+        "found": "Paths as listed; rate-limit warning."
+      }
+    }
+  ]
+}

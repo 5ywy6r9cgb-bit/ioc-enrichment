@@ -132,3 +132,5 @@ crosscheck.csv
 /records/
 /scripts/records/
 review_queue.json
+evidence/raw/
+secrets/

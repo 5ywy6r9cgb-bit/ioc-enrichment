@@ -1,0 +1,3 @@
+#!/bin/sh
+# TSR station module: see modules/station/README.md
+exec python3 "$(cd "$(dirname "$0")/.." && pwd)/modules/station/station.py" "$@"

@@ -1,0 +1,3 @@
+#!/bin/sh
+# TSR coin module: see modules/coin/README.md
+exec python3 "$(cd "$(dirname "$0")/.." && pwd)/modules/coin/coin.py" "$@"

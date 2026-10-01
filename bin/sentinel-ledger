@@ -1,0 +1,3 @@
+#!/bin/sh
+# TSR ledger module: see modules/ledger/README.md
+exec python3 "$(cd "$(dirname "$0")/.." && pwd)/modules/ledger/ledger.py" "$@"

@@ -1,0 +1,4 @@
+#!/bin/bash
+# sentinel-cycle - the desk's daily research-and-integrity cycle (modules/cycle)
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+exec python3 "$ROOT/modules/cycle/cycle.py" --root "$ROOT" "$@"

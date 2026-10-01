@@ -1,0 +1,4 @@
+#!/bin/bash
+# sentinel-routes - the route ledger (modules/routes)
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+exec python3 "$ROOT/modules/routes/routes.py" --root "$ROOT" "$@"

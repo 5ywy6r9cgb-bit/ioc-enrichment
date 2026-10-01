@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Sentinel desk cycle. Runs bin/sentinel-cycle once a day with network steps on.
+  Installed by: bin/sentinel-cycle schedule install
+  Removed by:   bin/sentinel-cycle schedule uninstall
+  It runs only this desk's read-and-verify commands. It never sends, signs,
+  approves, publishes, commits or pushes.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>__LABEL__</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/bin/env</string>
+    <string>python3</string>
+    <string>__ROOT__/modules/cycle/cycle.py</string>
+    <string>--root</string>
+    <string>__ROOT__</string>
+    <string>run</string>
+    <string>--go</string>
+    <string>--scheduled</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>__ROOT__</string>
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key>
+    <integer>__HOUR__</integer>
+    <key>Minute</key>
+    <integer>__MINUTE__</integer>
+  </dict>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>__PATH__</string>
+  </dict>
+  <key>StandardOutPath</key>
+  <string>__ROOT__/evidence/cycle/launchd.log</string>
+  <key>StandardErrorPath</key>
+  <string>__ROOT__/evidence/cycle/launchd.log</string>
+  <key>RunAtLoad</key>
+  <false/>
+  <key>ProcessType</key>
+  <string>Background</string>
+  <key>LowPriorityIO</key>
+  <true/>
+  <key>Nice</key>
+  <integer>10</integer>
+</dict>
+</plist>
