@@ -1,0 +1,5 @@
+69945449f8b3cad05d7ccc265a38f550dd0e1896:modules/coin/coin_selftest.py:generic-api-key:156
+69945449f8b3cad05d7ccc265a38f550dd0e1896:modules/coin/coin_selftest.py:generic-api-key:282
+6b8445f83fed864dfe10efb2784e04fac0ed3cc8:scripts/test_redact.py:generic-api-key:60
+69945449f8b3cad05d7ccc265a38f550dd0e1896:modules/cycle/selftest.py:generic-api-key:24
+5de5f4bef82cdd1d4f3567f148b8ba642a61e4d9:scripts/test_redact.py:stripe-access-token:230

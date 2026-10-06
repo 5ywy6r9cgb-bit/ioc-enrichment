@@ -134,3 +134,6 @@ crosscheck.csv
 review_queue.json
 evidence/raw/
 secrets/
+
+archive/kits/
+.gitleaks-report.json
