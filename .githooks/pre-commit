@@ -1,0 +1,2 @@
+#!/usr/bin/env bash
+gitleaks git --pre-commit --staged --redact --no-banner || { echo "gitleaks blocked this commit"; exit 1; }
