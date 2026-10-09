@@ -1823,3 +1823,10 @@ bin/sentinel test
 
 which runs nine suites. If they all pass, the desk is behaving as
 documented. If any fail, believe the test and not this page.
+
+
+### Census denominators and local context
+
+Use `bin/sentinel connect census list` for scalar metrics, `bin/sentinel connect census context plan` for an offline county collection plan, and `bin/sentinel connect census context collect` to create a private sourced report. The default ACS period is 2020–2024, with six explicitly selected Ohio counties. `bin/sentinel connect census context verify DIRECTORY` recomputes a saved report from its captures. No publication or Azure deployment occurs.
+
+See [the context desk guide](research/context-desk/CONTEXT-DESK.md) for geography codes, denominator definitions, uncertainty, outputs and remaining crime/school/environment collection gaps.

@@ -253,6 +253,7 @@ PYSTATUS
     run_suite "crosslink"                   node "$ROOT/modules/connectors/test_crosslink.js"
     run_suite "lobbying filings"            node "$ROOT/modules/connectors/test_lobby.js"
     run_suite "graph"                       node "$ROOT/modules/connectors/test_graph.js"
+    run_suite "Census context and denominators" node --test "$ROOT/modules/connectors/test_census.js" "$ROOT/modules/connectors/test_census_desk.js" "$ROOT/modules/connectors/test_census_phase3.js" "$ROOT/modules/connectors/test_context_metrics.js" "$ROOT/modules/connectors/test_context_desk.js" "$ROOT/modules/connectors/test_context_report.js"
     run_suite "document fetch"              node "$ROOT/modules/docs/test_docs_fetch.js"
     run_suite "bill correlation"            node "$ROOT/modules/docs/test_bills.js"
     run_suite "records desk (overnight stage)" node "$ROOT/modules/watch/test_records_desk.js"
@@ -436,7 +437,7 @@ PYSTATUS
     # works when the module is called directly is not yet a command that works.
     action="${1:-test}"; shift || true
     case "$action" in
-      test|list|all|crosslink|nexus|coverage|box|explain|challenge|edges|lobby|graph|expand|sweep|brief|fecpac|delegation|member|asymmetry|donors|filings|control|vendor|matrix|awards|fedreg|docket)
+      test|list|all|crosslink|nexus|coverage|box|explain|challenge|edges|lobby|graph|expand|sweep|brief|fecpac|delegation|member|asymmetry|donors|filings|control|vendor|matrix|awards|fedreg|docket|census)
         node "$ROOT/modules/connectors/cli.js" "$action" "$@"
         ;;
       *)
