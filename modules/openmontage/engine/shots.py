@@ -62,7 +62,7 @@ sys.path.insert(0, str(HERE))
 # Imported, NOT copied. A planner that carries its own idea of what the
 # renderer requires is a planner that drifts, and the first you hear of it is
 # a SpecError on an asset you already paid to generate.
-from openmontage import REQUIRED, PHOTO_ORIGINS   # noqa: E402
+from om_spec import REQUIRED, PHOTO_ORIGINS   # noqa: E402
 
 
 # ───────────────────────────────────────────────────────────── the categories

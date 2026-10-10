@@ -44,6 +44,7 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 
 import brand
+from om_spec import REQUIRED, PHOTO_ORIGINS
 
 try:
     import om_audio
@@ -53,27 +54,9 @@ except ImportError:                       # numpy absent -> silent render
 VERSION = "0.3.0"
 SPEC_VERSION = "OPENMONTAGE-SPEC/1"
 
-REQUIRED = {
-    "title":  ["dur", "title"],
-    "bignum": ["dur", "value", "caption"],
-    "vchart": ["dur", "data", "caption"],
-    "chart":  ["dur", "image", "caption"],
-    "hash":   ["dur", "title", "hash", "cta"],
-    "question": ["dur", "question"],
-    "quote":  ["dur", "label", "quote", "source"],
-    "photo":  ["dur", "image", "caption", "source", "origin"],
-}
-
 
 class SpecError(Exception):
     """Raised for any invalid spec, asset, or data problem. Always fatal, always clear."""
-
-
-# What a photo scene may claim about itself. A generated image is allowed on
-# screen and is ALWAYS labelled — see scene_photo. It may never be presented as
-# a record of a real place or event, which is the one editorial rule the
-# renderer is able to enforce by itself.
-PHOTO_ORIGINS = {"camera", "licensed", "generated"}
 
 
 # ------------------------------------------------------- your own footage
