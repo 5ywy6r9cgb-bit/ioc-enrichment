@@ -57,3 +57,7 @@ node --test modules/connectors/test_census.js modules/connectors/test_census_des
 ```
 
 The prior scalar Census interface is retained, with added exact county-subdivision, block-group and typed school-district geographies and a paired `census poverty` command. Census school-district population is not student enrollment. The new multi-metric context report currently supports counties only.
+
+## Replit integration
+
+Use [REPLIT-HANDOFF.md](REPLIT-HANDOFF.md) for the local-to-app workflow and [REPLIT-BUILD-PROMPT.md](REPLIT-BUILD-PROMPT.md) after the app export has been reviewed. These documents do not deploy an app or transfer credentials.

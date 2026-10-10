@@ -42,15 +42,25 @@ function build(dir) {
   const { Outbox } = require(path.join(PRA, 'outbox.js'));
   const P = require(path.join(ROOT, 'core', 'provenance', 'provenance.js'));
 
+  // Preserve the fixture's intended ages as the calendar advances. Fixed
+  // September dates eventually made the fresh request overdue in every test.
+  // These are invented records; production request dates are never changed.
+  const now = new Date();
+  const daysAgo = (days) => {
+    const date = new Date(now);
+    date.setUTCDate(date.getUTCDate() - days);
+    return date.toISOString().slice(0, 10);
+  };
+  const oldRequestDate = daysAgo(90);
   const store = new FoiaStore(env.PRA_FOIA_STORE);
   store.add({ request_id: 'TEST-ALPR-001', agency_name: 'Example City Police',
-    submitted_on: '2026-07-20', delivery_method: 'electronic', contact: 'records@example-city.test' });
+    submitted_on: oldRequestDate, delivery_method: 'electronic', contact: 'records@example-city.test' });
   store.add({ request_id: 'TEST-DRONE-002', agency_name: 'Example Township',
-    submitted_on: '2026-09-18', status: 'acknowledged' });
+    submitted_on: daysAgo(0), status: 'acknowledged' });
   store.add({ request_id: 'TEST-PUCO-003', agency_name: 'Example Utilities Commission',
-    submitted_on: '2026-08-10', status: 'denied' });
+    submitted_on: daysAgo(60), status: 'denied' });
   store.add({ request_id: 'TEST-NODATE-004', agency_name: 'Example County Auditor' });
-  store.logCorrespondence('TEST-ALPR-001', { direction: 'outbound', occurred_at: '2026-07-20',
+  store.logCorrespondence('TEST-ALPR-001', { direction: 'outbound', occurred_at: oldRequestDate,
     channel: 'email', note: 'original request' });
 
   const ob = new Outbox(env.PRA_OUTBOX);
