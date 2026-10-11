@@ -8,6 +8,7 @@ const C = require('./census');
 const hash = b => crypto.createHash('sha256').update(b).digest('hex');
 const DEFAULT_COUNTIES = ['041','049','089','129','131','145'];
 const SCHEMA = 'sentinel.county-context/1';
+const EXPORT_FILES = ['context.json','index.html','BRIEF.md','metrics.csv'];
 function options(args) {
   const o = {state:'39',year:'2024',counties:[...DEFAULT_COUNTIES]};
   const seen = new Set();
@@ -84,10 +85,15 @@ function privateWrite(file,value) { fs.writeFileSync(file,typeof value==='string
 function safeRead(root,relative) {
   if(typeof relative!=='string'||path.isAbsolute(relative)||relative.split(/[\\/]/).includes('..'))throw Error('Invalid receipt path');
   const realRoot=fs.realpathSync(root),file=fs.realpathSync(path.join(root,relative));
-  if(!file.startsWith(realRoot+path.sep)||fs.statSync(file).size>2*1024*1024)throw Error('Receipt outside output or too large');
+  const stat=fs.statSync(file);
+  if(!file.startsWith(realRoot+path.sep)||!stat.isFile()||stat.size>2*1024*1024)throw Error('Receipt outside output, not a regular file or too large');
   return fs.readFileSync(file);
 }
 function verify(root) {
+  // A later export failure invalidates earlier successful calculation checks.
+  // lstat also catches a dangling failure-marker symlink.
+  try { fs.lstatSync(path.join(root,'failure.json')); throw Error('Incomplete collection'); }
+  catch(error) { if(error.code!=='ENOENT')throw error; }
   const saved=JSON.parse(safeRead(root,'context.json'));
   if(saved.schema!==SCHEMA||saved.collection_status!=='COMPLETE'||saved.publication_approved!==false||saved.dataset!=='acs/acs5'||saved.vintage!==2024||saved.period_start!==2020||saved.period_end!==2024||saved.review_status!=='unreviewed')throw Error('Invalid context bundle');
   const o=options(['--state',saved.state,'--year',String(saved.vintage),'--counties',saved.counties.join(',')]);
@@ -109,7 +115,17 @@ function verify(root) {
     if(hash(body)!==r.sha256)throw Error('Metadata receipt mismatch');
     validateMetadata(body,tables[i]);
   }
-  return {ok:true,status:'RECOMPUTED_FROM_CAPTURE',counties:profiles.length,metrics:profiles.reduce((n,p)=>n+p.metrics.length,0),publication_approved:false,note:'Recomputes captured data and hashes; does not authenticate a rewritten bundle or approve publication.'};
+  let exportsVerified=false;
+  if(Object.hasOwn(saved,'export_manifest')) {
+    if(saved.export_manifest!=='exports.json')throw Error('Unsupported export manifest');
+    const manifest=JSON.parse(safeRead(root,saved.export_manifest));
+    if(manifest.schema!=='sentinel.context-exports/1'||!Array.isArray(manifest.files)||manifest.files.length!==EXPORT_FILES.length)throw Error('Invalid export manifest');
+    for(const [i,entry] of manifest.files.entries()) {
+      if(entry.file!==EXPORT_FILES[i]||entry.sha256!==hash(safeRead(root,entry.file)))throw Error('Export integrity mismatch');
+    }
+    exportsVerified=true;
+  }
+  return {ok:true,status:'RECOMPUTED_FROM_CAPTURE',counties:profiles.length,metrics:profiles.reduce((n,p)=>n+p.metrics.length,0),exports_verified:exportsVerified,verification_scope:exportsVerified?'data_and_export_hashes':'legacy_data_only',publication_approved:false,note:exportsVerified?'Recomputes captured data and checks export hashes; does not authenticate a rewritten bundle or approve publication.':'Legacy bundle: captured data recomputed; HTML, CSV and brief integrity not verified. Does not approve publication.'};
 }
 async function collect(o,deps={}) {
   o=checkedOptions(o);
@@ -144,16 +160,17 @@ async function collect(o,deps={}) {
     }
     phase='derive';
     const profiles=derive(chunks,o,receipts);
-    const bundle={schema:SCHEMA,created_at:new Date().toISOString(),dataset:'acs/acs5',vintage:2024,period_start:2020,period_end:2024,state:o.state,counties:o.counties,collection_status:'COMPLETE',coverage:'Only the requested counties and vetted variables. No crime, school administrative outcomes or environmental measurements collected.',publication_approved:false,review_status:'unreviewed',receipts,metadata_receipts:metadata,profiles};
+    const bundle={schema:SCHEMA,export_manifest:'exports.json',created_at:new Date().toISOString(),dataset:'acs/acs5',vintage:2024,period_start:2020,period_end:2024,state:o.state,counties:o.counties,collection_status:'COMPLETE',coverage:'Only the requested counties and vetted variables. No crime, school administrative outcomes or environmental measurements collected.',publication_approved:false,review_status:'unreviewed',receipts,metadata_receipts:metadata,profiles};
     phase='render';
     const R=deps.report||require('./context_report');
     const exports=[['index.html',R.render(bundle)],['BRIEF.md',R.brief(bundle)],['metrics.csv',R.csv(bundle)]];
-    phase='verify';
+    phase='export';
     privateWrite(path.join(root,'context.json'),bundle);
+    for(const [name,content] of exports)privateWrite(path.join(root,name),content);
+    privateWrite(path.join(root,'exports.json'),{schema:'sentinel.context-exports/1',files:EXPORT_FILES.map(file=>({file,sha256:hash(safeRead(root,file))}))});
+    phase='verify';
     const check=verify(root);
     privateWrite(path.join(root,'verification.json'),check);
-    phase='export';
-    for(const [name,content] of exports)privateWrite(path.join(root,name),content);
     return {ok:true,output:root,report:path.join(root,'index.html'),counties:profiles.length,source_captures:receipts.length+metadata.length,verification:check};
   } catch(_) {
     privateWrite(path.join(root,'failure.json'),{ok:false,phase,collection_status:'INCOMPLETE',receipts,metadata_receipts:metadata,message:'Collection or validation failed; no complete report produced. Credentials and upstream error text hidden.'});

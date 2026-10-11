@@ -44,15 +44,18 @@ function geography(o) {
 function options(args) {
   const o = { year: '2024', state: '39', county: '049', metric: 'population', capture: false };
   const values = ['--year', '--state', '--county', '--place', '--tract', '--metric', '--output', '--subdivision', '--block-group', '--school-district', '--school-type'];
+  const seen = new Set();
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
+    if (seen.has(a)) throw Error('Duplicate option');
+    seen.add(a);
     if (a === '--capture') o.capture = true;
     else if (values.includes(a)) {
       if (!args[i + 1] || args[i + 1].startsWith('--')) throw Error('Missing option value');
       o[a.slice(2)] = args[++i];
     } else throw Error('Unknown option');
   }
-  if (!/^20\d{2}$/.test(o.year) || Number(o.year) < 2009 || !METRICS[o.metric]) throw Error('Invalid year or metric');
+  if (!/^20\d{2}$/.test(o.year) || Number(o.year) < 2009 || !Object.hasOwn(METRICS,o.metric)) throw Error('Invalid year or metric');
   geography(o);
   return o;
 }
@@ -104,7 +107,7 @@ function parse(body, o) {
   if (!Array.isArray(rows) || rows.length !== 2 || !Array.isArray(rows[0]) || !Array.isArray(rows[1])) throw Error('Expected exactly one geography row');
   const [h, r] = rows;
   const metric = METRICS[o.metric || 'population'], g = geography(o);
-  if (h.length !== r.length || new Set(h).size !== h.length || [...fieldsFor(o), ...g.parts.map(([k]) => k)].some(k => !h.includes(k))) throw Error('Unexpected Census schema');
+  if (h.length !== r.length || h.some(k => typeof k !== 'string') || new Set(h).size !== h.length || [...fieldsFor(o), ...g.parts.map(([k]) => k)].some(k => !h.includes(k))) throw Error('Unexpected Census schema');
   const v = Object.fromEntries(h.map((k, i) => [k, r[i]]));
   if (g.parts.some(([field, key]) => v[field] !== o[key]) || typeof v.NAME !== 'string' || !v.NAME.trim()) throw Error('Geography mismatch');
   const result = {

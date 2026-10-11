@@ -37,6 +37,8 @@ cd "$HOME/sentinel"
 
 Read `context.json` using its `schema: sentinel.county-context/1`. Preserve `profiles`, `receipts`, `metadata_receipts`, geography, vintage, observation period, retrieval time and review flags. Import a complete bundle through a server-side validator or review it locally first. A browser-only JSON import cannot independently verify missing capture files. Failed validation must stay visible; missing data must never become zero.
 
+Re-run the verifier immediately before import; a saved success file can be stale. New bundles include `export_manifest: exports.json` and return `exports_verified: true` after checking every report file. Older bundles return `legacy_data_only` and must not be labeled as having verified HTML/CSV exports. Any `failure.json` blocks the bundle. Manifest hashes detect changes relative to the manifest, not forgery of an entirely rewritten bundle.
+
 The current profile has six Ohio counties, four baselines and five rates. It is not a live crime, parcel, power, school-outcome or defense feed. `publication_approved: false` stays false when data are imported. The current verifier specifically expects an unreviewed bundle; later release approval should be a separate record bound to exact file hashes.
 
 ## Join records by the thing they actually identify

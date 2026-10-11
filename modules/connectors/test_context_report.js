@@ -105,3 +105,17 @@ test('real evidence paths stay clickable and controlled counts avoid false preci
  const r=run(b);assert.match(r.nodes.detail.innerHTML,/href="evidence\/captures\/fixture_049.json"/);assert.match(r.nodes.detail.innerHTML,/controlled estimate; sampling MOE not applicable/);
  assert.match(r.nodes.scatter.innerHTML,/axes start at zero; ranges adapt/);
 });
+
+test('CSV labels controlled MOEs and exposes counts, exclusions and provenance',()=>{
+ const b=bundle(),v=b.profiles[0].baselines[0];v.margin_of_error=0;v.component.uncertainty_status='controlled_no_sampling_error';
+ b.receipts[0].retrieved_at='2026-10-10T00:00:00Z';
+ const all=rows(R.csv(b)),head=all.shift(),records=all.map(r=>Object.fromEntries(head.map((k,i)=>[k,r[i]])));
+ const baseline=records.find(r=>r.geoid==='39049'&&r.metric==='population');
+ assert.equal(baseline.moe_90,'');assert.equal(baseline.uncertainty_status,'controlled_no_sampling_error');
+ const rent=records.find(r=>r.geoid==='39049'&&r.metric==='rent_burden');
+ assert.equal(rent.numerator_estimate,'400');assert.equal(rent.denominator_estimate,'900');assert.equal(rent.excluded_not_computed,'100');assert.equal(rent.excluded_moe_90,'5');
+ assert.equal(rent.moe_unit,'percentage points');assert.equal(rent.component_unit,'housing units');
+ assert.match(rent.variable_ids,/B25070_011E/);assert.equal(rent.capture_sha256,b.receipts[0].sha256);assert.equal(rent.retrieved_at,b.receipts[0].retrieved_at);
+ const r=run(b);r.nodes.metric.value='rent_burden';r.nodes.metric.onchange();
+ assert.match(r.nodes.detail.innerHTML,/Excluded not-computed cases: 100; 90% MOE 5/);assert.match(r.nodes.detail.innerHTML,/B25070_011E/);
+});

@@ -5,10 +5,24 @@ const crypto = require('node:crypto');
 const C = require('./census');
 const hash = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
 const ROOT = path.resolve(__dirname, '../../evidence');
+function readBounded(file) {
+  const stat=fs.statSync(file);
+  if(!stat.isFile()||stat.size>1024*1024)throw Error('Expected a bounded regular file');
+  return fs.readFileSync(file);
+}
+function cachedBody(stored,root,source) {
+  if(stored.source_url!==source)throw Error('Cached catalog source does not match requested vintage/table');
+  const capture=fs.realpathSync(stored.capture_path),allowed=fs.realpathSync(path.join(root,'captures'));
+  if(!capture.startsWith(allowed+path.sep))throw Error('Capture outside evidence');
+  const body=readBounded(capture);if(hash(body)!==stored.sha256)throw Error('Metadata hash mismatch');
+  return body;
+}
 function argumentsFor(args) {
   const o = { year: '2024', refresh: false, terms: [], limit: 20 };
+  const seen=new Set();
   for (let i=0;i<args.length;i++) {
     const a=args[i];
+    if(a.startsWith('--')){if(seen.has(a))throw Error('Duplicate option');seen.add(a);}
     if(a==='--refresh') o.refresh=true;
     else if(['--year','--limit','--output'].includes(a)) { if(!args[i+1]||args[i+1].startsWith('--'))throw Error('Missing option'); o[a.slice(2)]=args[++i]; }
     else if(a.startsWith('--'))throw Error('Unknown option');
@@ -52,11 +66,9 @@ async function catalog(action,args) {
     fs.mkdirSync(path.dirname(cache),{recursive:true});fs.writeFileSync(cache,JSON.stringify(stored,null,2)+'\n',{mode:0o600});
   } else {
     if(!fs.existsSync(cache)) { console.log(JSON.stringify({ok:false,reason:'No local catalog. Repeat with --refresh to fetch official metadata.',network_calls:0}));process.exitCode=1;return; }
-    stored=JSON.parse(fs.readFileSync(cache,'utf8'));
+    stored=JSON.parse(readBounded(cache));
   }
-  const capture=fs.realpathSync(stored.capture_path);const allowed=fs.realpathSync(path.join(root,'captures'));
-  if(!capture.startsWith(allowed+path.sep))throw Error('Capture outside evidence');
-  const body=fs.readFileSync(capture);if(hash(body)!==stored.sha256)throw Error('Metadata hash mismatch');
+  const body=cachedBody(stored,root,source);
   console.log(JSON.stringify({dataset:'acs/acs5',vintage:+o.year,group,metadata_only:true,captured_at:stored.captured_at,source_url:stored.source_url,capture_sha256:stored.sha256,...search(entries(body,kind),o.terms.join(' '),o.limit),note:'Discovery metadata only. A matching table does not establish geographic availability or a valid denominator. No automatic variable ingestion.'},null,2));
 }
 const CONTRACT_FIELDS=['dataset','vintage','period_start','period_end','geography','geoid','variable','unit','universe'];
@@ -72,7 +84,7 @@ function checkObservation(obs,contract,readCapture) {
     const o=C.optionsFromObservation(obs);
     const bytes=readCapture(obs.capture_path);if(hash(bytes)!==obs.capture_sha256)throw Error();
     derived=C.parse(bytes,o);
-    for(const k of [...CONTRACT_FIELDS,'estimate','margin_of_error','estimate_raw','margin_of_error_raw','estimate_annotation','moe_annotation'])if(derived[k]!==obs[k])errors.push('observation differs from captured source: '+k);
+    for(const k of [...CONTRACT_FIELDS,'name','heading','caution','review_status','estimate','margin_of_error','estimate_raw','margin_of_error_raw','estimate_annotation','moe_annotation'])if(derived[k]!==obs[k])errors.push('observation differs from captured source: '+k);
     // Historical observations predate these fields. When present, they must match.
     for(const k of ['summary_level','geography_reference_date','uncertainty_status'])if(Object.hasOwn(obs,k)&&derived[k]!==obs[k])errors.push('observation differs from captured source: '+k);
     if(obs.source_url!==C.urlFor(o).toString())errors.push('source URL differs from canonical query');
@@ -91,9 +103,9 @@ async function main(action,args) {
   if(action==='catalog'||action==='variables')return catalog(action,args);
   if(action==='template'){if(args.length)throw Error('No template arguments');console.log(JSON.stringify(template(),null,2));return;}
   if(args.length!==3||args[1]!=='--against')throw Error('Use check OBSERVATION --against CONTRACT');
-  const obs=JSON.parse(fs.readFileSync(args[0],'utf8')),contract=JSON.parse(fs.readFileSync(args[2],'utf8'));
+  const obs=JSON.parse(readBounded(args[0])),contract=JSON.parse(readBounded(args[2]));
   const allowed=fs.realpathSync(path.join(ROOT,'captures'));
-  const result=checkObservation(obs,contract,p=>{const real=fs.realpathSync(p);if(!real.startsWith(allowed+path.sep))throw Error();if(fs.statSync(real).size>1024*1024)throw Error();return fs.readFileSync(real);});
+  const result=checkObservation(obs,contract,p=>{const real=fs.realpathSync(p);if(!real.startsWith(allowed+path.sep))throw Error();return readBounded(real);});
   console.log(JSON.stringify(result,null,2));if(!result.ok)process.exitCode=1;
 }
-module.exports={argumentsFor,entries,search,template,checkObservation,main};
+module.exports={argumentsFor,entries,search,template,checkObservation,main,readBounded,cachedBody};

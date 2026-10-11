@@ -2,6 +2,8 @@
 
 Installed entry point: `./bin/sentinel connect census context`. Uses the existing private Census key loader; no new key or npm dependency is required. It collects official ACS five-year 2020–2024 data only. It is a local research/reporting tool, not a Microsoft Sentinel deployment.
 
+For the current private-learning focus, start with [the learning desk](LEARNING-DESK.md) and [a study card](STUDY-CARD.md). They connect a real-world question to governing authority, records, quantitative context and unresolved questions; publication is optional.
+
 ## Three commands
 
 ```bash
@@ -25,13 +27,17 @@ Default county selection: Delaware 041, Franklin 049, Licking 089, Pickaway 129,
 - Baselines: population, households, housing units and median household income.
 - Rates: poverty; renter share; cash-rent burden of at least 30% among computable cases; internet subscriptions; bachelor's degree or higher among adults 25+.
 - Two bounded data batches and nine table-metadata responses for the default profile. Every requested county must return exactly once in each batch. Errors or missing counties block a complete report.
-- Output: `context.json`, `metrics.csv`, `BRIEF.md`, `index.html`, `verification.json`, exact source responses and the existing provenance ledger format. Failure states are recorded in `failure.json`; failed queries are never represented as zero findings.
+- Output: `context.json`, `metrics.csv`, `BRIEF.md`, `index.html`, `exports.json`, `verification.json`, exact source responses and the existing provenance ledger format. Failure states are recorded in `failure.json`; failed queries are never represented as zero findings. A failure marker always blocks verification, including after a partial export.
 
 The dashboard has measure/county selectors, percentage bars with 90% MOE ranges, an exploratory scatterplot, source links, denominators and component calculations. Pearson r is descriptive, unweighted and does not propagate survey uncertainty; it is not a causal test or a population-wide estimate. Do not promote it into a headline without further analysis.
 
 ## Evidence contract
 
-`verify` recomputes estimates and rates from the stored raw responses and checks source hashes, exact query fields, requested county set, metadata receipts, survey period and saved derived values. It reads only within the selected output directory. This supports reproducibility, not authentication of an entirely rewritten bundle or approval to publish. Metadata response presence does not prove the operator correctly interpreted every variable.
+`verify` recomputes estimates and rates from the stored raw responses and checks source hashes, exact query fields, requested county set, metadata receipts, survey period and saved derived values. New bundles also bind `context.json`, HTML, CSV and brief bytes to `exports.json`; verification succeeds only after all exports are saved. It reads bounded regular files within the selected output directory. This supports reproducibility and detects changes relative to the saved manifest; it does not authenticate an entirely rewritten bundle or approve publication. Metadata response presence does not prove the operator correctly interpreted every variable.
+
+Older bundles remain readable with `verification_scope: legacy_data_only` and `exports_verified: false`: their captured data are checked, but their original HTML/CSV/brief are not covered by an export manifest. Do not treat a saved `verification.json` as a fresh check; run `verify` again before importing or sharing a bundle. Require `exports_verified: true` when relying on export integrity. Preserve originals when regenerating reports.
+
+The CSV labels MOE units, uncertainty status, component counts, excluded not-computed cases, variable IDs, source URLs, hashes and retrieval timestamps. Controlled baselines leave the displayed MOE blank and retain `controlled_no_sampling_error`; the calculation uses the documented controlled-MOE convention without presenting it as a published zero-MOE estimate.
 
 Every value retains its universe, units, vintage, raw annotation and sampling uncertainty. Suppressed or unusable values remain missing. Missing MOEs block rates. Medians are not summed. Multi-cell sum/difference MOEs use an approximation without covariance, followed by the Census subset formula or labeled ratio fallback. These do not capture nonsampling error. See the accompanying metric-method document and official Census accuracy guidance.
 

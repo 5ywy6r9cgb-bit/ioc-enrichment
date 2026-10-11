@@ -13,3 +13,27 @@ test('incomplete contract and tampered raw capture blocked',()=>{const {obs,con}
 test('missing boundary review blocked',()=>{const {obs,con}=fixture();con.boundary_reviewed=false;assert.equal(D.checkObservation(obs,con,()=>bytes).ok,false);});
 
 test('official PR and six-digit table IDs retained',()=>{const x=D.entries(Buffer.from(JSON.stringify({groups:[{name:'B07001PR',description:'PR'},{name:'B992516',description:'Quality'}]})),'groups');assert.equal(x.length,2);});
+
+test('displayed identity and review labels cannot diverge from a captured observation',()=>{
+ for(const k of ['name','heading','caution','review_status']) {
+  const {obs,con}=fixture();obs[k]='changed';assert.equal(D.checkObservation(obs,con,()=>bytes).ok,false,k);
+ }
+});
+test('catalog cache is bound to the requested table and vintage and bounded regular files',()=>{
+ const fs=require('node:fs'),path=require('node:path'),os=require('node:os');
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'sentinel-catalog-test-'));
+ try {
+  const dir=path.join(root,'captures');fs.mkdirSync(dir);
+  const file=path.join(dir,'capture.json');fs.writeFileSync(file,bytes);
+  const source='https://api.census.gov/data/2024/acs/acs5/groups.json';
+  const stored={source_url:source,capture_path:file,sha256:crypto.createHash('sha256').update(bytes).digest('hex')};
+  assert.deepEqual(D.cachedBody(stored,root,source),bytes);
+  assert.throws(()=>D.cachedBody(stored,root,source.replace('2024','2023')),/source/);
+  assert.throws(()=>D.readBounded(dir),/regular file/);
+  fs.writeFileSync(file,Buffer.alloc(1024*1024+1));assert.throws(()=>D.readBounded(file),/bounded/);
+ }finally{fs.rmSync(root,{recursive:true,force:true});}
+});
+test('ambiguous duplicate CLI selectors are rejected',()=>{
+ assert.throws(()=>D.argumentsFor(['--year','2023','--year','2024']),/Duplicate/);
+ assert.throws(()=>C.options(['--county','049','--county','129']),/Duplicate/);
+});

@@ -77,6 +77,7 @@ test('complete mock collection saves private captures and recomputes profiles wi
     assert.equal(f.calls.length,11);assert.ok(f.calls.every(u=>new URL(u).searchParams.get('key')===key));
     assert.ok(f.captures.every(r=>!r.url.includes(key)));
     const check=D.verify(f.opts.output);assert.equal(check.ok,true);assert.equal(check.metrics,10);assert.equal(check.publication_approved,false);
+    assert.equal(check.exports_verified,true);assert.equal(check.verification_scope,'data_and_export_hashes');
     assert.equal(allContents(f.opts.output).includes(key),false);
     assert.equal(fs.statSync(path.join(f.opts.output,'context.json')).mode&0o777,0o600);
     for(const r of f.captures)assert.equal(fs.statSync(path.join(r.evidenceRoot,'captures',String(f.captures.indexOf(r)+1)+'.json')).mode&0o777,0o600);
@@ -128,5 +129,45 @@ test('renderer failure is explicit and cannot leave a complete bundle before ren
   const f=mockFixture();f.report.render=()=>{throw Error('fixture render failure');};try{
     const r=await D.collect(f.opts,f);assert.equal(r.ok,false);assert.equal(r.phase,'render');
     assert.equal(fs.existsSync(path.join(f.opts.output,'context.json')),false);assert.equal(fs.existsSync(path.join(f.opts.output,'index.html')),false);
+  }finally{f.cleanup();}
+});
+
+test('partial export failure cannot retain a successful verification',async()=>{
+  const f=mockFixture();f.report.render=()=>{
+    fs.mkdirSync(path.join(f.opts.output,'index.html'));return '<html>fixture</html>';
+  };
+  try {
+    const r=await D.collect(f.opts,f);assert.equal(r.ok,false);assert.equal(r.phase,'export');
+    assert.equal(fs.existsSync(path.join(f.opts.output,'verification.json')),false);
+    assert.throws(()=>D.verify(f.opts.output),/Incomplete collection/);
+  }finally{f.cleanup();}
+});
+test('every export and context metadata are bound to the manifest',async()=>{
+  const f=mockFixture();try {
+    await D.collect(f.opts,f);
+    for(const name of ['index.html','BRIEF.md','metrics.csv','context.json','exports.json']) {
+      const file=path.join(f.opts.output,name),bytes=fs.readFileSync(file);
+      const changed=name==='context.json'?JSON.stringify({...JSON.parse(bytes),created_at:'2000-01-01T00:00:00Z'}):'altered';
+      fs.writeFileSync(file,changed);assert.throws(()=>D.verify(f.opts.output));fs.writeFileSync(file,bytes);
+    }
+    fs.unlinkSync(path.join(f.opts.output,'index.html'));assert.throws(()=>D.verify(f.opts.output));
+  }finally{f.cleanup();}
+});
+test('legacy data-only verification is explicit and failure markers always block',async()=>{
+  const f=mockFixture();try {
+    await D.collect(f.opts,f);
+    const file=path.join(f.opts.output,'context.json'),b=JSON.parse(fs.readFileSync(file));
+    delete b.export_manifest;fs.writeFileSync(file,JSON.stringify(b));
+    const result=D.verify(f.opts.output);assert.equal(result.ok,true);assert.equal(result.exports_verified,false);assert.equal(result.verification_scope,'legacy_data_only');
+    fs.writeFileSync(path.join(f.opts.output,'failure.json'),'{}');assert.throws(()=>D.verify(f.opts.output),/Incomplete/);
+  }finally{f.cleanup();}
+});
+test('verification rejects nonregular files and symlink escapes',async()=>{
+  const f=mockFixture();try {
+    await D.collect(f.opts,f);
+    const file=path.join(f.opts.output,'index.html');fs.unlinkSync(file);fs.mkdirSync(file);
+    assert.throws(()=>D.verify(f.opts.output),/regular file/);fs.rmdirSync(file);
+    const outside=path.join(f.parent,'outside.html');fs.writeFileSync(outside,'fixture');fs.symlinkSync(outside,file);
+    assert.throws(()=>D.verify(f.opts.output),/outside output/);
   }finally{f.cleanup();}
 });
