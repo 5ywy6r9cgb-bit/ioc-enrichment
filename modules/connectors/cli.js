@@ -189,6 +189,7 @@ function wrap(text, width) {
 }
 
 function cmdList() {
+  console.log('  census             ACS five-year context         sentinel connect census list');
   console.log('\n' + C.b('Connectors') + '\n');
   for (const [n, c] of Object.entries(R.CONNECTORS)) {
     const k = c.keyVar ? `${c.keyVar}${c.keyRequired ? '' : ' (optional)'}` : 'no key needed';
@@ -4821,6 +4822,10 @@ async function main() {
   const opts = { dryRun: argv.includes('--dry-run') };
   const args = argv.filter((a) => !a.startsWith('--'));
   const action = args[0] || 'test';
+  if (action === 'census') {
+    try { return await require('./census.js').main(argv.slice(1)); }
+    catch (_) { console.error('Census request failed; check dataset, geography and local configuration. Credentials hidden.'); process.exitCode = 1; return; }
+  }
 
   if (action === 'test') return cmdTest();
   if (action === 'list') return cmdList();

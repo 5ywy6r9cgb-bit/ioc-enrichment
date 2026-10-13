@@ -13,6 +13,7 @@ Run:  python3 test_shots.py
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -21,7 +22,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
 import shots as S                                        # noqa: E402
-from openmontage import REQUIRED, PHOTO_ORIGINS          # noqa: E402
+from om_spec import REQUIRED, PHOTO_ORIGINS          # noqa: E402
 
 PASS = 0
 FAIL = 0
@@ -58,7 +59,7 @@ print("\n  SHOT ASSIGNMENT — what it must refuse to assign\n")
 # ══ the renderer's schema, not a copy of it ═════════════════════════════
 section("It reads the renderer's requirements rather than remembering them")
 {}
-check("REQUIRED is imported from the engine, not redefined",
+check("REQUIRED comes from the shared renderer schema",
       S.REQUIRED is REQUIRED)
 check("and so are the legal photo origins",
       S.PHOTO_ORIGINS is PHOTO_ORIGINS)
@@ -68,6 +69,14 @@ check("every origin it ever assigns is one the renderer accepts",
 # paid for, which is the most expensive possible moment to find out.
 check("'photo' still requires image, caption, source and origin",
       set(REQUIRED["photo"]) >= {"image", "caption", "source", "origin"})
+
+# Planning must also work in CI without Pillow or installed site packages.
+minimal = subprocess.run(
+    [sys.executable, "-S", "-c",
+     "import sys; import shots; assert 'PIL' not in sys.modules; "
+     "assert 'openmontage' not in sys.modules"],
+    cwd=HERE, capture_output=True, text=True)
+check("shot planning imports with site packages disabled", minimal.returncode == 0)
 
 # ══ a screenshot beats a prompt ═════════════════════════════════════════
 section("A record on disk beats a picture of one")

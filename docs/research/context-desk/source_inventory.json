@@ -1,0 +1,142 @@
+{
+  "schema_version": 1,
+  "as_of": "2026-10-08",
+  "status": "documentation_review_only",
+  "scope": "Official sources and denominator compatibility; no claim of complete collection, connector installation, or verified findings.",
+  "geographies": {
+    "state": "39",
+    "counties": {"Delaware":"041","Franklin":"049","Licking":"089","Pickaway":"129","Pike":"131","Scioto":"145"},
+    "places": {"Columbus":"18000","New Albany":"53970"},
+    "notes": ["New Albany crosses Franklin and Licking counties.","Columbus place boundaries are not Franklin County boundaries.","Portsmouth city in Scioto County is distinct from the DOE Portsmouth site in Pike County."],
+    "official_county_codes": "https://tigerweb.geo.census.gov/tigerwebmain/Files/acs26/tigerweb_acs26_county_2025_acs25_oh.html"
+  },
+  "sources": [
+    {
+      "id": "census-acs5",
+      "lane": ["housing","poverty","education_context","population"],
+      "title": "Census ACS five-year detailed tables",
+      "url": "https://api.census.gov/data/2024/acs/acs5.html",
+      "supporting_urls": ["https://api.census.gov/data/2024/acs/acs5/groups/B15003.html","https://api.census.gov/data/2024/acs/acs5/groups/B17001.html","https://api.census.gov/data/2024/acs/acs5/groups/B25003.html","https://api.census.gov/data/2024/acs/acs5/groups/B25070.html","https://content.govdelivery.com/accounts/USCENSUS/bulletins/41aaf23"],
+      "access": {"mode":"official API","key_requirement":"Census API key required for data queries; metadata queries are exempt, per June 2026 Census notice.","live_data_request_tested":false},
+      "geography": "Match summary level, complete GEOID and boundary vintage; use published county/place/tract/block-group/school-district geography rather than matching display names.",
+      "time": "Default research baseline: ACS 2020-2024 five-year period, API vintage 2024. It is a period estimate, not a 2026 headcount.",
+      "denominator_contracts": [
+        {"measure":"Renter share of occupied housing","numerator":"B25003_003E","denominator":"B25003_001E","universe":"Occupied housing units; do not divide by B25001 total housing units."},
+        {"measure":"Poverty share","numerator":"B17001_002E","denominator":"B17001_001E","universe":"Population for whom poverty status is determined; not B01003 total population."},
+        {"measure":"Bachelor's degree or higher","numerator":"B15003_022E + B15003_023E + B15003_024E + B15003_025E","denominator":"B15003_001E","universe":"Population 25 years and over; not pupils or graduating cohorts."},
+        {"measure":"Rent burden at least 30 percent, among computed cases","numerator":"B25070_007E + B25070_008E + B25070_009E + B25070_010E","denominator":"B25070_001E - B25070_011E","universe":"Use an explicitly labeled computed-case rate; disclose excluded not-computed cases."}
+      ],
+      "join_rule": "Use estimates, MOEs and annotations from the same dataset, period and geography. Retain raw sentinel values; no automatic conversion to zero.",
+      "blocked_inferences": ["Area averages do not describe named people.","Do not treat ACS adult attainment as current school performance.","Do not call an apparent change significant without uncertainty treatment; overlapping ACS periods are not independent."],
+      "checked_at":"2026-10-08","collection_status":"metadata_and_methods_reviewed; no data harvest"
+    },
+    {
+      "id":"ohio-school-report-cards",
+      "lane":["school_enrollment","attendance","school_finance"],
+      "title":"Ohio school report card downloads and accountability business rules",
+      "url":"https://reportcard.education.ohio.gov/home/download",
+      "supporting_urls":["https://education.ohio.gov/Topics/Data/Report-Card-Resources","https://oeds.education.ohio.gov/dataextract","https://education.ohio.gov/getattachment/Topics/Data/Report-Card-Resources/Student-Accountability.pdf.aspx?lang=en-US","https://education.ohio.gov/getattachment/Topics/Data/Report-Card-Resources/Traditional-Report-Cards/2025-2026-Report-Card-Guide.pdf.aspx?lang=en-US","https://education.ohio.gov/Topics/Student-Supports/Attendance-and-Family-Engagement"],
+      "access":{"mode":"public aggregate Excel downloads; OEDS organization extract","key_requirement":"No key advertised for these public downloads. No supported public API contract verified.","live_data_request_tested":false},
+      "geography":"School/building and district IRNs identify institutions. Crosswalk IRN to NCES/Census district identifiers explicitly; names and school street addresses are insufficient.",
+      "time":"Resources currently link 2025-2026 report cards. Preserve school year, fiscal year and graduation cohort separately; report-card year does not make all components contemporaneous.",
+      "denominator_contracts":[
+        {"measure":"Chronic absenteeism","numerator":"Published qualifying students missing at least 10 percent of possible attendance","denominator":"Published qualifying students under that year's attendance rules","universe":"2025-2026 accountability rules require at least 100 hours of possible attendance and contain placement exceptions; use the official aggregate denominator, not ACS school-age population."},
+        {"measure":"Spending per pupil","numerator":"Same district and fiscal-year spending category","denominator":"Enrollment/FTE/ADM required by that finance measure","universe":"These pupil counts are not interchangeable; preserve source definition."},
+        {"measure":"Graduation rate","numerator":"Graduates in defined adjusted cohort","denominator":"Same final adjusted cohort","universe":"Not current enrollment or adults with diplomas."}
+      ],
+      "join_rule":"Join finance, attendance and enrollment by institution ID and explicitly matched periods. Geographic resident context remains a separate layer because students can cross district boundaries.",
+      "blocked_inferences":["Do not infer causation from a neighborhood poverty association.","Retain suppression/missing flags; do not reconstruct small protected groups.","Do not sum building/district accountability counts without de-duplication rules."],
+      "checked_at":"2026-10-08","collection_status":"official download entry point and methods reviewed; workbook not imported"
+    },
+    {
+      "id":"census-school-context-boundaries",
+      "lane":["school_district_poverty","boundaries"],
+      "title":"SAIPE school-district estimates and Census boundary vintages",
+      "url":"https://www.census.gov/programs-surveys/saipe/technical-documentation/methodology/school-districts/overview-school-district.html",
+      "supporting_urls":["https://tigerweb.geo.census.gov/","https://www.census.gov/programs-surveys/saipe/data/datasets.html"],
+      "access":{"mode":"public dataset/boundary downloads; Census API where supported","key_requirement":"Public downloads need no Census key. Census data API queries require a Census key; metadata is exempt.","live_data_request_tested":false},
+      "geography":"School-district geography and its vintage, district type and Census district code. Match to an audited institution crosswalk; do not treat a county or attendance zone as the district.",
+      "time":"Use the SAIPE estimate year and corresponding district boundary edition. TIGERweb current boundaries are not automatically the correct boundaries for historical ACS/SAIPE data.",
+      "denominator_contracts":[{"measure":"SAIPE school-age poverty proportion","numerator":"Related children ages 5-17 in families in poverty","denominator":"Children ages 5-17","universe":"Census explicitly says this is not a true child poverty rate because the universes differ; retain the published labels and purpose."}],
+      "join_rule":"Use SAIPE as resident-area context and Title I-related research. Verify school-district ID, grade-range responsibility and boundary year before relating to Ohio district finance or enrollment.",
+      "blocked_inferences":["Resident school-age population is not enrolled students.","SAIPE school-district figures do not provide tract or block-group measurements."],
+      "checked_at":"2026-10-08","collection_status":"methods reviewed; no estimates or boundaries downloaded"
+    },
+    {
+      "id":"fbi-cde",
+      "lane":["reported_crime","reporting_coverage"],
+      "title":"FBI Crime Data Explorer",
+      "url":"https://cde.ucr.cjis.gov/",
+      "supporting_urls":["https://www.fbi.gov/news/press-releases/fbi-releases-monthly-crime-and-law-enforcement-data","https://github.com/fbi-cde/crime-data-frontend"],
+      "access":{"mode":"public CDE downloads first; current API contract requires separate verification","key_requirement":"Official legacy FBI repository documents api.data.gov keys, but its routes are old. Current JavaScript API documentation was not readable in this audit; do not assume a legacy endpoint or existing key works.","live_data_request_tested":false},
+      "geography":"Reporting agency ORI and covered population/jurisdiction; agency territory may differ from city/county boundaries and overlap other agencies.",
+      "time":"Preserve calendar month/year, publication/revision date, NIBRS/SRS series and reported versus estimated status. FBI's monthly release announcement describes a rolling 12-month preliminary window with a three-month lag.",
+      "denominator_contracts":[{"measure":"Reported offense rate per 100,000","numerator":"Offenses from a fixed agency set and explicitly complete matching reporting months","denominator":"Corresponding source-defined population served for that period and coverage","universe":"Do not divide Columbus agency counts by Franklin County ACS population; do not annualize missing months as zeros."}],
+      "join_rule":"Import agency participation/reporting months alongside every crime table. Preserve offense/incident/victim/arrest units separately. Resolve agency coverage before any population join.",
+      "blocked_inferences":["Police-recorded crime is not all victimization.","Missing or partial reporting is not zero crime.","Surveillance equipment counts and crime trends alone do not prove an intervention caused a change."],
+      "checked_at":"2026-10-08","collection_status":"official entry point and release-method notice reviewed; current API and Ohio agency completeness not verified"
+    },
+    {
+      "id":"epa-echo",
+      "lane":["environmental_compliance","water","air"],
+      "title":"EPA ECHO public web services",
+      "url":"https://echo.epa.gov/tools/web-services",
+      "supporting_urls":["https://echo.epa.gov/tools/web-services/facility-search-all-data","https://echo.epa.gov/resources/echo-data/about-the-data"],
+      "access":{"mode":"public query-only GET services; bulk download for large collections","key_requirement":"EPA documents public services accessed by URL; no API key requirement stated on reviewed documentation. No live query executed.","live_data_request_tested":false},
+      "geography":"FRS facility ID plus program-specific permit/system IDs (such as NPDES and drinking-water system ID); facility point, outfall, watershed and service area answer different questions.",
+      "time":"Retain source-system reporting period, ECHO refresh date and retrieval date separately. Refresh schedules vary by program.",
+      "denominator_contracts":[{"measure":"Permit compliance or pollutant loading","numerator":"Same permit, pollutant, unit, reporting period and monitoring location","denominator":"Use the permit limit/flow/basis required for that measurement; population is not a compliance denominator","universe":"A local demographic overlay is descriptive context, not a compliance calculation."}],
+      "join_rule":"Trace search results to detailed facility/program records, permit text, DMRs and dated enforcement documents. Resolve company identity with documented facility/permit ownership.",
+      "blocked_inferences":["A permit, inspection or database flag is not by itself a finding of unlawful conduct.","A facility location or nearby population does not establish actual exposure.","An ECHO refresh date is not necessarily the underlying measurement date."],
+      "checked_at":"2026-10-08","collection_status":"service and source documentation reviewed; no facility collection"
+    },
+    {
+      "id":"epa-tri-rsei",
+      "lane":["emissions","environmental_screening"],
+      "title":"EPA TRI reported releases and RSEI screening model",
+      "url":"https://www.epa.gov/toxics-release-inventory-tri-program/factors-consider-when-using-toxics-release-inventory-data",
+      "supporting_urls":["https://www.epa.gov/rsei/learn-about-rsei","https://www.epa.gov/rsei/how-rsei-should-be-used","https://www.epa.gov/rsei/ways-get-rsei-results"],
+      "access":{"mode":"public datasets and screening results","key_requirement":"No API key required for public explanatory pages/download access; no programmatic endpoint tested.","live_data_request_tested":false},
+      "geography":"TRI facility ID, release location and medium; RSEI modeled geography is distinct from county/tract administrative boundaries.",
+      "time":"Keep TRI reporting year, revision date and RSEI model version together. Compare consistent chemical coverage and modeling versions.",
+      "denominator_contracts":[{"measure":"Reported release quantity","numerator":"Chemical-specific release amount by medium and year","denominator":"None required for original quantity; any population normalization must be labeled a descriptive reporting metric","universe":"Pounds released are not a measure of individual dose."},{"measure":"RSEI score","numerator":"EPA model output","denominator":"Do not invent a health-rate denominator","universe":"Unitless comparative screening score; neither predicted cancer cases nor a formal risk assessment."}],
+      "join_rule":"Use releases, toxicity/model context and nearby-area ACS characteristics to prioritize records requests; then seek permit conditions, monitoring results and appropriate site-specific assessment.",
+      "blocked_inferences":["TRI does not cover all sources or all chemicals.","Proximity alone is not exposure; a high score is not proof of illness or noncompliance.","Do not sum mass across chemicals and present the result as comparative health risk."],
+      "checked_at":"2026-10-08","collection_status":"methods reviewed; no release or model outputs collected"
+    },
+    {
+      "id":"county-land-records",
+      "lane":["land","tax","school_tax_districts","housing_context"],
+      "title":"County auditor/GIS and recorder records",
+      "url":"https://apps.franklincountyauditor.com/GIS_Shapefiles/CurrentExtracts/",
+      "jurisdiction_urls":{"Franklin":"https://apps.franklincountyauditor.com/GIS_Shapefiles/CurrentExtracts/","Delaware":"https://gis.co.delaware.oh.us/secondary_nav/main-page-links/","Licking":"https://lickingcounty.gov/depts/auditor/","Pickaway":"https://auditor.pickawaycountyohio.gov/","Pike":"https://pikeauditoroh.org/","Scioto":"https://www.sciotorecorder.com/search-records"},
+      "access":{"mode":"public GIS extracts or official search portals; recorder access varies","key_requirement":"No Regrid key needed for Franklin public extracts. Other portals have no single shared API contract; obey account/access requirements and check each service before automation.","live_data_request_tested":false},
+      "geography":"County FIPS plus parcel ID and parcel version; preserve split/merge history. Tax district, municipal boundary, school district and Census tract are separate spatial layers.",
+      "time":"Record deed execution/recording dates, tax year, valuation status and GIS extract date separately. Pike currently labels TY2026 values tentative.",
+      "denominator_contracts":[{"measure":"Abatement or project fiscal context","numerator":"Documented actual foregone tax or separately labeled forecast, allocated to the correct taxing jurisdiction and period","denominator":"Matched district fiscal-year pupil measure or clearly labeled ACS household context","universe":"A modeled amount per household is not a household bill; tax assessment is not tax payment."}],
+      "join_rule":"Parcel ID to recorded instrument and legal grantee; then agreement/ordinance identifier to abatement/TIF and fiscal records. Spatial overlay to matching-year school/tax boundaries, with documented CRS and boundary treatment.",
+      "blocked_inferences":["Owner display or registered agent alone does not establish beneficial ownership.","A common address or legal entity association does not prove misconduct.","GIS parcel count is not a count of housing units or renters."],
+      "checked_at":"2026-10-08","collection_status":"official entry points reviewed; no complete county parcel collections; no recorder chain-of-title investigation"
+    },
+    {
+      "id":"utility-service-and-rates",
+      "lane":["electricity","water","public_spending"],
+      "title":"EIA electricity data plus local utility governing records",
+      "url":"https://www.eia.gov/electricity/data/eia861/",
+      "supporting_urls":["https://www.eia.gov/opendata/documentation.php","https://www.eia.gov/opendata/faqs.php","https://datacenters.newalbanyohio.org/resident-questions/","https://columbus.legistar.com/LegislationDetail.aspx?ID=8208034&GUID=E86BD572-A479-40F0-B620-D594AC41FA9D&FullText=1","https://content.govdelivery.com/accounts/OHPUC/bulletins/3e8bb79"],
+      "access":{"mode":"EIA public annual files; API for available series; public ordinance/docket documents","key_requirement":"EIA API needs its own free EIA key; public EIA-861 files do not. No additional key is needed just to read listed local records.","live_data_request_tested":false},
+      "geography":"Utility ID, state, customer sector and service territory. EIA retail-sales API route is state/sector context; do not label it a Columbus household bill or utility-specific measurement.",
+      "time":"Match annual/monthly data frequency, sector, dollar basis, billing period and tariff effective date. Keep measured consumption, contracted capacity and projected demand distinct.",
+      "denominator_contracts":[{"measure":"Electricity average price","numerator":"Same utility/state/sector/period revenue with explicit unit conversion","denominator":"Same sales energy","universe":"Customers/accounts are not Census households; MW capacity is not MWh energy."},{"measure":"Water project impact","numerator":"Actual metered consumption or separately labeled allocation/design forecast","denominator":"Correct service-area usage/capacity/customer class, period and unit","universe":"Columbus water service area includes contract communities; city or county households are not automatically the customer denominator."}],
+      "join_rule":"Project/parcel to service agreement and utility/customer class; then approved tariff, infrastructure cost allocation and actual aggregate usage. Columbus 2560-2026 is a rate-proposal reporting record, not itself a rate schedule; track its October 26, 2026 reporting deadline.",
+      "blocked_inferences":["A tariff minimum is not proof of an actual payment.","State averages do not establish local bill changes.","A permit/allocation does not prove operating consumption."],
+      "checked_at":"2026-10-08","collection_status":"methods and governing-record entry points reviewed; no customer usage or full docket collection"
+    }
+  ],
+  "common_capture_contract": {
+    "required":["source_id","official_url","retrieved_at","period_start","period_end","geography_type","geography_id","boundary_vintage","universe","unit","source_status","capture_sha256","parser_version","coverage","limitations","review_status"],
+    "publication_state":"unreviewed until records and calculations are checked",
+    "privacy":"Aggregate school and demographic outputs; no student/personnel records, private addresses or credentials.",
+    "comparison_rule":"Preserve raw responses, publication/revision timestamps and actual reviewed scope; a fetched landing page does not complete a lane. Missing/suppressed/not-reported values are never zero."
+  }
+}
