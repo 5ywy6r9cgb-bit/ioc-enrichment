@@ -1,0 +1,161 @@
+{
+ "spec_version": "OPENMONTAGE-SPEC/1",
+ "project": "The Sentinel Report",
+ "title": "ep04 — Ohio Senate money, from the filings",
+ "preset": "vertical",
+ "fps": 24,
+ "theme": "sentinel_bright",
+ "footer": "THE SENTINEL REPORT · DOCUMENTS AND DATES. NO CHARACTERIZATION.",
+ "crossfade": 0.4,
+ "scenes": [
+  {
+   "type": "title",
+   "dur": 4.5,
+   "kick": "THE SENTINEL REPORT · FOLLOW THE MONEY",
+   "title": "Ohio's 2026 Senate race, read straight from the filings.",
+   "sub": "Every figure is a filed FEC fact. Every card carries its caveat.",
+   "source_note": "Framing only."
+  },
+  {
+   "type": "bignum",
+   "dur": 6.0,
+   "kick": "OHIO'S 16 FEDERAL SEATS · 2026",
+   "value": 39.5,
+   "fmt": "{:.1f}%",
+   "size": 250,
+   "caption": "of the contributions to Ohio's 16 federal campaigns came from PACs.",
+   "sub": "$14,582,896 from political committees. Range: 13.9% to 74.2%.",
+   "source_note": "DELEG-01. Denominator is contributions (individuals + committees + party), not total receipts."
+  },
+  {
+   "type": "quote",
+   "dur": 6.0,
+   "label": "THE DENOMINATOR",
+   "label_color": "accent",
+   "quote": "PAC share is measured against CONTRIBUTIONS — individuals plus committees plus party — never against receipts, which include loans and transfers. Delegation totals are a sum of separate committees; nobody controls them jointly.",
+   "source": "FEC · fec.gov/data/ · card DELEG-01 · desk evidence cards, generated 2026-09-10",
+   "source_note": "Caveat of DELEG-01, shown with its card as the desk rules require."
+  },
+  {
+   "type": "chart",
+   "dur": 7.0,
+   "kick": "SPENT AGAINST SHERROD BROWN",
+   "image": "charts/brown_six.png",
+   "caption": "$13,471,230 against him. Six committees. 91 expenditures.",
+   "source_note": "BROWN-01"
+  },
+  {
+   "type": "quote",
+   "dur": 6.0,
+   "label": "READ THIS WITH IT",
+   "label_color": "accent",
+   "quote": "Schedule E is complete (3 of 25 pages). The outside-pressure multiple on this card is a CEILING, so it is not shown here. Spending is the sum of six filed committees, to within a dollar.",
+   "source": "FEC · fec.gov/data/candidate/S6OH00163/ · card BROWN-01 · desk evidence cards, generated 2026-09-10",
+   "source_note": "Caveat of BROWN-01, shown with its card as the desk rules require."
+  },
+  {
+   "type": "chart",
+   "dur": 7.0,
+   "kick": "ONE COMMITTEE · OHIO FLYER PAC",
+   "image": "charts/flyer_split.png",
+   "caption": "Two candidates. Both Ohio Senate seats. Opposite directions.",
+   "source_note": "OH-FLYER-01"
+  },
+  {
+   "type": "quote",
+   "dur": 5.0,
+   "label": "READ THIS WITH IT",
+   "label_color": "accent",
+   "quote": "Concentration is not intent. A state-focused committee is single-state by design.",
+   "source": "FEC · fec.gov/data/committee/C00912865/ · card OH-FLYER-01 · desk evidence cards, generated 2026-09-10",
+   "source_note": "Caveat of OH-FLYER-01, shown with its card as the desk rules require."
+  },
+  {
+   "type": "chart",
+   "dur": 7.0,
+   "kick": "TEAM HUSTED · JOINT FUNDRAISER",
+   "image": "charts/jfc_split.png",
+   "caption": "$8,253,532 split five ways. 63% to the campaign.",
+   "source_note": "TEAM-HUSTED-01"
+  },
+  {
+   "type": "quote",
+   "dur": 9.0,
+   "label": "READ THIS WITH IT",
+   "label_color": "accent",
+   "quote": "A transfer is not a gift and not an endorsement. Whether a super PAC may participate in a candidate JFC is a question of FEC rules and advisory opinions this desk has NOT answered. Nothing here asserts a violation.",
+   "source": "FEC · fec.gov/data/committee/C00896928/ · card TEAM-HUSTED-01 · desk evidence cards, generated 2026-09-10",
+   "source_note": "Caveat of TEAM-HUSTED-01, shown with its card as the desk rules require."
+  },
+  {
+   "type": "bignum",
+   "dur": 6.0,
+   "kick": "HUSTED VICTORY · $3,636,779 RAISED",
+   "value": 75.8,
+   "fmt": "{:.1f}%",
+   "size": 250,
+   "caption": "of everything it raised went to one media firm.",
+   "sub": "$2,755,532 to SRCP MEDIA INC. of $3,636,779 raised.",
+   "source_note": "HV-01"
+  },
+  {
+   "type": "quote",
+   "dur": 9.0,
+   "label": "A QUESTION, NOT A FINDING",
+   "label_color": "gold",
+   "quote": "A joint fundraiser legitimately pays the COST of raising money and allocates it among participants. 'MEDIA' does not say whether this is fundraising solicitation or campaign advertising, and the purpose code cannot distinguish them. THIS IS A QUESTION, NOT A FINDING.",
+   "source": "FEC · fec.gov/data/committee/C00937797/ · card HV-01 · desk evidence cards, generated 2026-09-10",
+   "source_note": "Caveat of HV-01, shown with its card as the desk rules require."
+  },
+  {
+   "type": "bignum",
+   "dur": 6.0,
+   "kick": "FL-25 · WASSERMAN SCHULTZ · 2024",
+   "value": "250 : 1",
+   "animation": "typewriter",
+   "size": 200,
+   "caption": "spent attacking her for every dollar spent defending her.",
+   "sub": "$98,905 against (46 expenditures). $395 for (2).",
+   "source_note": "WS-01; 98,905 / 395 = 250.4"
+  },
+  {
+   "type": "quote",
+   "dur": 6.0,
+   "label": "READ THIS WITH IT",
+   "label_color": "accent",
+   "quote": "The SMALLER ratio is often the larger operation — Brown is 10:1 on $13.5m, which is 136x this money. A ratio describes balance, not size.",
+   "source": "FEC · fec.gov/data/candidate/H4FL20023/ · card WS-01 · desk evidence cards, generated 2026-09-10",
+   "source_note": "Caveat of WS-01, shown with its card as the desk rules require."
+  },
+  {
+   "type": "title",
+   "dur": 5.0,
+   "kick": "HOW WE WORK",
+   "title": "We tried to break our own best finding. We succeeded five times.",
+   "sub": "Every one was caught by dividing, or by reading the same figure from another register.",
+   "source_note": "METHOD-02"
+  },
+  {
+   "type": "bignum",
+   "dur": 6.0,
+   "kick": "A NUMBER WE WITHDREW",
+   "value": "40.19x → 1.35x",
+   "animation": "typewriter",
+   "size": 92,
+   "caption": "The retracted figure, and the one the filings support.",
+   "sub": "It divided by a truncated sample, not the committee total.",
+   "source_note": "METHOD-02 / HUSTED-01 retraction."
+  },
+  {
+   "type": "hash",
+   "dur": 7.0,
+   "kick": "AUDIT US",
+   "title": "Documents and dates. No characterization.",
+   "hash": "815468978733a383e7d8d8da63263865fe311f9e9528988c9fffdc5256fbe09d",
+   "verify_file": "data/EVIDENCE_CARDS.json",
+   "sub": "SHA-256 of the evidence cards every figure here comes from.",
+   "cta": "Spread truth — but make sure it is truth.",
+   "source_note": "Hash is computed from, and verified against, the file at build time."
+  }
+ ]
+}
