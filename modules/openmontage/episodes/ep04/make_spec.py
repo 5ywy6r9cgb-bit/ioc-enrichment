@@ -34,5 +34,8 @@ S.append({"type": "hash", "dur": 7.0, "kick": "AUDIT US", "title": "Documents an
           "sub": "SHA-256 of the evidence cards every figure here comes from.", "cta": "Spread truth — but make sure it is truth.", "source_note": "Hash is computed from, and verified against, the file at build time."})
 spec = {"spec_version": "OPENMONTAGE-SPEC/1", "project": "The Sentinel Report", "title": "ep04 — Ohio Senate money, from the filings", "preset": "vertical", "fps": 24, "theme": "sentinel_bright",
         "footer": "THE SENTINEL REPORT · DOCUMENTS AND DATES. NO CHARACTERIZATION.", "crossfade": 0.4, "scenes": S}
+DURS = [7.0, 9.1, 8.7, 7.0, 10.0, 8.3, 5.4, 9.1, 16.6, 7.9, 12.1, 8.3, 6.6, 5.8, 10.8, 8.7]
+for sc, d in zip(S, DURS): sc['dur'] = d
+spec['scenes'] = S
 json.dump(spec, open(HERE / "episode.json", "w"), indent=1, ensure_ascii=False)
 print("episode.json:", len(S), "scenes,", sum(s["dur"] for s in S), "seconds")

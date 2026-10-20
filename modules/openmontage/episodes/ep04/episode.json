@@ -10,7 +10,7 @@
  "scenes": [
   {
    "type": "title",
-   "dur": 4.5,
+   "dur": 7.0,
    "kick": "THE SENTINEL REPORT · FOLLOW THE MONEY",
    "title": "Ohio's 2026 Senate race, read straight from the filings.",
    "sub": "Every figure is a filed FEC fact. Every card carries its caveat.",
@@ -18,7 +18,7 @@
   },
   {
    "type": "bignum",
-   "dur": 6.0,
+   "dur": 9.1,
    "kick": "OHIO'S 16 FEDERAL SEATS · 2026",
    "value": 39.5,
    "fmt": "{:.1f}%",
@@ -29,7 +29,7 @@
   },
   {
    "type": "quote",
-   "dur": 6.0,
+   "dur": 8.7,
    "label": "THE DENOMINATOR",
    "label_color": "accent",
    "quote": "PAC share is measured against CONTRIBUTIONS — individuals plus committees plus party — never against receipts, which include loans and transfers. Delegation totals are a sum of separate committees; nobody controls them jointly.",
@@ -46,7 +46,7 @@
   },
   {
    "type": "quote",
-   "dur": 6.0,
+   "dur": 10.0,
    "label": "READ THIS WITH IT",
    "label_color": "accent",
    "quote": "Schedule E is complete (3 of 25 pages). The outside-pressure multiple on this card is a CEILING, so it is not shown here. Spending is the sum of six filed committees, to within a dollar.",
@@ -55,7 +55,7 @@
   },
   {
    "type": "chart",
-   "dur": 7.0,
+   "dur": 8.3,
    "kick": "ONE COMMITTEE · OHIO FLYER PAC",
    "image": "charts/flyer_split.png",
    "caption": "Two candidates. Both Ohio Senate seats. Opposite directions.",
@@ -63,7 +63,7 @@
   },
   {
    "type": "quote",
-   "dur": 5.0,
+   "dur": 5.4,
    "label": "READ THIS WITH IT",
    "label_color": "accent",
    "quote": "Concentration is not intent. A state-focused committee is single-state by design.",
@@ -72,7 +72,7 @@
   },
   {
    "type": "chart",
-   "dur": 7.0,
+   "dur": 9.1,
    "kick": "TEAM HUSTED · JOINT FUNDRAISER",
    "image": "charts/jfc_split.png",
    "caption": "$8,253,532 split five ways. 63% to the campaign.",
@@ -80,7 +80,7 @@
   },
   {
    "type": "quote",
-   "dur": 9.0,
+   "dur": 16.6,
    "label": "READ THIS WITH IT",
    "label_color": "accent",
    "quote": "A transfer is not a gift and not an endorsement. Whether a super PAC may participate in a candidate JFC is a question of FEC rules and advisory opinions this desk has NOT answered. Nothing here asserts a violation.",
@@ -89,7 +89,7 @@
   },
   {
    "type": "bignum",
-   "dur": 6.0,
+   "dur": 7.9,
    "kick": "HUSTED VICTORY · $3,636,779 RAISED",
    "value": 75.8,
    "fmt": "{:.1f}%",
@@ -100,7 +100,7 @@
   },
   {
    "type": "quote",
-   "dur": 9.0,
+   "dur": 12.1,
    "label": "A QUESTION, NOT A FINDING",
    "label_color": "gold",
    "quote": "A joint fundraiser legitimately pays the COST of raising money and allocates it among participants. 'MEDIA' does not say whether this is fundraising solicitation or campaign advertising, and the purpose code cannot distinguish them. THIS IS A QUESTION, NOT A FINDING.",
@@ -109,7 +109,7 @@
   },
   {
    "type": "bignum",
-   "dur": 6.0,
+   "dur": 8.3,
    "kick": "FL-25 · WASSERMAN SCHULTZ · 2024",
    "value": "250 : 1",
    "animation": "typewriter",
@@ -120,7 +120,7 @@
   },
   {
    "type": "quote",
-   "dur": 6.0,
+   "dur": 6.6,
    "label": "READ THIS WITH IT",
    "label_color": "accent",
    "quote": "The SMALLER ratio is often the larger operation — Brown is 10:1 on $13.5m, which is 136x this money. A ratio describes balance, not size.",
@@ -129,7 +129,7 @@
   },
   {
    "type": "title",
-   "dur": 5.0,
+   "dur": 5.8,
    "kick": "HOW WE WORK",
    "title": "We tried to break our own best finding. We succeeded five times.",
    "sub": "Every one was caught by dividing, or by reading the same figure from another register.",
@@ -137,7 +137,7 @@
   },
   {
    "type": "bignum",
-   "dur": 6.0,
+   "dur": 10.8,
    "kick": "A NUMBER WE WITHDREW",
    "value": "40.19x → 1.35x",
    "animation": "typewriter",
@@ -148,7 +148,7 @@
   },
   {
    "type": "hash",
-   "dur": 7.0,
+   "dur": 8.7,
    "kick": "AUDIT US",
    "title": "Documents and dates. No characterization.",
    "hash": "815468978733a383e7d8d8da63263865fe311f9e9528988c9fffdc5256fbe09d",
