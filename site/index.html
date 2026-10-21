@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Public Records Atlas — The Sentinel Report</title>
+<meta name="description" content="Find the Ohio public office that holds the record, draft a privacy-safe request under R.C. 149.43, and track it to the end.">
+<meta name="theme-color" content="#0b0d10">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/vendor/leaflet/leaflet.css">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="masthead">
+  <div class="masthead-inner">
+    <a class="brand" href="#/atlas" aria-label="Public Records Atlas home">
+      <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="14" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="16" cy="16" r="6" fill="none" stroke="currentColor" stroke-width="2"/><path d="M16 0v8M16 24v8M0 16h8M24 16h8" stroke="currentColor" stroke-width="2"/></svg>
+      <span class="brand-text">
+        <span class="brand-kicker">The Sentinel Report · Records Door</span>
+        <span class="brand-title">Public Records Atlas</span>
+      </span>
+    </a>
+    <nav class="tabs" aria-label="Sections">
+      <a href="#/atlas" data-tab="atlas">Atlas</a>
+      <a href="#/directory" data-tab="directory">Directory</a>
+      <a href="#/request" data-tab="request">Request Builder</a>
+      <a href="#/tracker" data-tab="tracker">My Requests <span class="tab-count" id="trackerCount" hidden></span></a>
+      <a href="#/escalate" data-tab="escalate">Portals &amp; Appeals</a>
+      <a href="#/learn" data-tab="learn">How to File</a>
+    </nav>
+  </div>
+</header>
+
+<div class="notice" role="note">
+  <strong>Metadata only.</strong> This site lists where public records live and helps you write the request. It never submits anything, never stores your documents, and keeps your request tracker in <em>this browser only</em>.
+</div>
+
+<main id="main">
+
+  <!-- ATLAS -->
+  <section class="view view-atlas" data-view="atlas" hidden>
+    <div class="atlas-grid">
+      <aside class="panel atlas-side">
+        <div class="stat-row" id="atlasStats"></div>
+        <label class="search">
+          <span class="sr-only">Search agencies</span>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          <input id="atlasSearch" type="search" placeholder="Search agency, city, role…" autocomplete="off">
+          <kbd>/</kbd>
+        </label>
+        <div class="chips" id="atlasChips" role="group" aria-label="Agency categories"></div>
+        <ol class="agency-list" id="atlasList"></ol>
+      </aside>
+      <div class="map-wrap">
+        <div id="map" role="region" aria-label="Map of agencies"></div>
+        <div class="map-legend" id="mapLegend"></div>
+        <div class="map-fallback" id="mapFallback" hidden>
+          <p>The map couldn't load. The <a href="#/directory">directory</a> has every agency.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- DIRECTORY -->
+  <section class="view" data-view="directory" hidden>
+    <div class="view-head">
+      <div>
+        <p class="eyebrow">Directory</p>
+        <h1>Every office in the atlas</h1>
+        <p class="lede">Including offices that aren't on the map yet. Every row is <span class="badge b-warn">unverified</span> until a human confirms it against the agency's own site, so check the source link before you rely on it.</p>
+      </div>
+      <div class="toolbar">
+        <label class="search">
+          <span class="sr-only">Search directory</span>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          <input id="dirSearch" type="search" placeholder="Filter…" autocomplete="off">
+        </label>
+        <select id="dirCategory" aria-label="Category"></select>
+        <select id="dirCity" aria-label="City"></select>
+      </div>
+    </div>
+    <p class="result-meta" id="dirMeta"></p>
+    <div class="card-grid" id="dirGrid"></div>
+  </section>
+
+  <!-- REQUEST BUILDER -->
+  <section class="view" data-view="request" hidden>
+    <div class="view-head">
+      <div>
+        <p class="eyebrow">Request Builder</p>
+        <h1>Draft a request that holds up</h1>
+        <p class="lede">Cites R.C. 149.43, asks for aggregate records rather than private ones, and doesn't state a purpose (Ohio doesn't require one). You review it and send it yourself.</p>
+      </div>
+    </div>
+    <div class="builder">
+      <form class="panel builder-form" id="rbForm" autocomplete="off">
+        <div class="field">
+          <label for="rbAgency">Public office <span class="req">*</span></label>
+          <select id="rbAgency" required></select>
+          <p class="hint" id="rbAgencyHint"></p>
+        </div>
+        <div class="field">
+          <label for="rbRecordType">Record type <span class="opt">optional, pre-fills the subject</span></label>
+          <select id="rbRecordType"></select>
+        </div>
+        <div class="field">
+          <label for="rbScope">What kind of records</label>
+          <select id="rbScope"></select>
+        </div>
+        <div class="field">
+          <label for="rbTopic">Subject <span class="req">*</span></label>
+          <textarea id="rbTopic" rows="3" required placeholder="e.g. renter water-service deposits, or the Flock Safety ALPR contract"></textarea>
+          <div class="pii-warn" id="rbPii" hidden></div>
+        </div>
+        <fieldset class="field">
+          <legend>Time period</legend>
+          <div class="seg">
+            <label><input type="radio" name="rbRange" value="all" checked> All dates</label>
+            <label><input type="radio" name="rbRange" value="range"> Specific range</label>
+          </div>
+          <div class="date-row" id="rbDates" hidden>
+            <label>From <input type="date" id="rbStart"></label>
+            <label>Through <input type="date" id="rbEnd"></label>
+          </div>
+        </fieldset>
+        <div class="field">
+          <label class="check"><input type="checkbox" id="rbElectronic" checked> Ask for electronic copies</label>
+          <label class="check"><input type="checkbox" id="rbPrivacy" checked disabled> Exclude private personal information <span class="opt">(always on)</span></label>
+        </div>
+        <div class="field">
+          <label for="rbContact">Your name &amp; contact <span class="opt">optional, never sent to this site</span></label>
+          <input id="rbContact" type="text" placeholder="Leave blank to fill in when you send it">
+        </div>
+      </form>
+
+      <div class="preview">
+        <div class="preview-head">
+          <span class="eyebrow">Draft letter</span>
+          <span class="preview-to" id="rbTo"></span>
+        </div>
+        <pre class="letter" id="rbPreview" tabindex="0" aria-live="polite"></pre>
+        <div class="preview-actions">
+          <button type="button" class="btn btn-primary" id="rbCopy">Copy text</button>
+          <a class="btn" id="rbMail" href="#" hidden>Open in email</a>
+          <a class="btn" id="rbPortal" href="#" target="_blank" rel="noopener noreferrer" hidden>Agency records page ↗</a>
+          <button type="button" class="btn" id="rbDownload">Download .txt</button>
+          <button type="button" class="btn btn-ghost" id="rbSave">Save to My Requests</button>
+        </div>
+        <p class="fine">This tool writes a draft. It doesn't submit anything. Read it before you send it.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- TRACKER -->
+  <section class="view" data-view="tracker" hidden>
+    <div class="view-head">
+      <div>
+        <p class="eyebrow">My Requests</p>
+        <h1>Track every request to the end</h1>
+        <p class="lede">Saved in this browser only, so nothing reaches a server. Export a copy if you need a backup or want to move it to another device.</p>
+      </div>
+      <div class="toolbar">
+        <button type="button" class="btn" id="trExport">Export JSON</button>
+        <label class="btn" for="trImport">Import</label>
+        <input type="file" id="trImport" accept="application/json,.json" hidden>
+        <button type="button" class="btn btn-danger" id="trClear">Clear all</button>
+      </div>
+    </div>
+    <div class="pipeline" id="trPipeline"></div>
+    <div class="tracker-list" id="trList"></div>
+  </section>
+
+  <!-- ESCALATE -->
+  <section class="view" data-view="escalate" hidden>
+    <div class="view-head">
+      <div>
+        <p class="eyebrow">Portals &amp; Appeals</p>
+        <h1>Where to search, and where to go when they say no</h1>
+        <p class="lede">State and federal portals, docket searches, campaign-finance databases, and the Ohio Court of Claims, the low-cost alternative to a mandamus action.</p>
+      </div>
+      <div class="toolbar">
+        <select id="esKind" aria-label="Portal kind"></select>
+      </div>
+    </div>
+    <div class="callout" id="esCallout"></div>
+    <div class="card-grid" id="esGrid"></div>
+  </section>
+
+  <!-- LEARN -->
+  <section class="view view-learn" data-view="learn" hidden>
+    <div class="view-head">
+      <div>
+        <p class="eyebrow">How to File</p>
+        <h1>Ohio public records in six steps</h1>
+        <p class="lede">Ohio Revised Code § 149.43. You don't have to give your name or a reason, and you can't be made to put the request in writing.</p>
+      </div>
+    </div>
+    <ol class="steps">
+      <li><h3>Find the office that holds it</h3><p>Records belong to the office that created or keeps them. Water billing is the utility, parcel data is the county auditor, deeds are the recorder, and dockets are the clerk of courts. Use the <a href="#/atlas">Atlas</a>.</p></li>
+      <li><h3>Ask for records, not answers</h3><p>An office has to give you existing records. It doesn't have to answer questions or create new documents. "Copies of the contract" works. "Why did you sign it?" doesn't.</p></li>
+      <li><h3>Be specific and keep it reasonable</h3><p>Name the subject, the record type, and the time period. Overly broad requests can be denied, but the office then has to help you narrow them (R.C. 149.43(B)(2)).</p></li>
+      <li><h3>Keep private data out of it</h3><p>Ask for aggregate totals and policies, not individual people's accounts. It's faster, easier to approve, and nobody's privacy gets caught in your story.</p></li>
+      <li><h3>Follow up on a schedule</h3><p>Ohio sets no fixed number of days. Inspection is "promptly" and copies come "within a reasonable period of time." The reminders in My Requests are <strong>your</strong> follow-up schedule, not legal deadlines, so never tell an office it "missed the statutory deadline."</p></li>
+      <li><h3>If they deny it, get the reason in writing</h3><p>A denial has to explain the legal authority it relies on (R.C. 149.43(B)(3)). Then you can file a complaint with the <a href="#/escalate">Ohio Court of Claims</a> ($25, R.C. 2743.75) or bring a mandamus action.</p></li>
+    </ol>
+    <div class="callout callout-quiet">
+      <strong>Primary sources.</strong> Quote the statute from <a href="https://codes.ohio.gov/ohio-revised-code/section-149.43" target="_blank" rel="noopener noreferrer">codes.ohio.gov</a>, never from a summary. The Attorney General's <a href="https://www.ohioattorneygeneral.gov/Legal/Sunshine-Laws" target="_blank" rel="noopener noreferrer">Sunshine Laws manual</a> is the standard reference.
+    </div>
+  </section>
+
+</main>
+
+<footer class="footer">
+  <div class="footer-inner">
+    <p><strong>Privacy &amp; safety.</strong> This site has no accounts, no analytics, and no third-party scripts. Map tiles come from CARTO and OpenStreetMap. Agency details come from public sources and are marked unverified until a person confirms them. Not legal advice.</p>
+    <p class="footer-meta" id="footerMeta"></p>
+  </div>
+</footer>
+
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+<script src="/vendor/leaflet/leaflet.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>
