@@ -1423,12 +1423,29 @@ async function cmdGraph(opts) {
   const g = G.build(captures);
   const stmts = G.toCypher(g);
 
+  // --full adds every typed edge edges.js can evidence (awards, registrations,
+  // dockets, sworn filings) with its evidence tier on the relationship type.
+  let full = null;
+  if (opts.full) {
+    const F = require('./graph_full.js');
+    const E = require('./edges.js');
+    full = { F, g: F.build(E.build(captures)) };
+    for (const st of F.toCypher(full.g)) stmts.push(st);
+  }
+
   console.log(`\n  ${C.b('Graph from the captured library')}`);
   console.log(`  ${captures.length} captures read\n`);
   console.log(`    ${String(g.orgs.length).padStart(5)}  organisations`);
   console.log(`    ${String(g.subjects.length).padStart(5)}  subjects (searches you ran)`);
   console.log(`    ${String(g.filed.length).padStart(5)}  FILED_FOR    ${C.dim('sworn lobbying filings')}`);
   console.log(`    ${String(g.appears.length).padStart(5)}  APPEARS_UNDER ${C.dim('search results, NOT links between orgs')}`);
+
+  if (full) {
+    console.log(`\n  ${C.b('--full: typed edges')}  ${C.dim('(tier is the relationship type; nodes are NAMES, never merged)')}`);
+    for (const [t, rows] of Object.entries(full.g.rels)) {
+      console.log(`    ${String(rows.length).padStart(5)}  ${t}`);
+    }
+  }
 
   if (g.counts_are_floors) {
     console.log(`\n  ${C.y('TRUNCATED')} — ${g.truncated_captures} capture(s) held fewer rows than the source reported.`);
@@ -1529,11 +1546,19 @@ async function cmdGraph(opts) {
     console.log(`\n  writing to ${C.b(uri)}  database ${C.b(database)}  as ${user} …`);
     const done = await G.push(g, session);
     for (const note of done) console.log(`    ${C.g('ok')}  ${note}`);
+    if (full) {
+      for (const note of await full.F.push(full.g, session)) console.log(`    ${C.g('ok')}  ${note}`);
+    }
 
     // Every statement returning without error does not mean the graph is
     // there. Count it back before saying so.
     const actual = await G.verify(session);
     const problems = G.reconcile(g, actual);
+    if (full) {
+      for (const p of full.F.reconcile(full.g, actual.rels)) {
+        problems.push({ name: p.name, want: p.want, got: p.got });
+      }
+    }
 
     console.log('');
     console.log(`  ${C.dim('in the database now:')}`);
@@ -4945,6 +4970,7 @@ async function main() {
     };
     return cmdGraph({
       push: argv.includes('--push'),
+      full: argv.includes('--full'),
       allowRemote: argv.includes('--allow-remote'),
       dashboard: flagVal('--dashboard'),
       sideA: typeof flagVal('--side-a') === 'string' ? flagVal('--side-a') : null,

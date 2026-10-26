@@ -7,7 +7,7 @@
     "node": ">=18"
   },
   "scripts": {
-    "test": "node test_connect.js && node test_crosslink.js && node test_lobby.js && node test_graph.js && node --test test_census.js test_census_desk.js test_census_phase3.js test_context_metrics.js test_context_desk.js test_context_report.js"
+    "test": "node test_connect.js && node test_crosslink.js && node test_lobby.js && node test_graph.js && node test_graph_full.js && node --test test_census.js test_census_desk.js test_census_phase3.js test_context_metrics.js test_context_desk.js test_context_report.js"
   },
   "//": "neo4j-driver is OPTIONAL. Every connector, crosslink, lobby and the graph PREVIEW run without it; it is required only by `sentinel connect graph --push`, which is the one command that writes to a database. It is listed under optionalDependencies so a plain `npm install` failing to fetch it does not break the desk, and so the test suite never depends on it — graph.js takes a session object, and the tests pass a fake one.",
   "optionalDependencies": {
