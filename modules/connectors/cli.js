@@ -368,6 +368,7 @@ async function cmdAll(query, opts) {
 
   console.log('');
   const rows = [];
+  let partialCount = 0;
   const failures = [];
   for (const name of runnable) {
     process.stdout.write(C.dim(`  ${name}… `));
@@ -554,11 +555,17 @@ async function cmdAll(query, opts) {
     for (const [name, why] of failures) console.log(C.dim(`    ${name.padEnd(18)} ${why}`));
     console.log(C.dim('  A partial library is still a library. Re-run to retry these.\n'));
   }
+  // The run printed "Did not complete" and then exited 0, so a runner scoring
+  // by exit code recorded PASS for it. Report the count to the caller;
+  // the dispatcher turns it into exit code 4 (PARTIAL). Never set here: the
+  // tests import cmdAll and a non-zero exitCode would fail the whole suite.
+  partialCount = failures.length;
 
   console.log(C.y('  These are LEADS, not findings.'));
   console.log(C.dim('  A name match is not an identification. Confirm same-entity and pull'));
   console.log(C.dim('  the underlying document before any of it is used.'));
   console.log(C.dim('\n  Watch it instead of re-running by hand:  see watchlist.json\n'));
+  return { partial: partialCount };
 }
 
 /**
@@ -4442,11 +4449,14 @@ async function cmdSweep(setName, opts) {
 
   console.log('');
   let done = 0;
+  let sweepPartial = 0;
   for (const sub of set.subjects) {
     done++;
     console.log(C.b(`\n  [${done}/${set.subjects.length}] ${sub}`));
-    await cmdAll(sub, { into: set.into });
+    const r = await cmdAll(sub, { into: set.into });
+    if (r && r.partial) sweepPartial += r.partial;
   }
+  if (sweepPartial) process.exitCode = 4;
   console.log(`\n  ${C.g('Sweep complete.')} ${C.dim('Fold it in with:')}`);
   console.log(C.dim('    sentinel connect crosslink            names in more than one place'));
   console.log(C.dim('    sentinel connect nexus                names crossing two DOMAINS,'));
@@ -4983,7 +4993,9 @@ async function main() {
       console.error(`\n  ${C.r(parsed.error)}\n`);
       process.exit(2);
     }
-    return cmdAll(parsed.subject, parsed.opts);
+    const r = await cmdAll(parsed.subject, parsed.opts);
+    if (r && r.partial) process.exitCode = 4;   // PARTIAL: some connectors did not complete
+    return r;
   }
   // --registrant turns the senatelda search around: "who does this firm file
   // for" rather than "who filed for this company".

@@ -452,6 +452,15 @@ The second form used to silently search `"Amazon Data Services centers"`
 and file it under `data/`. It now refuses with a message telling you what to
 type instead. Same rule for the subject: **quote it**, and put options last.
 
+### Exit codes: a partial run is not a pass
+
+`connect all` and `connect sweep` exit **4 (PARTIAL)** when any connector prints
+"Did not complete" (a 403, a 429, an HTML error page, a capture that would not
+parse). Exit 0 means every connector that ran, completed. A runner that scores
+by exit code must treat 4 as PARTIAL and re-run those connectors before any
+figure from that run is used. Exit 2 is a usage error; exit 1 is a failed
+single-connector search.
+
 ### What `connect all` guarantees
 
 - It announces the total number of calls before it makes any of them.
