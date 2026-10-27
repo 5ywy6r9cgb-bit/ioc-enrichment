@@ -877,6 +877,38 @@ deliberately. Neo4j Aura is somebody else's server.
 
 ---
 
+## 4d. FOIA numbers from the agencies' own files — `sentinel foia-data`
+
+Offline. Reads the "all agencies" CSV sets you download from FOIA.gov, one
+folder per fiscal year: `missions/foia/data/y2008`, `y2024`, `y2025`.
+
+```
+sentinel foia-data totals                          volumes by year, source hash printed
+sentinel foia-data scoreboard --year 2025 --min-received 1000 --out sb.csv
+sentinel foia-data api-check                       one call to api.foia.gov; prints the HTTP status, never the key
+```
+
+Rules the code enforces, which you should repeat on camera:
+- Each CSV carries an "All agencies" TOTAL row. Summing it with the agency rows
+  doubles every number, so it is dropped.
+- Only "Agency Overall" rows are summed, never components plus overall.
+- "<1" and "N/A" stay text. Agency counts differ by year (71 in 2008, 122 in
+  2024, 117 in 2025), so any comparison across years carries that caveat.
+- These are agency-reported figures. "Processed" includes denials and
+  "no records" closures; speed is not quality. Never rank on speed alone.
+
+## 4e. The offline relationship explorer — `sentinel terrain`
+
+```
+sentinel terrain --edges edges.csv [--sites places.csv] [--ads ads.csv] --out terrain.html
+```
+
+Builds one self-contained HTML page (no server, no network). It REJECTS rows
+it cannot read instead of guessing: an edge needs a source, a target and a
+relationship type; a site needs real coordinates. Exit code 3 means a file you
+supplied produced zero accepted rows. A shared vendor or a same-name hit is
+shown as a co-occurrence, never as control, payment or coordination.
+
 ## 4a. What is actually in your records folder — `sentinel corpus`
 
 ```bash

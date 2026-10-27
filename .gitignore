@@ -132,3 +132,10 @@ crosscheck.csv
 /records/
 /scripts/records/
 review_queue.json
+
+# FOIA bulk downloads and mission output stay local (public repo).
+/missions/foia/data/
+/missions/foia/*.csv
+/missions/foia/*.xml
+/missions/foia/*.json
+/missions/evidence/

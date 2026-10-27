@@ -14,6 +14,8 @@
 #   sentinel help                   this list (sentinel commands works too)
 #   sentinel status                 what is set up, what is not
 #   sentinel test                   run every module's test suite
+#   sentinel foia-data totals|scoreboard|api-check   FOIA annual-report numbers (offline CSVs)
+#   sentinel terrain --edges F.csv --out F.html      offline relationship explorer
 #
 #   sentinel pra ...                public records atlas (brief, seed, backup...)
 #   sentinel pra foia               records desk: what needs you, most urgent first
@@ -258,6 +260,8 @@ PYSTATUS
     run_suite "bill correlation"            node "$ROOT/modules/docs/test_bills.js"
     run_suite "records desk (overnight stage)" node "$ROOT/modules/watch/test_records_desk.js"
     run_suite "case gate"                   python3 "$ROOT/modules/research-desk/test_case.py"
+    run_suite "FOIA bulk data"              python3 "$ROOT/modules/foia-data/test_foia_data.py"
+    run_suite "evidence terrain"            python3 "$ROOT/modules/research-desk/test_evidence_terrain.py"
     run_suite "shelves (external drives)"   python3 "$ROOT/modules/corpus/test_shelf.py"
     run_suite "inventory (drives that vanish mid-scan)" python3 "$ROOT/modules/corpus/test_inventory.py"
     run_suite "captures -> claims bridge"   node "$ROOT/modules/bridge/test_draft.js"
@@ -406,6 +410,16 @@ PYSTATUS
 
   vuln)
     python3 "$ROOT/modules/atlas-vuln/atlas_vuln_integration.py" "$@"
+    ;;
+
+  foia-data)
+    # FOIA annual-report numbers from the agencies' own bulk CSVs. Offline.
+    python3 "$ROOT/modules/foia-data/foia_data.py" "$@"
+    ;;
+
+  terrain)
+    # Offline relationship / site / ad explorer from edges.csv. Rejects unknown schemas.
+    python3 "$ROOT/modules/research-desk/evidence_terrain.py" "$@"
     ;;
 
   desk)

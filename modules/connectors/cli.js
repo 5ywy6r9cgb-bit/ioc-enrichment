@@ -4676,7 +4676,7 @@ async function cmdSearch(name, query, opts) {
     if (out.status === 401) {
       console.error('  The key was rejected. Run: sentinel connect test\n');
     } else if (out.status === 403) {
-      const snag = R.firewallSnag(q);
+      const snag = R.firewallSnag(query);
       if (snag) {
         console.error(`\n  ${C.y(`This query contains "${snag.what}".`)}`);
         for (const line of wrap(
