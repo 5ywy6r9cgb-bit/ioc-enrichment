@@ -918,6 +918,31 @@ relationship type; a site needs real coordinates. Exit code 3 means a file you
 supplied produced zero accepted rows. A shared vendor or a same-name hit is
 shown as a co-occurrence, never as control, payment or coordination.
 
+## 4f. Cross-record questions — `sentinel leads`
+
+```
+sentinel leads list              the cards and their status
+sentinel leads show ID           question, records, custodian, route, what settles it
+sentinel leads request ID        a neutral DRAFT records request (prints; sends nothing)
+sentinel leads check             rejects any card missing its kill condition or innocent explanation
+```
+
+A card pairs two record types that are rarely read together (a contract
+amendment and a payment; an incentive and its promised jobs; a utility
+agreement and the vote; a surveillance policy and its audit log). Every card
+must name the best innocent explanation, the record that would KILL the lead,
+and the document that would settle it. Status starts HYPOTHESIS and cannot be
+set to DOCUMENTED without ingested primary documents. Statutes are listed as
+"retrieve current text", never cited from memory.
+
+### Capture identity, noise, and exit codes
+
+Each capture now carries a `capture_id` (hash of URL + UTC time + bytes) next
+to its body hash; two different queries can share a body hash and never share
+an ID. An HTML page under HTTP 200 is a failed call, not a capture. Edges and
+nexus bridges leave out rows the name test calls SUBSTRING or UNKNOWN, and say
+how many; `includeNoise` keeps them for audit.
+
 ## 4a. What is actually in your records folder — `sentinel corpus`
 
 ```bash

@@ -1,0 +1,98 @@
+{
+  "schema": "lead-card/1",
+  "note": "A card is a QUESTION with a named record that would settle it. Nothing here is a finding. Status stays HYPOTHESIS until a primary document is ingested and cited.",
+  "cards": [
+    {
+      "id": "gahanna-tirc-quorum",
+      "title": "Gahanna tax-incentive review: was the quorum problem corrected?",
+      "pair": ["tax incentives", "the review body's own meeting record"],
+      "status": "HYPOTHESIS",
+      "basis": "Reported by the operator from a research packet: a city attorney memo identified a quorum problem in the incentive review process. The memo itself has NOT been ingested or read by this desk.",
+      "question": "Did the review body that examines Gahanna's tax-incentive agreements meet with a quorum when it acted, and if a defect existed, how and when did the city correct it?",
+      "records": [
+        {"what": "The city attorney memo (the document that raises the quorum issue)", "custodian": "City of Gahanna, Law Director / Clerk of Council", "route": "R.C. 149.43 request (attorney-client privilege may be asserted; ask for any portion that is not privileged, and note a memo already in a public packet is public)"},
+        {"what": "Review council notices, rosters, attendance and certified minutes for each year at issue", "custodian": "City of Gahanna, Clerk of Council / Finance", "route": "R.C. 149.43"},
+        {"what": "Any resolution, re-vote or ratification after the memo", "custodian": "Clerk of Council", "route": "R.C. 149.43"},
+        {"what": "The list of active incentive agreements and their annual reports", "custodian": "Gahanna Finance / Economic Development; Franklin County Auditor", "route": "R.C. 149.43"}
+      ],
+      "statutes_to_verify": ["The Ohio statute that creates the tax incentive review council and sets its membership and annual-meeting duties (retrieve the current text; do not cite from memory)"],
+      "settling_document": "Certified minutes showing members present and the action taken, plus any later corrective resolution with its date.",
+      "innocent_explanation": "The defect was noticed, the body re-met or ratified its actions, and the record simply sits in minutes nobody has read.",
+      "kill_condition": "Minutes show a quorum at every action, or a dated corrective action covering the affected years.",
+      "publication_gate": "Names a municipality and its officials: send a right-of-reply request to the city before anything is published."
+    },
+    {
+      "id": "amendments-vs-payments",
+      "title": "Federal contract amendments against what was actually paid",
+      "pair": ["contract modifications", "payments / outlays"],
+      "status": "HYPOTHESIS",
+      "basis": "Method card. Applies to any award already captured (USAspending).",
+      "question": "For one award, how do the base value, the sum of its modifications, the potential value and the outlays compare, and does any modification add scope without a matching statement of work change?",
+      "records": [
+        {"what": "Award transaction history (every modification, with action date and obligation)", "custodian": "USAspending.gov (agency-reported)", "route": "public API, already a connector"},
+        {"what": "The modification documents (SF-30) and statement of work", "custodian": "Contracting agency", "route": "FOIA (federal); ask for the SF-30s by award ID"},
+        {"what": "Invoices / payment records", "custodian": "Contracting agency / DFAS", "route": "FOIA; expect exemption claims, ask for segregable portions"}
+      ],
+      "statutes_to_verify": [],
+      "settling_document": "The SF-30 for the modification in question and the agency's invoice or payment record for the same period.",
+      "innocent_explanation": "Modifications routinely extend period of performance, add options or fund incremental work; growth in obligation is normal.",
+      "kill_condition": "Each modification maps to a stated scope change and outlays do not exceed obligations.",
+      "publication_gate": "Obligated plus potential is not cash paid. Delivery orders under one IDIQ are never added to the IDIQ."
+    },
+    {
+      "id": "incentives-vs-jobs",
+      "title": "Promised jobs against reported jobs for a local abatement",
+      "pair": ["tax incentives", "promised jobs"],
+      "status": "HYPOTHESIS",
+      "basis": "Method card, aimed at the Ohio data-center and abatement threads already in the desk.",
+      "question": "What jobs, wages and investment did the agreement promise, what did the recipient report afterwards, and who checked?",
+      "records": [
+        {"what": "The executed incentive agreement with its job and investment covenants", "custodian": "The municipality or county that granted it", "route": "R.C. 149.43"},
+        {"what": "Annual compliance reports filed by the recipient", "custodian": "Granting body and the state development agency", "route": "R.C. 149.43"},
+        {"what": "The review body's minutes on that agreement", "custodian": "Clerk of the granting body", "route": "R.C. 149.43"},
+        {"what": "Parcel and abatement entries", "custodian": "County Auditor", "route": "public records / auditor portal"}
+      ],
+      "statutes_to_verify": ["The statute governing the abatement type used (retrieve current text)"],
+      "settling_document": "The agreement's covenant page set beside the recipient's filed annual report for the same year.",
+      "innocent_explanation": "Construction-phase jobs differ from operating jobs, data centers employ few people by design, and covenants may be written for investment rather than headcount.",
+      "kill_condition": "The covenant promises no jobs, or the filed report meets it.",
+      "publication_gate": "Employer payroll and withholding data are confidential; do not imply they were checked."
+    },
+    {
+      "id": "utility-agreement-vs-vote",
+      "title": "A utility or large-load agreement against the public vote that approved it",
+      "pair": ["utility agreements", "public votes"],
+      "status": "HYPOTHESIS",
+      "basis": "Method card, aimed at the AEP / PUCO tariff and local data-center threads.",
+      "question": "Does the executed agreement match what the public body voted on, and was it on an agenda with its attachments?",
+      "records": [
+        {"what": "Docket filings: retrieve the case number from the PUCO docket search, do not recall it", "custodian": "PUCO", "route": "public docket"},
+        {"what": "Council or commission agenda packet, minutes and roll call", "custodian": "Clerk of the body", "route": "R.C. 149.43"},
+        {"what": "The executed agreement and any amendments", "custodian": "The municipality and the utility", "route": "R.C. 149.43; utility filings in the docket"}
+      ],
+      "statutes_to_verify": ["Ohio open-meetings law, current text, for notice and agenda requirements"],
+      "settling_document": "The executed agreement beside the approved ordinance or resolution and its roll call.",
+      "innocent_explanation": "Staff may be delegated authority to finalize terms; the packet may be posted under a different title.",
+      "kill_condition": "Executed terms equal the approved terms.",
+      "publication_gate": "Federal lobbying filings (LDA) do not show lobbying on state or local matters; do not infer it."
+    },
+    {
+      "id": "surveillance-policy-vs-audit-log",
+      "title": "A surveillance policy against its own audit log",
+      "pair": ["surveillance policies", "audit logs"],
+      "status": "HYPOTHESIS",
+      "basis": "The desk already holds Flock audit exports obtained under R.C. 149.43. The policy text must be ingested alongside them.",
+      "question": "What does the written policy require for each search (reason, case number, authorization, retention), and what share of logged searches carry the required fields?",
+      "records": [
+        {"what": "The department's written ALPR policy", "custodian": "The police department", "route": "R.C. 149.43"},
+        {"what": "Native audit logs with the search-reason and case-number fields", "custodian": "The police department", "route": "R.C. 149.43; do not request plate data"},
+        {"what": "User list and access agreements", "custodian": "The police department", "route": "R.C. 149.43"}
+      ],
+      "statutes_to_verify": ["Any Ohio statute or rule on ALPR data retention or access (retrieve current text)"],
+      "settling_document": "The policy's required-field clause and the full audit export, counted field by field.",
+      "innocent_explanation": "The policy may not require the field, or the field may be optional in the vendor tool.",
+      "kill_condition": "The policy does not require it, or the field is populated in nearly all rows.",
+      "publication_gate": "State plainly that audit completeness cannot be answered from any register without the native log. Count from the export only; show numerator and denominator."
+    }
+  ]
+}

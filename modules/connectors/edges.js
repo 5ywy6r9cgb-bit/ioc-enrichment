@@ -167,14 +167,34 @@ function edge(o) {
  * One capture can carry several edges or none. A row that names nobody
  * carries none, and is not turned into an edge to somewhere just to have one.
  */
-function build(captures) {
+// Connectors whose subject is a NAME, so a row can be judged against it.
+// Docket numbers, committee IDs and document numbers are identifiers: a name
+// test against those would drop real rows, so they are never filtered here.
+const NAME_SUBJECT_CONNECTORS = new Set(['usaspending', 'senatelda', 'opencorporates',
+  'opensanctions', 'federalregister', 'regulationsgov', 'courtlistener']);
+
+/**
+ * `opts.includeNoise` keeps rows the name test calls SUBSTRING (RTX for "X
+ * Corp", Bechtel SAIC for "SAIC") or UNKNOWN ("cannot be judged"). By DEFAULT
+ * they are left out: a bridge or a total built on them is a statement about
+ * the search engine, not about the subject. The count is on `out.excludedNoise`
+ * so the exclusion is stated, never silent.
+ */
+function build(captures, opts) {
   const out = [];
+  const keepNoise = !!(opts && opts.includeNoise);
+  out.excludedNoise = 0;
   for (const c of captures || []) {
     if (c.unparsed) continue;
     const stamp = (c.file.match(/_(\d{4}-\d{2}-\d{2})T/) || [])[1] || '';
     for (const r of c.results || []) {
       const name = r.name || r.title || '';
       if (!name) continue;
+      if (!keepNoise && NAME_SUBJECT_CONNECTORS.has(c.connector)
+          && c.mode !== 'dockets') {
+        const v = NM.bestVerdict(c.subject, name);
+        if (v === 'SUBSTRING' || v === 'UNKNOWN') { out.excludedNoise++; continue; }
+      }
       const base = {
         subject: c.subject, source: c.connector, source_date: stamp,
         source_url: r.url || '', document_id: r.external_id || '',

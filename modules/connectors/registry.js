@@ -1468,7 +1468,8 @@ async function runConnector(name, query, opts = {}) {
 
   // ---- capture ---------------------------------------------------------
   await pace(name, c);
-  let res = await request(spec.method, spec.url, spec.headers, spec.body);
+  const doRequest = opts.requester || request;
+  let res = await doRequest(spec.method, spec.url, spec.headers, spec.body);
 
   // A 429 is not a failure, it is "later". The service says how much later;
   // wait exactly that and try once more. Once, not in a loop -- a retry loop
@@ -1478,13 +1479,23 @@ async function runConnector(name, query, opts = {}) {
     if (wait !== null && wait <= 90000) {
       await sleep(wait);
       LAST_CALL.set(name, Date.now());
-      res = await request(spec.method, spec.url, spec.headers, spec.body);
+      res = await doRequest(spec.method, spec.url, spec.headers, spec.body);
     }
   }
   if (res.status === 0) return { ok: false, status: 0, error: res.error, results: [] };
   if (res.status < 200 || res.status >= 300) {
     return { ok: false, status: res.status,
              error: explainHttpError(res), results: [] };
+  }
+
+  // AN HTML PAGE IS NOT A RESULT, WHATEVER THE STATUS LINE SAYS.
+  // CourtListener answered with a throttle/error page that began
+  // `<link rel="search"` and the run counted it. Every connector except
+  // fedregtext (text/plain by design) speaks JSON, so a body that opens with
+  // '<' is an upstream failure: not captured, not hashed as evidence.
+  if (name !== 'fedregtext' && res.body && /^\s*</.test(res.body.slice(0, 64).toString('utf8'))) {
+    return { ok: false, status: res.status, htmlBody: true, results: [],
+             error: `upstream returned an HTML page (HTTP ${res.status}), not data` };
   }
 
   const evidenceRoot = opts.evidenceRoot || EVIDENCE;
@@ -1505,6 +1516,13 @@ async function runConnector(name, query, opts = {}) {
 
   // ---- hash BEFORE anything is derived from these bytes ----------------
   const captureHash = P.sha256Bytes(res.body);
+
+  // A BODY HASH IS NOT AN ID. Two different queries that both returned an
+  // empty result shared one sha256 (0595424161ea...). The hash identifies the
+  // BYTES; this identifies the CALL: url + UTC time + bytes.
+  const capturedAt = new Date().toISOString();
+  const captureId = P.sha256Bytes(Buffer.from(
+    `${redactUrl(spec.url)}\n${capturedAt}\n${captureHash}`, 'utf8'));
 
   // ONE SET OF BYTES, ONE FILE.
   //
@@ -1567,6 +1585,8 @@ async function runConnector(name, query, opts = {}) {
       // written. `prov verify` therefore sees two ledger lines against one
       // sha256 and one path, which is the truth of what happened.
       duplicate_of_existing_capture: duplicateOf ? path.basename(duplicateOf) : null,
+      capture_id: captureId,
+      captured_at: capturedAt,
       result_count: results.length,
       // The field that stops a hit becoming a fact.
       result_disposition: 'lead_needs_primary_source',
@@ -1575,7 +1595,7 @@ async function runConnector(name, query, opts = {}) {
   });
   ledger.append(record);
 
-  return { ok: true, status: res.status, capturePath, captureHash, results, parseError, record,
+  return { ok: true, status: res.status, capturePath, captureHash, captureId, results, parseError, record,
            liveCalls: 1, duplicateOf };
 }
 

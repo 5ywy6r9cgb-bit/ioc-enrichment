@@ -16,6 +16,7 @@
 #   sentinel test                   run every module's test suite
 #   sentinel foia-data totals|scoreboard|api-check   FOIA annual-report numbers (offline CSVs)
 #   sentinel terrain --edges F.csv --out F.html      offline relationship explorer
+#   sentinel leads list|show ID|request ID|check      cross-record questions + the document that settles each
 #
 #   sentinel pra ...                public records atlas (brief, seed, backup...)
 #   sentinel pra foia               records desk: what needs you, most urgent first
@@ -263,6 +264,9 @@ PYSTATUS
     run_suite "case gate"                   python3 "$ROOT/modules/research-desk/test_case.py"
     run_suite "FOIA bulk data"              python3 "$ROOT/modules/foia-data/test_foia_data.py"
     run_suite "evidence terrain"            python3 "$ROOT/modules/research-desk/test_evidence_terrain.py"
+    run_suite "lead cards"                  python3 "$ROOT/modules/leads/test_leads.py"
+    run_suite "capture integrity"           node "$ROOT/modules/connectors/test_capture_integrity.js"
+    run_suite "edge noise exclusion"        node "$ROOT/modules/connectors/test_edges_noise.js"
     run_suite "shelves (external drives)"   python3 "$ROOT/modules/corpus/test_shelf.py"
     run_suite "inventory (drives that vanish mid-scan)" python3 "$ROOT/modules/corpus/test_inventory.py"
     run_suite "captures -> claims bridge"   node "$ROOT/modules/bridge/test_draft.js"
@@ -416,6 +420,11 @@ PYSTATUS
   foia-data)
     # FOIA annual-report numbers from the agencies' own bulk CSVs. Offline.
     python3 "$ROOT/modules/foia-data/foia_data.py" "$@"
+    ;;
+
+  leads)
+    # Cross-record questions, each with the document that would settle it. Prints; sends nothing.
+    python3 "$ROOT/modules/leads/leads.py" "$@"
     ;;
 
   terrain)
