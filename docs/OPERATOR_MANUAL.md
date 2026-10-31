@@ -943,6 +943,31 @@ an ID. An HTML page under HTTP 200 is a failed call, not a capture. Edges and
 nexus bridges leave out rows the name test calls SUBSTRING or UNKNOWN, and say
 how many; `includeNoise` keeps them for audit.
 
+## 4g. Publishing a finished investigation — `sentinel publish`
+
+`sentinel publish` turns each case in the desk into its own static folder. Nothing is sent anywhere; it writes files.
+
+```
+sentinel publish                              # <desk>/site/<case-slug>/index.html for every case
+sentinel publish --case demo-case             # one case
+sentinel publish --domain yourdomain.org      # adds routes.json hosts and a CNAME file per folder
+sentinel publish --leads                      # also builds lead-card pages under /leads/ (noindex)
+```
+
+Each folder uses only relative links, so it works as `https://<slug>.<domain>/` (one site per folder) or as `https://<domain>/<slug>/` without changes. The case slug has to be a valid sub-domain label (a-z, 0-9, hyphen). To use sub-domains, point a wildcard DNS record (`*.yourdomain.org`) at your static host and map each folder to its host name using `routes.json`.
+
+What the builder refuses to publish:
+
+- A claim that fails a BLOCK gate. It is absent from the page and from `findings.json`. The page lists only its tier and the reason.
+- A claim with accusatory wording (fraud, stole, illegal, cover-up, and similar). It is held until you restate it as what the document says, attributed, or cite the court or agency finding that uses the word.
+- Lead cards in the public index. They are questions, built only with `--leads`, marked HYPOTHESIS, noindex, and disallowed in `robots.txt`.
+
+On the word "alleged": it does not protect a publisher on its own. What helps is attributing each statement to a named record, saying what the record does not show, sending a right-of-reply request before publishing, and correcting errors promptly and visibly. Defence costs money even when you win. Have a media lawyer read anything that names a person before it goes live.
+
+Optional rates: put `<desk>/publish/<slug>/denominators.json` as a list of `{"label","numerator","denominator","unit","source"}`. The builder computes numerator / denominator and shows all three, and skips any row with no source or a denominator of 0.
+
+`findings.json` in each folder is the same contract the video seam reads (`modules/sentinel-desk/sentinel_video`), with withheld claim text removed.
+
 ## 4a. What is actually in your records folder — `sentinel corpus`
 
 ```bash
